@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration - PDF Data Extractor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .nav {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .nav a {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background 0.3s;
+        }
+
+        .nav a:hover {
+            background: #764ba2;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .info-box {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            margin-bottom: 30px;
+        }
+
+        .info-box h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .info-box p {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .config-item {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .config-item h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .config-item code {
+            background: #e0e0e0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .config-item p {
+            color: #666;
+            margin-top: 10px;
+            line-height: 1.6;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .badge-required {
+            background: #ff4d4f;
+            color: white;
+        }
+
+        .badge-optional {
+            background: #52c41a;
+            color: white;
+        }
+
+        .steps {
+            counter-reset: step-counter;
+        }
+
+        .step {
+            counter-increment: step-counter;
+            position: relative;
+            padding-left: 50px;
+            margin-bottom: 30px;
+        }
+
+        .step::before {
+            content: counter(step-counter);
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 35px;
+            height: 35px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .step h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .step p {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .code-block {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚙️ Configuration</h1>
+            <div class="nav">
+                <a href="/">Upload</a>
+                <a href="/config">Configuration</a>
+                <a href="/history">History</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Environment Setup</h2>
+            
+            <div class="info-box">
+                <h3>📋 Quick Start</h3>
+                <p>The system requires two API keys to function. You can provide them either through the web interface or by setting environment variables (recommended for security).</p>
+            </div>
+
+            <div class="steps">
+                <div class="step">
+                    <h4>Set Environment Variables</h4>
+                    <p>For better security, set these variables in your terminal before starting the web UI:</p>
+                    <div class="code-block">export OPENAI_API_KEY="sk-your-openai-api-key-here"
+export API_BEARER_TOKEN="your-bearer-token-here"</div>
+                </div>
+
+                <div class="step">
+                    <h4>Or Use a .env File</h4>
+                    <p>Create a <code>.env</code> file in the project directory:</p>
+                    <div class="code-block">OPENAI_API_KEY=sk-your-openai-api-key-here
+API_BEARER_TOKEN=your-bearer-token-here</div>
+                </div>
+
+                <div class="step">
+                    <h4>Or Provide via Web Interface</h4>
+                    <p>Enter the keys directly in the upload form (less secure, but convenient for testing).</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Configuration Parameters</h2>
+            
+            <div class="config-item">
+                <h4>
+                    OpenAI API Key
+                    <span class="badge badge-required">REQUIRED</span>
+                </h4>
+                <p><strong>Environment Variable:</strong> <code>OPENAI_API_KEY</code></p>
+                <p>Your OpenAI API key for accessing GPT-4. Get one from <a href="https://platform.openai.com/api-keys" target="_blank">https://platform.openai.com/api-keys</a></p>
+                <p><strong>Example:</strong> <code>sk-proj-abc123...</code></p>
+            </div>
+
+            <div class="config-item">
+                <h4>
+                    API Bearer Token
+                    <span class="badge badge-required">REQUIRED</span>
+                </h4>
+                <p><strong>Environment Variable:</strong> <code>API_BEARER_TOKEN</code></p>
+                <p>Authentication token for your internal API endpoint where extracted data will be submitted.</p>
+                <p><strong>Example:</strong> <code>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</code></p>
+            </div>
+
+            <div class="config-item">
+                <h4>
+                    API Endpoint
+                    <span class="badge badge-optional">OPTIONAL</span>
+                </h4>
+                <p><strong>Default:</strong> <code>https://internal-api.example.com/upload</code></p>
+                <p>The URL where extracted JSON data will be POST-ed. Can be configured per-upload in the web interface.</p>
+            </div>
+
+            <div class="config-item">
+                <h4>
+                    OpenAI Model
+                    <span class="badge badge-optional">OPTIONAL</span>
+                </h4>
+                <p><strong>Default:</strong> <code>gpt-4</code></p>
+                <p>The GPT model to use for extraction. Options: <code>gpt-4</code>, <code>gpt-4-turbo-preview</code>, <code>gpt-4o</code></p>
+            </div>
+
+            <div class="config-item">
+                <h4>
+                    Max Retries
+                    <span class="badge badge-optional">OPTIONAL</span>
+                </h4>
+                <p><strong>Default:</strong> <code>3</code></p>
+                <p>Number of retry attempts for validation failures and API submission errors. Includes automatic self-correction with error feedback.</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Starting the Web UI</h2>
+            
+            <div class="info-box">
+                <h3>🚀 Launch Command</h3>
+                <p>Run the following command in your terminal:</p>
+            </div>
+
+            <div class="code-block">python web_ui.py</div>
+
+            <p style="margin-top: 20px; color: #666;">
+                The server will start on <code>http://localhost:5000</code>. 
+                Open this URL in your browser to access the interface.
+            </p>
+        </div>
+
+        <div class="card">
+            <h2>Security Recommendations</h2>
+            
+            <div class="info-box" style="border-left-color: #ff4d4f;">
+                <h3>🔒 Best Practices</h3>
+                <p>
+                    • Always use environment variables for production<br>
+                    • Never commit API keys to version control<br>
+                    • Use HTTPS for the web UI in production<br>
+                    • Rotate API keys regularly<br>
+                    • Limit API key permissions to minimum required
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# PDF Processing
+pymupdf4llm>=0.0.5
+
+# LLM Integration
+openai>=1.12.0
+
+# HTTP Requests with Retry
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Utilities
+python-dotenv>=1.0.0  # Optional: for loading environment variables from .env file
+
+# Web UI
+Flask>=3.0.0
+Werkzeug>=3.0.0
