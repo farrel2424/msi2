@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Data Extractor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .nav {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .nav a {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background 0.3s;
+        }
+
+        .nav a:hover {
+            background: #764ba2;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 60px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #e8ebff;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 1.2em;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .upload-subtext {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .config-section {
+            margin-top: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.85em;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-weight: 600;
+        }
+
+        .btn:hover {
+            background: #764ba2;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status-card {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .status-value {
+            color: #333;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .status-queued { background: #ffd700; color: #333; }
+        .status-processing { background: #4a90e2; color: white; }
+        .status-completed { background: #52c41a; color: white; }
+        .status-failed { background: #ff4d4f; color: white; }
+        .status-error { background: #ff4d4f; color: white; }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s;
+        }
+
+        .result-section {
+            margin-top: 20px;
+        }
+
+        .result-json {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .alert-error {
+            background: #fff2f0;
+            border: 1px solid #ffccc7;
+            color: #cf1322;
+        }
+
+        .alert-success {
+            background: #f6ffed;
+            border: 1px solid #b7eb8f;
+            color: #389e0d;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📄 PDF Data Extractor</h1>
+            <p>AI-powered structured data extraction from PDFs</p>
+            <div class="nav">
+                <a href="/">Upload</a>
+                <a href="/config">Configuration</a>
+                <a href="/history">History</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Upload PDF</h2>
+            <div id="alertContainer"></div>
+            
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Drag & Drop your PDF here</div>
+                <div class="upload-subtext">or click to browse</div>
+                <input type="file" id="fileInput" accept=".pdf">
+            </div>
+
+            <div class="config-section">
+                <h3>Configuration</h3>
+                <div class="form-group">
+                    <label>API Endpoint</label>
+                    <input type="text" id="apiEndpoint" 
+                           value="https://internal-api.example.com/upload"
+                           placeholder="https://your-api.example.com/upload">
+                    <small>The API endpoint where extracted data will be submitted</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Bearer Token</label>
+                    <input type="password" id="bearerToken" 
+                           placeholder="your-bearer-token-here">
+                    <small>API authentication token (or set API_BEARER_TOKEN env var)</small>
+                </div>
+
+                <div class="form-group">
+                    <label>OpenAI API Key</label>
+                    <input type="password" id="openaiKey" 
+                           placeholder="sk-...">
+                    <small>OpenAI API key for GPT-4 (or set OPENAI_API_KEY env var)</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Model</label>
+                    <select id="openaiModel">
+                        <option value="gpt-4">GPT-4</option>
+                        <option value="gpt-4-turbo-preview">GPT-4 Turbo</option>
+                        <option value="gpt-4o">GPT-4o</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Max Retries</label>
+                    <input type="number" id="maxRetries" value="3" min="1" max="10">
+                    <small>Number of retry attempts for validation and API submission</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="card hidden" id="statusCard">
+            <div class="status-card">
+                <h3>Processing Status</h3>
+                <div class="status-item">
+                    <span class="status-label">File:</span>
+                    <span class="status-value" id="statusFilename">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value" id="statusBadge">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Stage:</span>
+                    <span class="status-value" id="statusStage">-</span>
+                </div>
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="result-section hidden" id="resultSection">
+                <h3>Extracted Data</h3>
+                <div class="result-json" id="resultJson"></div>
+                <button class="btn" id="downloadBtn" style="margin-top: 15px;">
+                    💾 Download JSON
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const statusCard = document.getElementById('statusCard');
+        const alertContainer = document.getElementById('alertContainer');
+        
+        let currentJobId = null;
+        let statusInterval = null;
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            if (e.dataTransfer.files.length > 0) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            if (!file.name.toLowerCase().endsWith('.pdf')) {
+                showAlert('Please select a PDF file', 'error');
+                return;
+            }
+
+            const bearerToken = document.getElementById('bearerToken').value.trim();
+            const openaiKey = document.getElementById('openaiKey').value.trim();
+
+            if (!bearerToken && !openaiKey) {
+                showAlert('Please provide Bearer Token and OpenAI API Key', 'error');
+                return;
+            }
+
+            uploadFile(file);
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('api_endpoint', document.getElementById('apiEndpoint').value);
+            formData.append('bearer_token', document.getElementById('bearerToken').value);
+            formData.append('openai_api_key', document.getElementById('openaiKey').value);
+            formData.append('openai_model', document.getElementById('openaiModel').value);
+            formData.append('max_retries', document.getElementById('maxRetries').value);
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentJobId = data.job_id;
+                    showAlert('File uploaded successfully! Job ID: ' + data.job_id, 'success');
+                    statusCard.classList.remove('hidden');
+                    startStatusPolling();
+                } else {
+                    showAlert(data.error || 'Upload failed', 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: ' + error.message, 'error');
+            }
+        }
+
+        function startStatusPolling() {
+            if (statusInterval) clearInterval(statusInterval);
+            
+            statusInterval = setInterval(async () => {
+                if (!currentJobId) return;
+
+                try {
+                    const response = await fetch('/api/status/' + currentJobId);
+                    const data = await response.json();
+
+                    updateStatus(data);
+
+                    if (data.status === 'completed' || data.status === 'failed' || data.status === 'error') {
+                        clearInterval(statusInterval);
+                    }
+                } catch (error) {
+                    console.error('Status polling error:', error);
+                }
+            }, 2000);
+        }
+
+        function updateStatus(data) {
+            document.getElementById('statusFilename').textContent = data.filename || '-';
+            document.getElementById('statusStage').textContent = data.stage || '-';
+            
+            const badge = document.getElementById('statusBadge');
+            badge.className = 'status-badge status-' + data.status;
+            badge.textContent = data.status.toUpperCase();
+
+            const progressFill = document.querySelector('.progress-fill');
+            if (data.status === 'processing') {
+                progressFill.style.width = '75%';
+            } else if (data.status === 'completed') {
+                progressFill.style.width = '100%';
+            } else {
+                progressFill.style.width = '30%';
+            }
+
+            if (data.status === 'completed' && data.result && data.result.data) {
+                const resultSection = document.getElementById('resultSection');
+                const resultJson = document.getElementById('resultJson');
+                
+                resultSection.classList.remove('hidden');
+                resultJson.textContent = JSON.stringify(data.result.data, null, 2);
+                
+                document.getElementById('downloadBtn').onclick = () => {
+                    window.location.href = '/api/download/' + currentJobId;
+                };
+            }
+
+            if (data.status === 'failed' || data.status === 'error') {
+                const errorMsg = data.error || (data.result && data.result.error) || 'Processing failed';
+                showAlert('Error: ' + errorMsg, 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-' + type;
+            alertDiv.textContent = message;
+            
+            alertContainer.innerHTML = '';
+            alertContainer.appendChild(alertDiv);
+
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+
+        window.addEventListener('load', () => {
+            const savedEndpoint = localStorage.getItem('apiEndpoint');
+            const savedModel = localStorage.getItem('openaiModel');
+            const savedRetries = localStorage.getItem('maxRetries');
+
+            if (savedEndpoint) document.getElementById('apiEndpoint').value = savedEndpoint;
+            if (savedModel) document.getElementById('openaiModel').value = savedModel;
+            if (savedRetries) document.getElementById('maxRetries').value = savedRetries;
+        });
+
+        ['apiEndpoint', 'openaiModel', 'maxRetries'].forEach(id => {
+            document.getElementById(id).addEventListener('change', (e) => {
+                localStorage.setItem(id, e.target.value);
+            });
+        });
+    </script>
+</body>
+</html>
