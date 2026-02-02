@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>History - PDF Data Extractor</title>
+    <title>History - Motorsights EPC</title>
     <style>
         * {
             margin: 0;
@@ -127,6 +127,8 @@
 
         .status-queued { background: #ffd700; color: #333; }
         .status-processing { background: #4a90e2; color: white; }
+        .status-pending_review { background: #ff9800; color: white; }
+        .status-submitting { background: #9c27b0; color: white; }
         .status-completed { background: #52c41a; color: white; }
         .status-failed { background: #ff4d4f; color: white; }
         .status-error { background: #ff4d4f; color: white; }
@@ -288,13 +290,9 @@
                 const response = await fetch('/api/jobs');
                 const jobs = await response.json();
 
-                // Update stats
                 updateStats(jobs);
-
-                // Update table
                 updateTable(jobs);
 
-                // Show/hide containers
                 document.getElementById('loadingContainer').style.display = 'none';
                 
                 if (jobs.length === 0) {
@@ -305,8 +303,13 @@
                     document.getElementById('tableContainer').style.display = 'block';
                 }
 
-                // Check if any jobs are processing
-                const hasProcessing = jobs.some(j => j.status === 'processing' || j.status === 'queued');
+                const hasProcessing = jobs.some(j => 
+                    j.status === 'processing' || 
+                    j.status === 'queued' || 
+                    j.status === 'pending_review' ||
+                    j.status === 'submitting'
+                );
+                
                 if (hasProcessing && !autoRefreshInterval) {
                     startAutoRefresh();
                 } else if (!hasProcessing && autoRefreshInterval) {
@@ -323,7 +326,12 @@
         function updateStats(jobs) {
             const total = jobs.length;
             const completed = jobs.filter(j => j.status === 'completed').length;
-            const processing = jobs.filter(j => j.status === 'processing' || j.status === 'queued').length;
+            const processing = jobs.filter(j => 
+                j.status === 'processing' || 
+                j.status === 'queued' || 
+                j.status === 'pending_review' ||
+                j.status === 'submitting'
+            ).length;
             const failed = jobs.filter(j => j.status === 'failed' || j.status === 'error').length;
 
             document.getElementById('totalJobs').textContent = total;
@@ -338,17 +346,16 @@
 
             jobs.forEach(job => {
                 const tr = document.createElement('tr');
-                
                 const uploadedTime = new Date(job.uploaded_at).toLocaleString();
                 
                 tr.innerHTML = `
                     <td>${job.filename}</td>
-                    <td><span class="status-badge status-${job.status}">${job.status.toUpperCase()}</span></td>
+                    <td><span class="status-badge status-${job.status}">${job.status.toUpperCase().replace('_', ' ')}</span></td>
                     <td>${job.stage || '-'}</td>
                     <td>${uploadedTime}</td>
                     <td>
                         <div class="job-actions">
-                            ${job.status === 'completed' ? 
+                            ${job.status === 'completed' || job.status === 'pending_review' ? 
                                 `<button class="btn-small" onclick="downloadResult('${job.id}')">💾 Download</button>` :
                                 ''
                             }
@@ -420,10 +427,8 @@
             }
         }
 
-        // Load jobs on page load
         window.addEventListener('load', loadJobs);
 
-        // Stop auto-refresh when page is hidden
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 stopAutoRefresh();

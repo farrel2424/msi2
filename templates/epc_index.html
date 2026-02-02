@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Data Extractor</title>
+    <title>Motorsights EPC - PDF Upload</title>
     <style>
         * {
             margin: 0;
@@ -150,25 +150,10 @@
             font-size: 0.85em;
         }
 
-        .btn {
-            padding: 12px 30px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
-            cursor: pointer;
-            transition: background 0.3s;
-            font-weight: 600;
-        }
-
-        .btn:hover {
-            background: #764ba2;
-        }
-
-        .btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
         }
 
         .status-card {
@@ -214,6 +199,8 @@
 
         .status-queued { background: #ffd700; color: #333; }
         .status-processing { background: #4a90e2; color: white; }
+        .status-pending_review { background: #ff9800; color: white; }
+        .status-submitting { background: #9c27b0; color: white; }
         .status-completed { background: #52c41a; color: white; }
         .status-failed { background: #ff4d4f; color: white; }
         .status-error { background: #ff4d4f; color: white; }
@@ -248,6 +235,31 @@
             white-space: pre-wrap;
         }
 
+        .btn {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .btn:hover {
+            background: #764ba2;
+        }
+
+        .btn-success {
+            background: #52c41a;
+        }
+
+        .btn-success:hover {
+            background: #389e0d;
+        }
+
         .alert {
             padding: 15px;
             border-radius: 8px;
@@ -269,13 +281,23 @@
         .hidden {
             display: none;
         }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>📄 PDF Data Extractor</h1>
-            <p>AI-powered structured data extraction from PDFs</p>
+            <h1>🚗 Motorsights EPC</h1>
+            <p>Electronic Product Catalog - PDF Automation</p>
             <div class="nav">
                 <a href="/">Upload</a>
                 <a href="/config">Configuration</a>
@@ -284,53 +306,84 @@
         </div>
 
         <div class="card">
-            <h2>Upload PDF</h2>
+            <h2>Upload Catalog PDF</h2>
             <div id="alertContainer"></div>
             
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📁</div>
-                <div class="upload-text">Drag & Drop your PDF here</div>
+                <div class="upload-text">Drag & Drop your PDF catalog here</div>
                 <div class="upload-subtext">or click to browse</div>
                 <input type="file" id="fileInput" accept=".pdf">
             </div>
 
             <div class="config-section">
                 <h3>Configuration</h3>
-                <div class="form-group">
-                    <label>API Endpoint</label>
-                    <input type="text" id="apiEndpoint" 
-                           value="https://internal-api.example.com/upload"
-                           placeholder="https://your-api.example.com/upload">
-                    <small>The API endpoint where extracted data will be submitted</small>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Maia Router Endpoint</label>
+                        <input type="text" id="maiaEndpoint" 
+                               value="https://maia.motorsights.com/v1/chat/completions"
+                               placeholder="https://maia.motorsights.com/v1/chat/completions">
+                        <small>Maia Router AI Gateway URL</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Maia Router API Key</label>
+                        <input type="password" id="maiaApiKey" 
+                               placeholder="sk-...">
+                        <small>API key for Maia Router (or set MAIA_ROUTER_API_KEY env var)</small>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Bearer Token</label>
-                    <input type="password" id="bearerToken" 
-                           placeholder="your-bearer-token-here">
-                    <small>API authentication token (or set API_BEARER_TOKEN env var)</small>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>EPC API Base URL</label>
+                        <input type="text" id="epcBaseUrl" 
+                               value="https://dev-epc.motorsights.com"
+                               placeholder="https://dev-epc.motorsights.com">
+                        <small>Motorsights EPC API endpoint</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>EPC Bearer Token</label>
+                        <input type="password" id="epcBearerToken" 
+                               placeholder="your-token">
+                        <small>Bearer token for EPC API (or set EPC_BEARER_TOKEN env var)</small>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label>OpenAI API Key</label>
-                    <input type="password" id="openaiKey" 
-                           placeholder="sk-...">
-                    <small>OpenAI API key for GPT-4 (or set OPENAI_API_KEY env var)</small>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>AI Model</label>
+                        <select id="maiaModel">
+                            <option value="gpt-4o">GPT-4o (Recommended)</option>
+                            <option value="gpt-4.1">GPT-4.1</option>
+                            <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Max Retries</label>
+                        <input type="number" id="maxRetries" value="3" min="1" max="10">
+                        <small>Number of retry attempts</small>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label>Model</label>
-                    <select id="openaiModel">
-                        <option value="gpt-4">GPT-4</option>
-                        <option value="gpt-4-turbo-preview">GPT-4 Turbo</option>
-                        <option value="gpt-4o">GPT-4o</option>
-                    </select>
-                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Master Category ID (Optional)</label>
+                        <input type="number" id="masterCategoryId" placeholder="1">
+                        <small>Link items to existing master category</small>
+                    </div>
 
-                <div class="form-group">
-                    <label>Max Retries</label>
-                    <input type="number" id="maxRetries" value="3" min="1" max="10">
-                    <small>Number of retry attempts for validation and API submission</small>
+                    <div class="form-group">
+                        <label class="checkbox-group">
+                            <input type="checkbox" id="enableReview" checked>
+                            <span>Enable Review Mode</span>
+                        </label>
+                        <small>Review extracted data before submitting to EPC</small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -360,6 +413,9 @@
                 <div class="result-json" id="resultJson"></div>
                 <button class="btn" id="downloadBtn" style="margin-top: 15px;">
                     💾 Download JSON
+                </button>
+                <button class="btn btn-success hidden" id="approveBtn" style="margin-top: 15px;">
+                    ✅ Approve & Submit to EPC
                 </button>
             </div>
         </div>
@@ -406,11 +462,11 @@
                 return;
             }
 
-            const bearerToken = document.getElementById('bearerToken').value.trim();
-            const openaiKey = document.getElementById('openaiKey').value.trim();
+            const maiaKey = document.getElementById('maiaApiKey').value.trim();
+            const epcToken = document.getElementById('epcBearerToken').value.trim();
 
-            if (!bearerToken && !openaiKey) {
-                showAlert('Please provide Bearer Token and OpenAI API Key', 'error');
+            if (!maiaKey && !epcToken) {
+                showAlert('Please provide Maia Router API Key and EPC Bearer Token', 'error');
                 return;
             }
 
@@ -420,11 +476,14 @@
         async function uploadFile(file) {
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('api_endpoint', document.getElementById('apiEndpoint').value);
-            formData.append('bearer_token', document.getElementById('bearerToken').value);
-            formData.append('openai_api_key', document.getElementById('openaiKey').value);
-            formData.append('openai_model', document.getElementById('openaiModel').value);
+            formData.append('maia_endpoint', document.getElementById('maiaEndpoint').value);
+            formData.append('maia_api_key', document.getElementById('maiaApiKey').value);
+            formData.append('maia_model', document.getElementById('maiaModel').value);
+            formData.append('epc_base_url', document.getElementById('epcBaseUrl').value);
+            formData.append('epc_bearer_token', document.getElementById('epcBearerToken').value);
             formData.append('max_retries', document.getElementById('maxRetries').value);
+            formData.append('enable_review_mode', document.getElementById('enableReview').checked);
+            formData.append('master_category_id', document.getElementById('masterCategoryId').value);
 
             try {
                 const response = await fetch('/api/upload', {
@@ -474,10 +533,12 @@
             
             const badge = document.getElementById('statusBadge');
             badge.className = 'status-badge status-' + data.status;
-            badge.textContent = data.status.toUpperCase();
+            badge.textContent = data.status.toUpperCase().replace('_', ' ');
 
             const progressFill = document.querySelector('.progress-fill');
             if (data.status === 'processing') {
+                progressFill.style.width = '50%';
+            } else if (data.status === 'pending_review') {
                 progressFill.style.width = '75%';
             } else if (data.status === 'completed') {
                 progressFill.style.width = '100%';
@@ -485,21 +546,59 @@
                 progressFill.style.width = '30%';
             }
 
-            if (data.status === 'completed' && data.result && data.result.data) {
+            if ((data.status === 'completed' || data.status === 'pending_review') && data.extracted_data) {
                 const resultSection = document.getElementById('resultSection');
                 const resultJson = document.getElementById('resultJson');
+                const approveBtn = document.getElementById('approveBtn');
                 
                 resultSection.classList.remove('hidden');
-                resultJson.textContent = JSON.stringify(data.result.data, null, 2);
+                resultJson.textContent = JSON.stringify(data.extracted_data, null, 2);
                 
                 document.getElementById('downloadBtn').onclick = () => {
                     window.location.href = '/api/download/' + currentJobId;
                 };
+
+                if (data.status === 'pending_review') {
+                    approveBtn.classList.remove('hidden');
+                    approveBtn.onclick = () => approveSubmission();
+                } else {
+                    approveBtn.classList.add('hidden');
+                }
             }
 
             if (data.status === 'failed' || data.status === 'error') {
                 const errorMsg = data.error || (data.result && data.result.error) || 'Processing failed';
                 showAlert('Error: ' + errorMsg, 'error');
+            }
+
+            if (data.status === 'completed') {
+                showAlert('✅ Processing completed successfully!', 'success');
+            }
+        }
+
+        async function approveSubmission() {
+            if (!confirm('Submit extracted data to Motorsights EPC?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/approve/' + currentJobId, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showAlert('✅ Successfully submitted to EPC!', 'success');
+                    startStatusPolling(); // Resume polling to update status
+                } else {
+                    showAlert('❌ Submission failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: ' + error.message, 'error');
             }
         }
 
@@ -516,17 +615,21 @@
             }, 5000);
         }
 
+        // Load saved settings
         window.addEventListener('load', () => {
-            const savedEndpoint = localStorage.getItem('apiEndpoint');
-            const savedModel = localStorage.getItem('openaiModel');
+            const savedEndpoint = localStorage.getItem('maiaEndpoint');
+            const savedModel = localStorage.getItem('maiaModel');
             const savedRetries = localStorage.getItem('maxRetries');
+            const savedEpcUrl = localStorage.getItem('epcBaseUrl');
 
-            if (savedEndpoint) document.getElementById('apiEndpoint').value = savedEndpoint;
-            if (savedModel) document.getElementById('openaiModel').value = savedModel;
+            if (savedEndpoint) document.getElementById('maiaEndpoint').value = savedEndpoint;
+            if (savedModel) document.getElementById('maiaModel').value = savedModel;
             if (savedRetries) document.getElementById('maxRetries').value = savedRetries;
+            if (savedEpcUrl) document.getElementById('epcBaseUrl').value = savedEpcUrl;
         });
 
-        ['apiEndpoint', 'openaiModel', 'maxRetries'].forEach(id => {
+        // Save settings on change
+        ['maiaEndpoint', 'maiaModel', 'maxRetries', 'epcBaseUrl'].forEach(id => {
             document.getElementById(id).addEventListener('change', (e) => {
                 localStorage.setItem(id, e.target.value);
             });

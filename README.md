@@ -1,130 +1,102 @@
-# PDF Data Extraction & API Submission Automation
+# Motorsights EPC PDF Automation - Setup Guide
 
-A robust Python automation script that extracts structured data from PDFs using GPT-4 and submits to an internal API with validation, self-correction, and retry mechanisms.
+## 🎯 Overview
 
-## Features
+Automated PDF catalog extraction and submission to Motorsights Electronic Product Catalog (EPC) using:
+- **Maia Router**: Universal AI Gateway (GPT-4o, GPT-4.1, Claude-3-Sonnet)
+- **Motorsights EPC API**: Development endpoint at `https://dev-epc.motorsights.com`
 
-✅ **PDF to Markdown Conversion** - Preserves bold text metadata without OCR  
-✅ **LLM-Powered Extraction** - Uses GPT-4 for intelligent data parsing  
-✅ **Deterministic Layout Detection** - Identifies categories (bold) and subcategories (normal text)  
-✅ **Bilingual Support** - Splits "English / Chinese" formats automatically  
-✅ **Self-Correction** - Automatically retries with error feedback on validation failures  
-✅ **API Submission** - Bearer token auth with exponential backoff retry logic  
-✅ **Idempotency** - Tracks processed files to prevent duplicate submissions  
-✅ **Batch Processing** - Process entire directories with isolated error handling  
-✅ **Comprehensive Logging** - Detailed logs for debugging and audit trails  
+## 📋 **Workflow**
 
-## Installation
+```
+PDF Upload
+   ↓
+AI Extraction (via Maia Router)
+   ↓
+Review & Edit (optional)
+   ↓
+Approve
+   ↓
+Submit to EPC API
+   ↓
+Create Type Categories & Categories
+```
+
+## 🔧 **Installation**
 
 ### 1. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
-```
-
-Or install individually:
-
-```bash
-pip install pymupdf4llm openai requests urllib3 python-dotenv
+pip install pymupdf4llm openai requests urllib3 Flask python-dotenv
 ```
 
 ### 2. Set Environment Variables
 
-Create a `.env` file or export environment variables:
+Create a `.env` file:
 
 ```bash
-# Required
-export OPENAI_API_KEY="sk-..."
-export API_BEARER_TOKEN="your-bearer-token-here"
+# Maia Router (AI Gateway)
+MAIA_ROUTER_ENDPOINT=https://maia.motorsights.com/v1/chat/completions
+MAIA_ROUTER_API_KEY=sk-your-maia-key-here
+MAIA_ROUTER_MODEL=gpt-4o
+
+# Motorsights EPC API
+EPC_API_BASE_URL=https://dev-epc.motorsights.com
+EPC_BEARER_TOKEN=your-epc-bearer-token-here
+
+# Optional
+DEFAULT_MASTER_CATEGORY_ID=1
+MAX_RETRIES=3
+ENABLE_REVIEW_MODE=true
+LOG_LEVEL=INFO
 ```
 
-Or create a `.env` file:
+## 🚀 **Quick Start**
 
-```
-OPENAI_API_KEY=sk-...
-API_BEARER_TOKEN=your-bearer-token-here
-```
-
-## Usage
-
-### Basic Usage
-
-```python
-from pdf_extractor import PDFDataExtractor, PDFExtractorConfig
-from pathlib import Path
-
-# Configure
-config = PDFExtractorConfig(
-    api_endpoint="https://internal-api.example.com/upload",
-    openai_model="gpt-4",
-    max_retries=3
-)
-
-# Create extractor
-extractor = PDFDataExtractor(config)
-
-# Process single PDF
-result = extractor.process_pdf(Path("document.pdf"))
-
-# Process entire directory
-results = extractor.process_directory(Path("./pdfs"), recursive=False)
-```
-
-### Command Line Usage
-
-Modify the `main()` function in `pdf_extractor.py`:
-
-```python
-def main():
-    config = PDFExtractorConfig(
-        api_endpoint="https://internal-api.example.com/upload"
-    )
-    
-    extractor = PDFDataExtractor(config)
-    
-    # Process directory
-    results = extractor.process_directory(
-        Path("./pdfs"),
-        recursive=True  # Search subdirectories
-    )
-```
-
-Then run:
+### Option 1: Command Line
 
 ```bash
-python pdf_extractor.py
+python epc_automation.py
 ```
 
-## Configuration Options
+### Option 2: Web Interface
 
-```python
-PDFExtractorConfig(
-    api_endpoint="https://internal-api.example.com/upload",  # API endpoint
-    bearer_token=None,  # Or set via API_BEARER_TOKEN env var
-    openai_api_key=None,  # Or set via OPENAI_API_KEY env var
-    openai_model="gpt-4",  # GPT model to use
-    max_retries=3,  # Max retry attempts for validation/API
-    retry_backoff_factor=2.0,  # Exponential backoff multiplier
-    processed_log_file="processed_files.json"  # Idempotency log
-)
+```bash
+python epc_web_ui.py
 ```
 
-## Data Format
+Then open: **http://localhost:5000**
 
-### Expected PDF Layout
+## 📊 **API Mapping**
 
-The script expects PDFs with this structure:
+### PDF Structure → EPC API
+
+| PDF Element | EPC Entity | API Endpoint |
+|------------|-----------|--------------|
+| **Bold text** (e.g., "**Electronics / 电子产品**") | Type Category | `POST /type_category/create` |
+| Normal text (e.g., "Mobile Phones / 手机") | Category | `POST /categories/create` |
+
+### Hierarchy
 
 ```
-**Category Name** or **English Category / 中文类别**
-Normal subcategory text or English Subcategory / 中文子类别
-    Another subcategory
-
-**Another Category**
-Subcategory here
+Master Category (pre-existing or manual)
+  └── Type Category (from bold text)
+      └── Category (from normal text)
 ```
 
-### Output JSON Schema
+### Example PDF Input
+
+```
+**Electronics / 电子产品**
+Mobile Phones / 手机
+Laptops / 笔记本电脑
+
+**Clothing / 服装**
+Shirts / 衬衫
+Pants / 裤子
+```
+
+### Extracted JSON
 
 ```json
 {
@@ -142,253 +114,282 @@ Subcategory here
           "subcategory_name_zh": "笔记本电脑"
         }
       ]
+    },
+    {
+      "category_name_en": "Clothing",
+      "category_name_zh": "服装",
+      "subcategories": [
+        {
+          "subcategory_name_en": "Shirts",
+          "subcategory_name_zh": "衬衫"
+        },
+        {
+          "subcategory_name_en": "Pants",
+          "subcategory_name_zh": "裤子"
+        }
+      ]
     }
   ]
 }
 ```
 
-## Architecture
+### EPC API Calls
 
-### Class Structure
+```bash
+# 1. Create Type Category "Electronics"
+POST https://dev-epc.motorsights.com/type_category/create
+{
+  "name": "Electronics",
+  "name_zh": "电子产品",
+  "master_category_id": 1
+}
+# Response: { "id": 123 }
 
-```
-PDFExtractorConfig
-├── Configuration container
+# 2. Create Category "Mobile Phones" under Type Category 123
+POST https://dev-epc.motorsights.com/categories/create
+{
+  "name": "Mobile Phones",
+  "name_zh": "手机",
+  "type_category_id": 123
+}
 
-ProcessedFilesTracker
-├── Tracks processed files (idempotency)
-├── SHA-256 hashing for change detection
+# 3. Create Category "Laptops" under Type Category 123
+POST https://dev-epc.motorsights.com/categories/create
+{
+  "name": "Laptops",
+  "name_zh": "笔记本电脑",
+  "type_category_id": 123
+}
 
-LLMExtractor
-├── Converts PDF → Markdown → Structured JSON
-├── Validation logic
-├── Self-correction with error feedback
-
-APISubmitter
-├── HTTP submission with Bearer auth
-├── Exponential backoff retry logic
-
-PDFDataExtractor (Main Orchestrator)
-├── Coordinates all components
-├── Batch processing
-├── Error isolation
-└── Comprehensive logging
-```
-
-### Processing Pipeline
-
-```
-PDF File
-  ↓
-[PDF → Markdown] (pymupdf4llm)
-  ↓
-[LLM Extraction] (GPT-4)
-  ↓
-[JSON Validation]
-  ↓ (if invalid)
-[Self-Correction] ← Error feedback
-  ↓
-[API Submission] with retry
-  ↓
-[Mark Processed] (idempotency)
+# Repeat for "Clothing" and its categories...
 ```
 
-## Error Handling
+## 🔑 **Configuration**
 
-### Isolated Failures
+### Maia Router Settings
 
-Each PDF is processed independently. If one fails, others continue:
+- **Endpoint**: `https://maia.motorsights.com/v1/chat/completions`
+- **Auth**: Bearer token (sk-xxxx format)
+- **Available Models**:
+  - `gpt-4o` (recommended - fast, accurate)
+  - `gpt-4.1` (more powerful)
+  - `claude-3-sonnet` (alternative)
+
+### EPC API Settings
+
+- **Base URL**: `https://dev-epc.motorsights.com`
+- **Auth**: Bearer token
+- **Endpoints Used**:
+  - `POST /type_category/create`
+  - `POST /categories/create`
+  - `POST /master_category/get` (optional)
+
+### Review Mode
+
+**Enabled** (default): Upload → Extract → **Review** → Approve → Submit
+**Disabled**: Upload → Extract → **Auto-submit** to EPC
+
+Set in `.env`:
+```bash
+ENABLE_REVIEW_MODE=true  # or false for auto-submit
+```
+
+## 📁 **File Structure**
+
+```
+motorsights-epc-automation/
+├── epc_automation.py           # Main orchestrator
+├── maia_router_client.py       # Maia Router AI client
+├── motorsights_epc_client.py   # EPC API client
+├── epc_web_ui.py              # Web interface
+├── templates/
+│   ├── epc_index.html         # Upload page
+│   ├── epc_config.html        # Configuration
+│   └── epc_history.html       # Job history
+├── .env                       # Credentials (DO NOT COMMIT)
+├── requirements.txt           # Dependencies
+└── README_MOTORSIGHTS.md      # This file
+```
+
+## 🎨 **Web UI Features**
+
+### Upload Page
+- Drag & drop PDF upload
+- Configure Maia Router and EPC settings
+- Enable/disable review mode
+- Set master category ID
+
+### Review Page
+- View extracted data
+- Edit categories/subcategories
+- Add/remove items
+- Approve and submit to EPC
+
+### History Page
+- All processed jobs
+- Status tracking
+- Download extracted JSON
+- Resubmit failed items
+
+## 🧪 **Testing**
+
+### 1. Test Maia Router Connection
 
 ```python
-# Bad PDF won't stop the batch
-results = extractor.process_directory(Path("./pdfs"))
+from maia_router_client import MaiaRouterClient
 
-# Check individual results
-for result in results:
-    if not result['success']:
-        print(f"Failed: {result['filename']} - {result['error']}")
+client = MaiaRouterClient(
+    endpoint="https://maia.motorsights.com/v1/chat/completions",
+    api_key="sk-your-key",
+    model="gpt-4o"
+)
+
+# Test extraction
+markdown = "**Electronics / 电子产品**\nMobile Phones / 手机"
+result = client.extract_catalog_data(markdown)
+print(result)
 ```
 
-### Validation & Self-Correction
+### 2. Test EPC API Connection
 
-The script automatically retries with corrective prompts:
+```python
+from motorsights_epc_client import MotorsightsEPCClient
 
-```
-Attempt 1: Extract data → Validation fails (missing field)
-  ↓
-Attempt 2: Re-prompt with error → Extract data → Validation fails (wrong format)
-  ↓
-Attempt 3: Re-prompt with error → Extract data → Validation succeeds ✓
-```
+client = MotorsightsEPCClient(
+    base_url="https://dev-epc.motorsights.com",
+    bearer_token="your-token"
+)
 
-### HTTP Retry Logic
-
-API requests use exponential backoff:
-
-```
-Request 1: Fails (503) → Wait 2s
-Request 2: Fails (503) → Wait 4s
-Request 3: Succeeds ✓
+# Test getting master categories
+success, data = client.get_master_categories()
+print(f"Success: {success}")
+print(f"Data: {data}")
 ```
 
-## Logging
+### 3. Test End-to-End
+
+```python
+from epc_automation import EPCPDFAutomation, EPCAutomationConfig
+from pathlib import Path
+
+config = EPCAutomationConfig(
+    maia_api_key="sk-your-maia-key",
+    epc_bearer_token="your-epc-token",
+    enable_review_mode=False  # Auto-submit for testing
+)
+
+automation = EPCPDFAutomation(config)
+result = automation.process_pdf(Path("test_catalog.pdf"))
+
+print(f"Success: {result['success']}")
+print(f"EPC Results: {result.get('epc_submission')}")
+```
+
+## 🔍 **Troubleshooting**
+
+### Issue: "Maia Router API key must be provided"
+**Solution**: Set `MAIA_ROUTER_API_KEY` in .env or pass to config
+
+### Issue: "EPC Bearer token must be provided"
+**Solution**: Set `EPC_BEARER_TOKEN` in .env or pass to config
+
+### Issue: "No ID returned for type category"
+**Check**: EPC API response structure - may need to adjust ID extraction in `motorsights_epc_client.py`
+
+### Issue: PDF extraction returns empty
+**Cause**: PDF contains images (OCR not supported)
+**Solution**: Ensure PDF has selectable text
+
+### Issue: API returns 401 Unauthorized
+**Check**:
+1. Bearer token is correct
+2. Token hasn't expired
+3. Correct endpoint URL
+
+### Issue: Categories not linking correctly
+**Check**:
+1. Master category ID exists
+2. Type category ID is correctly returned from first API call
+3. Review logs in `epc_automation.log`
+
+## 📊 **Monitoring**
 
 ### Log Files
 
-- `pdf_extractor.log` - Detailed processing logs
-- `processed_files.json` - Idempotency tracker
-- `processing_results.json` - Batch results summary
+- `epc_automation.log` - Detailed processing logs
+- `epc_processed_files.json` - Idempotency tracker
+- `epc_processing_results.json` - Batch results summary
 
-### Log Levels
+### Success Metrics
 
-```python
-import logging
-
-# Change log level
-logging.getLogger().setLevel(logging.DEBUG)  # More verbose
-```
-
-## Idempotency
-
-Files are tracked by SHA-256 hash:
+Check `epc_processing_results.json`:
 
 ```json
 {
-  "document.pdf": {
-    "hash": "a1b2c3...",
-    "timestamp": "2026-01-27T10:30:00",
-    "success": true,
-    "details": {}
-  }
+  "type_categories_created": 5,
+  "categories_created": 23,
+  "errors": 0
 }
 ```
 
-Running the script multiple times on the same file will skip processing unless the file has changed.
+## 🚢 **Deployment**
 
-## API Requirements
+### Production Considerations
 
-### Endpoint Expectations
+1. **Use Environment Variables**
+   - Never commit `.env` to git
+   - Use secret management (AWS Secrets Manager, etc.)
 
-```
-POST https://internal-api.example.com/upload
-Headers:
-  Authorization: Bearer <token>
-  Content-Type: application/json
-  X-Source-File: <filename>
-Body: <extracted JSON>
-```
+2. **HTTPS**
+   - Use nginx/Apache as reverse proxy
+   - Enable SSL certificates
 
-### Expected Responses
+3. **Error Handling**
+   - Set up monitoring (Sentry, CloudWatch)
+   - Email alerts for failures
 
-```json
-// Success
-{
-  "status": "success",
-  "id": "12345"
-}
+4. **Rate Limiting**
+   - Maia Router: Check usage limits
+   - EPC API: Implement backoff if rate limited
 
-// Error
-{
-  "status": "error",
-  "message": "Validation failed"
-}
-```
+5. **Database**
+   - Current: In-memory job storage
+   - Production: Use Redis or PostgreSQL
 
-## Advanced Usage
+6. **File Cleanup**
+   - Implement scheduled cleanup of uploaded PDFs
+   - Archive processed files
 
-### Custom Validation Rules
+### Production Deployment
 
-Extend the `LLMExtractor._validate_extracted_data()` method:
-
-```python
-def _validate_extracted_data(self, data: Dict) -> Dict[str, any]:
-    errors = []
-    
-    # Custom validation
-    for category in data.get('categories', []):
-        if len(category['subcategories']) == 0:
-            errors.append(f"Category '{category['category_name_en']}' has no subcategories")
-    
-    return {'valid': len(errors) == 0, 'errors': errors}
-```
-
-### Custom System Prompt
-
-Modify the `LLMExtractor.SYSTEM_PROMPT`:
-
-```python
-SYSTEM_PROMPT = """Your custom extraction instructions..."""
-```
-
-### Different LLM Models
-
-```python
-config = PDFExtractorConfig(
-    openai_model="gpt-4-turbo-preview"  # Use different model
-)
-```
-
-## Troubleshooting
-
-### Issue: "Bearer token must be provided"
-
-**Solution:** Set the environment variable:
 ```bash
-export API_BEARER_TOKEN="your-token"
+# Using gunicorn
+pip install gunicorn
+
+gunicorn -w 4 -b 0.0.0.0:5000 epc_web_ui:app
+
+# With systemd
+sudo systemctl enable epc-automation
+sudo systemctl start epc-automation
 ```
 
-### Issue: "OpenAI API key must be provided"
-
-**Solution:** Set the environment variable:
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-### Issue: PDFs not processing
-
-**Check:**
-1. PDF is valid (not corrupted)
-2. PDF contains text (not scanned images - OCR not supported)
-3. Check logs: `cat pdf_extractor.log`
-
-### Issue: JSON validation always fails
-
-**Solution:** Review the PDF structure. Enable debug logging:
-```python
-logging.getLogger().setLevel(logging.DEBUG)
-```
-
-### Issue: API submission fails
-
-**Check:**
-1. API endpoint is correct
-2. Bearer token is valid
-3. Network connectivity
-4. API rate limits
-
-## Performance
-
-- **Single PDF:** ~5-15 seconds (depends on size and API latency)
-- **Batch Processing:** Processes sequentially with 1-second pause between files
-- **Memory:** Minimal (~50-100MB per PDF)
-
-## Security Notes
-
-⚠️ **Never commit API keys or tokens to version control**
-
-Use environment variables or secret management systems:
-- AWS Secrets Manager
-- Azure Key Vault
-- HashiCorp Vault
-- `.env` files (add to `.gitignore`)
-
-## License
-
-This script is provided as-is for internal use.
-
-## Support
+## 📞 **Support**
 
 For issues or questions:
-1. Check logs: `pdf_extractor.log`
-2. Review processed files: `processed_files.json`
-3. Enable debug logging for more details
+1. Check logs: `epc_automation.log`
+2. Review processed files: `epc_processed_files.json`
+3. Enable debug logging: `LOG_LEVEL=DEBUG` in .env
+
+## 🎯 **Next Steps**
+
+1. ✅ Get Maia Router credentials from mentor
+2. ✅ Get EPC Bearer token from mentor
+3. ✅ Test connection to both APIs
+4. ✅ Upload sample PDF catalog
+5. ✅ Review extracted data
+6. ✅ Approve and submit to dev EPC
+7. ✅ Verify data in EPC UI at https://dev-epc.motorsights.com
+
+## 📄 **License**
+
+Internal use only - Motorsights EPC Automation
