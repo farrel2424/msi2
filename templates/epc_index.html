@@ -372,9 +372,11 @@
 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Master Category ID (Optional)</label>
-                        <input type="number" id="masterCategoryId" placeholder="1">
-                        <small>Link items to existing master category</small>
+                        <label>Master Category ID (Required)</label>
+                        <input type="text" id="masterCategoryId" 
+                               placeholder="123e4567-e89b-12d3-a456-426614174000"
+                               pattern="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}">
+                        <small>UUID of master category (get from your mentor)</small>
                     </div>
 
                     <div class="form-group">
@@ -464,9 +466,22 @@
 
             const maiaKey = document.getElementById('maiaApiKey').value.trim();
             const epcToken = document.getElementById('epcBearerToken').value.trim();
+            const masterCategoryId = document.getElementById('masterCategoryId').value.trim();
 
-            if (!maiaKey && !epcToken) {
+            if (!maiaKey || !epcToken) {
                 showAlert('Please provide Maia Router API Key and EPC Bearer Token', 'error');
+                return;
+            }
+
+            if (!masterCategoryId) {
+                showAlert('Master Category ID is REQUIRED. Please enter the UUID.', 'error');
+                return;
+            }
+
+            // Validate UUID format
+            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!uuidPattern.test(masterCategoryId)) {
+                showAlert('Master Category ID must be a valid UUID format (e.g., 123e4567-e89b-12d3-a456-426614174000)', 'error');
                 return;
             }
 

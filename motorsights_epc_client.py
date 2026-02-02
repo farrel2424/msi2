@@ -145,13 +145,24 @@ class MotorsightsEPCClient:
         Args:
             data: Type category data
                 Example: {
-                    "name": "Electronics",
-                    "name_zh": "电子产品",
-                    "master_category_id": 1
+                    "category_id": "uuid-string",  # Master category UUID
+                    "type_category_name_en": "Electronics",
+                    "type_category_name_cn": "电子产品",
+                    "type_category_description": "Description (optional)"
                 }
         
         Returns:
-            Tuple of (success, response_data with created type_category_id)
+            Tuple of (success, response_data)
+            Success response format:
+            {
+                "success": true,
+                "data": {
+                    "type_category_id": "uuid",
+                    "type_category_name_en": "...",
+                    "type_category_name_cn": "...",
+                    ...
+                }
+            }
         """
         url = f"{self.base_url}/type_category/create"
         
@@ -164,7 +175,14 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             result = response.json()
-            self.logger.info(f"Created type category: {result}")
+            
+            # Check if API returned success
+            if not result.get('success', False):
+                error_msg = result.get('error', 'Unknown error')
+                self.logger.error(f"API returned error: {error_msg}")
+                return False, result
+            
+            self.logger.info(f"Created type category: {result.get('data', {}).get('type_category_name_en')}")
             return True, result
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to create type category: {e}")
@@ -209,18 +227,37 @@ class MotorsightsEPCClient:
     
     def create_category(self, data: Dict) -> Tuple[bool, Optional[Dict]]:
         """
-        Create new category
+        Create new category with type categories
         
         Args:
             data: Category data
                 Example: {
-                    "name": "Mobile Phones",
-                    "name_zh": "手机",
-                    "type_category_id": 123
+                    "master_category_id": "uuid-string",
+                    "master_category_name_en": "Electronics",
+                    "category_name_cn": "电子产品",
+                    "category_description": "Description (optional)",
+                    "categories_code": "1234567890",
+                    "data_type": [
+                        {
+                            "type_category_code": "1234567890",
+                            "type_category_name_en": "Mobile Phones",
+                            "type_category_name_cn": "手机",
+                            "type_category_description": "Description (optional)"
+                        }
+                    ]
                 }
         
         Returns:
-            Tuple of (success, response_data with created category_id)
+            Tuple of (success, response_data)
+            Success response format:
+            {
+                "success": true,
+                "data": {
+                    "category_id": "uuid",
+                    "category_name_en": "...",
+                    "data_type": [...]
+                }
+            }
         """
         url = f"{self.base_url}/categories/create"
         
@@ -233,7 +270,14 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             result = response.json()
-            self.logger.info(f"Created category: {result}")
+            
+            # Check if API returned success
+            if not result.get('success', False):
+                error_msg = result.get('error', 'Unknown error')
+                self.logger.error(f"API returned error: {error_msg}")
+                return False, result
+            
+            self.logger.info(f"Created category: {result.get('data', {}).get('category_name_en')}")
             return True, result
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to create category: {e}")
@@ -289,10 +333,14 @@ class MotorsightsEPCClient:
     def batch_create_type_categories_and_categories(
         self, 
         catalog_data: Dict,
-        master_category_id: Optional[int] = None
+        master_category_id: str  # Now required as UUID string
     ) -> Tuple[bool, Dict]:
         """
-        Batch create type categories and their subcategories from extracted PDF data
+        Batch create categories with nested type categories from extracted PDF data
+        
+        IMPORTANT: The actual API structure is:
+        - Categories contain Type Categories (nested relationship)
+        - NOT Type Categories contain Categories as originally assumed
         
         Args:
             catalog_data: Extracted data from PDF
@@ -310,82 +358,90 @@ class MotorsightsEPCClient:
                         }
                     ]
                 }
-            master_category_id: Optional master category ID to link to
+            master_category_id: Required master category UUID (e.g., "123e4567-...")
         
         Returns:
             Tuple of (success, results_dict)
         """
+        import uuid
+        
+        if not master_category_id:
+            raise ValueError("master_category_id is required and must be a valid UUID")
+        
         results = {
-            'type_categories_created': [],
             'categories_created': [],
+            'type_categories_created': [],
             'errors': []
         }
         
-        for category in catalog_data.get('categories', []):
-            # Create Type Category (Bold text from PDF)
-            type_category_data = {
-                "name": category['category_name_en'],
-            }
+        for pdf_category in catalog_data.get('categories', []):
+            # Each PDF category becomes a Category in EPC
+            # Its subcategories become Type Categories nested within
             
-            # Add Chinese name if present
-            if category.get('category_name_zh'):
-                type_category_data['name_zh'] = category['category_name_zh']
+            # Generate UUID for this category
+            category_id = str(uuid.uuid4())
             
-            # Add master category link if provided
-            if master_category_id:
-                type_category_data['master_category_id'] = master_category_id
-            
-            success, type_cat_response = self.create_type_category(type_category_data)
-            
-            if not success:
-                results['errors'].append({
-                    'type': 'type_category',
-                    'data': type_category_data,
-                    'error': 'Failed to create type category'
-                })
-                continue
-            
-            results['type_categories_created'].append(type_cat_response)
-            
-            # Get the created type_category_id
-            type_category_id = type_cat_response.get('id') or type_cat_response.get('data', {}).get('id')
-            
-            if not type_category_id:
-                self.logger.error(f"No ID returned for type category: {type_cat_response}")
-                results['errors'].append({
-                    'type': 'type_category_id_missing',
-                    'response': type_cat_response
-                })
-                continue
-            
-            # Create Categories (Normal text from PDF) under this Type Category
-            for subcategory in category.get('subcategories', []):
-                category_data = {
-                    "name": subcategory['subcategory_name_en'],
-                    "type_category_id": type_category_id
+            # Build data_type array (Type Categories)
+            data_type = []
+            for subcategory in pdf_category.get('subcategories', []):
+                type_cat_data = {
+                    "type_category_code": str(uuid.uuid4())[:10],  # Generate code
+                    "type_category_name_en": subcategory['subcategory_name_en']
                 }
                 
                 # Add Chinese name if present
                 if subcategory.get('subcategory_name_zh'):
-                    category_data['name_zh'] = subcategory['subcategory_name_zh']
+                    type_cat_data['type_category_name_cn'] = subcategory['subcategory_name_zh']
                 
-                success, cat_response = self.create_category(category_data)
+                # Optional description
+                type_cat_data['type_category_description'] = f"Type category for {subcategory['subcategory_name_en']}"
                 
-                if success:
-                    results['categories_created'].append(cat_response)
-                else:
-                    results['errors'].append({
-                        'type': 'category',
-                        'data': category_data,
-                        'error': 'Failed to create category'
-                    })
+                data_type.append(type_cat_data)
+            
+            # Build category creation request
+            category_request = {
+                "master_category_id": master_category_id,
+                "master_category_name_en": pdf_category['category_name_en']
+            }
+            
+            # Add Chinese name if present
+            if pdf_category.get('category_name_zh'):
+                category_request['category_name_cn'] = pdf_category['category_name_zh']
+            
+            # Add optional fields
+            category_request['category_description'] = f"Category for {pdf_category['category_name_en']}"
+            category_request['categories_code'] = str(uuid.uuid4())[:10]  # Generate code
+            category_request['data_type'] = data_type
+            
+            # Create the category with nested type categories
+            success, cat_response = self.create_category(category_request)
+            
+            if success:
+                results['categories_created'].append(cat_response.get('data', {}))
+                
+                # Count type categories
+                nested_types = cat_response.get('data', {}).get('data_type', [])
+                results['type_categories_created'].extend(nested_types)
+                
+                self.logger.info(
+                    f"Created category '{pdf_category['category_name_en']}' "
+                    f"with {len(nested_types)} type categories"
+                )
+            else:
+                error_detail = cat_response.get('error') if cat_response else 'Unknown error'
+                results['errors'].append({
+                    'type': 'category',
+                    'data': category_request,
+                    'error': error_detail
+                })
+                self.logger.error(f"Failed to create category: {error_detail}")
         
         overall_success = len(results['errors']) == 0
         
         self.logger.info(
             f"Batch operation complete: "
-            f"{len(results['type_categories_created'])} type categories, "
             f"{len(results['categories_created'])} categories created, "
+            f"{len(results['type_categories_created'])} type categories created, "
             f"{len(results['errors'])} errors"
         )
         

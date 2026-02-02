@@ -51,7 +51,7 @@ def process_pdf_async(job_id, pdf_path, config_params):
             
             max_retries=int(config_params.get('max_retries', 3)),
             enable_review_mode=config_params.get('enable_review_mode', True),
-            default_master_category_id=int(config_params['master_category_id']) if config_params.get('master_category_id') else None
+            master_category_id=config_params.get('master_category_id')  # UUID string
         )
         
         # Create automation
@@ -213,7 +213,7 @@ def approve_submission(job_id):
             maia_model=job['config']['maia_model'],
             epc_base_url=job['config']['epc_base_url'],
             epc_bearer_token=job['config']['epc_bearer_token'],
-            default_master_category_id=int(job['config']['master_category_id']) if job['config'].get('master_category_id') else None
+            master_category_id=job['config'].get('master_category_id')  # UUID string
         )
         
         automation = EPCPDFAutomation(config)

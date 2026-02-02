@@ -36,7 +36,7 @@ class EPCAutomationConfig:
         # Processing options
         max_retries: int = 3,
         enable_review_mode: bool = True,
-        default_master_category_id: Optional[int] = None,
+        master_category_id: Optional[str] = None,  # Now required as UUID string
         
         # Logging
         processed_log_file: str = "epc_processed_files.json"
@@ -50,8 +50,7 @@ class EPCAutomationConfig:
         
         self.max_retries = max_retries
         self.enable_review_mode = enable_review_mode
-        self.default_master_category_id = default_master_category_id or \
-            (int(os.getenv("DEFAULT_MASTER_CATEGORY_ID")) if os.getenv("DEFAULT_MASTER_CATEGORY_ID") else None)
+        self.master_category_id = master_category_id or os.getenv("DEFAULT_MASTER_CATEGORY_ID")
         
         self.processed_log_file = processed_log_file
         
@@ -60,6 +59,14 @@ class EPCAutomationConfig:
             raise ValueError("Maia Router API key must be provided via parameter or MAIA_ROUTER_API_KEY env variable")
         if not self.epc_bearer_token:
             raise ValueError("EPC Bearer token must be provided via parameter or EPC_BEARER_TOKEN env variable")
+        
+        # CRITICAL: Master category ID is now REQUIRED for EPC API
+        if not self.master_category_id:
+            raise ValueError(
+                "Master Category ID is REQUIRED for EPC API. "
+                "Provide via parameter or DEFAULT_MASTER_CATEGORY_ID env variable. "
+                "Format: UUID string (e.g., '123e4567-e89b-12d3-a456-426614174000')"
+            )
 
 
 class ProcessedFilesTracker:
@@ -160,7 +167,7 @@ class EPCPDFAutomation:
     def process_pdf(
         self, 
         pdf_path: Path,
-        master_category_id: Optional[int] = None,
+        master_category_id: Optional[str] = None,  # UUID string
         auto_submit: bool = None
     ) -> Dict:
         """
@@ -168,7 +175,7 @@ class EPCPDFAutomation:
         
         Args:
             pdf_path: Path to PDF file
-            master_category_id: Optional master category ID to link items to
+            master_category_id: Required master category UUID string
             auto_submit: Override review mode for this file
         
         Returns:
@@ -189,7 +196,13 @@ class EPCPDFAutomation:
         
         # Use config default if not specified
         if master_category_id is None:
-            master_category_id = self.config.default_master_category_id
+            master_category_id = self.config.master_category_id
+        
+        # Validate master category ID
+        if not master_category_id:
+            result['error'] = "Master Category ID is required but not provided"
+            self.logger.error(result['error'])
+            return result
         
         if auto_submit is None:
             auto_submit = not self.config.enable_review_mode
@@ -275,14 +288,14 @@ class EPCPDFAutomation:
     def submit_to_epc(
         self,
         extracted_data: Dict,
-        master_category_id: Optional[int] = None
+        master_category_id: Optional[str] = None  # UUID string
     ) -> Tuple[bool, Dict]:
         """
         Submit extracted data to Motorsights EPC (for manual review workflow)
         
         Args:
             extracted_data: Previously extracted catalog data
-            master_category_id: Optional master category ID
+            master_category_id: Required master category UUID string
         
         Returns:
             Tuple of (success, epc_results)
@@ -290,7 +303,10 @@ class EPCPDFAutomation:
         self.logger.info("Submitting reviewed data to Motorsights EPC")
         
         if master_category_id is None:
-            master_category_id = self.config.default_master_category_id
+            master_category_id = self.config.master_category_id
+        
+        if not master_category_id:
+            raise ValueError("Master Category ID is required for EPC submission")
         
         return self.epc_client.batch_create_type_categories_and_categories(
             catalog_data=extracted_data,
@@ -301,7 +317,7 @@ class EPCPDFAutomation:
         self, 
         directory: Path, 
         recursive: bool = False,
-        master_category_id: Optional[int] = None,
+        master_category_id: Optional[str] = None,  # UUID string
         auto_submit: bool = None
     ) -> List[Dict]:
         """
@@ -374,7 +390,9 @@ def main():
         
         max_retries=3,
         enable_review_mode=True,  # Set to False for auto-submit
-        # default_master_category_id=1  # Uncomment and set if you have one
+        
+        # REQUIRED: Master Category UUID (get from your mentor)
+        master_category_id="123e4567-e89b-12d3-a456-426614174000"  # Replace with actual UUID
     )
     
     # Create automation orchestrator
