@@ -385,9 +385,14 @@ class MotorsightsEPCClient:
             data_type = []
             for subcategory in pdf_category.get('subcategories', []):
                 type_cat_data = {
-                    "type_category_code": str(uuid.uuid4())[:10],  # Generate code
                     "type_category_name_en": subcategory['subcategory_name_en']
                 }
+                
+                # Use extracted code if present, otherwise generate
+                if subcategory.get('subcategory_code'):
+                    type_cat_data['type_category_code'] = subcategory['subcategory_code']
+                else:
+                    type_cat_data['type_category_code'] = str(uuid.uuid4())[:10]
                 
                 # Add Chinese name if present
                 if subcategory.get('subcategory_name_zh'):

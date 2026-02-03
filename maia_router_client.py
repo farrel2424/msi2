@@ -15,22 +15,44 @@ class MaiaRouterClient:
     # System prompt for PDF data extraction
     EXTRACTION_SYSTEM_PROMPT = """You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
+**CRITICAL: This PDF format uses part codes and sequential names, NOT "English / Chinese" format!**
+
+PDF Structure Pattern:
+```
+10          Frame System 车架系统                                    1
+D C97259880020   Front Accessories 中保险杠...                        ...4
+D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     ...6
+```
+
 Rules:
-1. **Bold text** (surrounded by **) = Type Category (main category)
-2. Normal text = Category (subcategory under the type category)
-3. Bilingual format "English / Chinese" on same line = split into separate fields
+1. **Section headers** (number + bold text) = Category
+   - Format: `<number> <English Name> <Chinese Name>`
+   - Example: `10 Frame System 车架系统` → Category: "Frame System" / "车架系统"
+
+2. **Part entries** (code + names) = Type Category (subcategory)
+   - Format: `<PartCode> <EnglishName> <ChineseName>...`
+   - Example: `D C97259880020 Front Accessories 中保险杠...`
+   - Extract: code="D C97259880020", name_en="Front Accessories", name_cn="中保险杠"
+
+3. **Pattern recognition:**
+   - Part codes start with letters/numbers (e.g., "D C95259510002")
+   - English names come after the code
+   - Chinese names follow English names (look for Chinese characters)
+   - Ignore page numbers and dots
+
 4. Return ONLY valid JSON, no markdown formatting, no explanations
 
 Output JSON schema:
 {
   "categories": [
     {
-      "category_name_en": "string (from bold text, English part)",
-      "category_name_zh": "string (from bold text, Chinese part if present)",
+      "category_name_en": "string (from section header, English part)",
+      "category_name_zh": "string (from section header, Chinese part)",
       "subcategories": [
         {
-          "subcategory_name_en": "string (from normal text, English part)",
-          "subcategory_name_zh": "string (from normal text, Chinese part if present)"
+          "subcategory_code": "string (part code, e.g., D C97259880020)",
+          "subcategory_name_en": "string (English name after code)",
+          "subcategory_name_zh": "string (Chinese name, look for Chinese characters)"
         }
       ]
     }
@@ -38,37 +60,42 @@ Output JSON schema:
 }
 
 Example Input:
-**Electronics / 电子产品**
-Mobile Phones / 手机
-Laptops / 笔记本电脑
+```
+10          Frame System 车架系统                                    1
+D C97259880020   Front Accessories 中保险杠...                        ...4
+D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     ...6
 
-**Clothing / 服装**
-Shirts / 衬衫
+11          Dynamic System 动力系统                                  8
+D C62119011339   Engine Assembly 发动机总成...                        ...11
+```
 
 Example Output:
 {
   "categories": [
     {
-      "category_name_en": "Electronics",
-      "category_name_zh": "电子产品",
+      "category_name_en": "Frame System",
+      "category_name_zh": "车架系统",
       "subcategories": [
         {
-          "subcategory_name_en": "Mobile Phones",
-          "subcategory_name_zh": "手机"
+          "subcategory_code": "D C97259880020",
+          "subcategory_name_en": "Front Accessories",
+          "subcategory_name_zh": "中保险杠"
         },
         {
-          "subcategory_name_en": "Laptops",
-          "subcategory_name_zh": "笔记本电脑"
+          "subcategory_code": "D C95259510002",
+          "subcategory_name_en": "Transmission Auxiliary Crossbeam",
+          "subcategory_name_zh": "变速器辅助横梁"
         }
       ]
     },
     {
-      "category_name_en": "Clothing",
-      "category_name_zh": "服装",
+      "category_name_en": "Dynamic System",
+      "category_name_zh": "动力系统",
       "subcategories": [
         {
-          "subcategory_name_en": "Shirts",
-          "subcategory_name_zh": "衬衫"
+          "subcategory_code": "D C62119011339",
+          "subcategory_name_en": "Engine Assembly",
+          "subcategory_name_zh": "发动机总成"
         }
       ]
     }
@@ -238,8 +265,12 @@ Example Output:
                         errors.append(f"Category {idx}, subcategory {sub_idx} is not a dictionary")
                         continue
                     
+                    # Required: at least English name
                     if 'subcategory_name_en' not in subcategory:
                         errors.append(f"Category {idx}, subcategory {sub_idx} missing 'subcategory_name_en'")
+                    
+                    # Code is optional but good to have
+                    # Note: subcategory_code is optional, no validation error if missing
         
         return {
             'valid': len(errors) == 0,
