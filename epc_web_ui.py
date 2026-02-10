@@ -1,6 +1,6 @@
 """
 Web UI for Motorsights EPC PDF Automation
-Flask-based interface with Upload → Extract → Review → Approve → Submit workflow
+Simplified interface with mandatory review workflow
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -23,6 +23,31 @@ app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
 Path(app.config['UPLOAD_FOLDER']).mkdir(exist_ok=True)
 Path('outputs').mkdir(exist_ok=True)
 
+# Master Categories Configuration
+# TODO: Get actual UUIDs from your EPC system
+MASTER_CATEGORIES = {
+    'transmission': {
+        'id': os.getenv('MASTER_CATEGORY_TRANSMISSION_ID', ''),
+        'name_en': 'Transmission',
+        'name_cn': '传播'
+    },
+    'cabin_chassis': {
+        'id': os.getenv('MASTER_CATEGORY_CABIN_CHASSIS_ID', ''),
+        'name_en': 'Cabin & Chassis',
+        'name_cn': '驾驶室和底盘'
+    },
+    'engine': {
+        'id': os.getenv('MASTER_CATEGORY_ENGINE_ID', ''),
+        'name_en': 'Engine',
+        'name_cn': '引擎'
+    },
+    'axle': {
+        'id': os.getenv('MASTER_CATEGORY_AXLE_ID', ''),
+        'name_en': 'Axle',
+        'name_cn': '轴'
+    }
+}
+
 # Global storage for job status
 job_status = {}
 job_lock = threading.Lock()
@@ -34,7 +59,7 @@ def allowed_file(filename):
 
 
 def process_pdf_async(job_id, pdf_path, config_params):
-    """Process PDF in background thread"""
+    """Process PDF in background thread - EXTRACTION ONLY (no auto-submit)"""
     try:
         with job_lock:
             job_status[job_id]['status'] = 'processing'
@@ -51,9 +76,9 @@ def process_pdf_async(job_id, pdf_path, config_params):
             epc_base_url=config_params.get('epc_base_url', 'https://dev-epc.motorsights.com'),
             epc_bearer_token=config_params.get('epc_bearer_token'),
             
-            max_retries=int(config_params.get('max_retries', 3)),
-            enable_review_mode=config_params.get('enable_review_mode', True),
-            master_category_id=config_params.get('master_category_id')  # UUID string
+            max_retries=3,
+            enable_review_mode=True,  # ALWAYS True - mandatory review
+            master_category_id=config_params.get('master_category_id')
         )
         
         # Create automation
@@ -63,31 +88,24 @@ def process_pdf_async(job_id, pdf_path, config_params):
         with job_lock:
             job_status[job_id]['stage'] = 'converting_pdf'
         
-        # Process PDF
-        auto_submit = not config_params.get('enable_review_mode', True)
+        # Process PDF - EXTRACTION ONLY (auto_submit=False always)
         result = automation.process_pdf(
             Path(pdf_path),
-            auto_submit=auto_submit
+            auto_submit=False  # MANDATORY: Never auto-submit
         )
         
-        # Update final status
+        # Update final status - ALWAYS pending_review
         with job_lock:
-            if result.get('review_required'):
-                job_status[job_id]['status'] = 'pending_review'
-                job_status[job_id]['extracted_data'] = result['extracted_data']
-            elif result['success']:
-                job_status[job_id]['status'] = 'completed'
-            else:
-                job_status[job_id]['status'] = 'failed'
-            
+            job_status[job_id]['status'] = 'pending_review'
+            job_status[job_id]['extracted_data'] = result['extracted_data']
             job_status[job_id]['result'] = result
             job_status[job_id]['completed_at'] = datetime.now().isoformat()
             
             # Save extracted data for review
             if result.get('extracted_data'):
                 output_file = f"outputs/{job_id}_extracted.json"
-                with open(output_file, 'w') as f:
-                    json.dump(result['extracted_data'], f, indent=2)
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    json.dump(result['extracted_data'], f, indent=2, ensure_ascii=False)
                 job_status[job_id]['output_file'] = output_file
     
     except Exception as e:
@@ -100,13 +118,7 @@ def process_pdf_async(job_id, pdf_path, config_params):
 @app.route('/')
 def index():
     """Render main page"""
-    return render_template('epc_index.html')
-
-
-@app.route('/config')
-def config_page():
-    """Render configuration page"""
-    return render_template('epc_config.html')
+    return render_template('epc_simplified.html')
 
 
 @app.route('/history')
@@ -115,9 +127,25 @@ def history_page():
     return render_template('epc_history.html')
 
 
+@app.route('/api/master-categories')
+def get_master_categories():
+    """Get configured master categories"""
+    categories = []
+    for key, value in MASTER_CATEGORIES.items():
+        if value['id']:  # Only include if UUID is configured
+            categories.append({
+                'key': key,
+                'id': value['id'],
+                'name_en': value['name_en'],
+                'name_cn': value['name_cn'],
+                'display': f"{value['name_en']} / {value['name_cn']}"
+            })
+    return jsonify(categories)
+
+
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
-    """Handle file upload"""
+    """Handle file upload and start extraction"""
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     
@@ -130,30 +158,33 @@ def upload_file():
         return jsonify({'error': 'Only PDF files are allowed'}), 400
     
     # Get configuration from form
-    config_params = {
-        'sumopod_base_url': request.form.get('sumopod_base_url', 'https://ai.sumopod.com/v1'),
-        'sumopod_api_key': request.form.get('sumopod_api_key', os.getenv('SUMOPOD_API_KEY')),
-        'sumopod_model': request.form.get('sumopod_model', 'gpt4o'),
-        'sumopod_temperature': request.form.get('sumopod_temperature', '0.7'),
-        'sumopod_max_tokens': request.form.get('sumopod_max_tokens', '2000'),
-        
-        'epc_base_url': request.form.get('epc_base_url', 'https://dev-epc.motorsights.com'),
-        'epc_bearer_token': request.form.get('epc_bearer_token', os.getenv('EPC_BEARER_TOKEN')),
-        
-        'max_retries': request.form.get('max_retries', '3'),
-        'enable_review_mode': request.form.get('enable_review_mode', 'true').lower() == 'true',
-        'master_category_id': request.form.get('master_category_id', '')
-    }
+    sumopod_api_key = request.form.get('sumopod_api_key', os.getenv('SUMOPOD_API_KEY'))
+    epc_bearer_token = request.form.get('epc_bearer_token', os.getenv('EPC_BEARER_TOKEN'))
+    master_category_id = request.form.get('master_category_id', '')
+    ai_model = request.form.get('ai_model', 'gpt4o')
+    custom_prompt = request.form.get('custom_prompt', '')
     
     # Validate required fields
-    if not config_params['sumopod_api_key']:
-        return jsonify({'error': 'Sumopod API Key is required'}), 400
+    if not sumopod_api_key:
+        return jsonify({'error': 'Sumopod API Key is required (set in .env or provide in form)'}), 400
     
-    if not config_params['epc_bearer_token']:
-        return jsonify({'error': 'EPC Bearer Token is required'}), 400
+    if not epc_bearer_token:
+        return jsonify({'error': 'EPC Bearer Token is required (set in .env or provide in form)'}), 400
     
-    if not config_params['master_category_id']:
-        return jsonify({'error': 'Master Category ID is required'}), 400
+    if not master_category_id:
+        return jsonify({'error': 'Master Category is required'}), 400
+    
+    config_params = {
+        'sumopod_base_url': 'https://ai.sumopod.com/v1',
+        'sumopod_api_key': sumopod_api_key,
+        'sumopod_model': ai_model,
+        'sumopod_temperature': 0.7,
+        'sumopod_max_tokens': 2000,
+        'epc_base_url': 'https://dev-epc.motorsights.com',
+        'epc_bearer_token': epc_bearer_token,
+        'master_category_id': master_category_id,
+        'custom_prompt': custom_prompt  # Store for potential re-prompting
+    }
     
     # Save uploaded file
     filename = secure_filename(file.filename)
@@ -171,7 +202,8 @@ def upload_file():
             'uploaded_at': datetime.now().isoformat(),
             'result': None,
             'error': None,
-            'config': config_params
+            'config': config_params,
+            'upload_path': upload_path
         }
     
     # Start background processing
@@ -189,6 +221,47 @@ def upload_file():
     })
 
 
+@app.route('/api/re-extract/<job_id>', methods=['POST'])
+def re_extract(job_id):
+    """Re-extract with new prompt"""
+    with job_lock:
+        if job_id not in job_status:
+            return jsonify({'error': 'Job not found'}), 404
+        
+        job = job_status[job_id]
+        upload_path = job.get('upload_path')
+        
+        if not upload_path or not os.path.exists(upload_path):
+            return jsonify({'error': 'Original PDF file not found'}), 404
+    
+    # Get new prompt
+    data = request.get_json()
+    new_prompt = data.get('prompt', '')
+    
+    # Update config with new prompt
+    config_params = job['config'].copy()
+    config_params['custom_prompt'] = new_prompt
+    
+    # Reset job status
+    with job_lock:
+        job_status[job_id]['status'] = 'queued'
+        job_status[job_id]['stage'] = 'uploaded'
+        job_status[job_id]['error'] = None
+        job_status[job_id]['result'] = None
+        job_status[job_id]['extracted_data'] = None
+        job_status[job_id]['config'] = config_params
+    
+    # Re-process
+    thread = threading.Thread(
+        target=process_pdf_async,
+        args=(job_id, upload_path, config_params)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'message': 'Re-extraction started with new prompt'})
+
+
 @app.route('/api/approve/<job_id>', methods=['POST'])
 def approve_submission(job_id):
     """Approve and submit extracted data to EPC"""
@@ -202,7 +275,8 @@ def approve_submission(job_id):
             return jsonify({'error': 'Job is not pending review'}), 400
         
         # Get edited data if provided
-        edited_data = request.get_json()
+        request_data = request.get_json()
+        edited_data = request_data.get('data') if request_data else None
         extracted_data = edited_data if edited_data else job.get('extracted_data')
         
         if not extracted_data:
@@ -222,7 +296,7 @@ def approve_submission(job_id):
             sumopod_max_tokens=int(job['config'].get('sumopod_max_tokens', 2000)),
             epc_base_url=job['config']['epc_base_url'],
             epc_bearer_token=job['config']['epc_bearer_token'],
-            master_category_id=job['config'].get('master_category_id')  # UUID string
+            master_category_id=job['config'].get('master_category_id')
         )
         
         automation = EPCPDFAutomation(config)
@@ -269,6 +343,9 @@ def get_jobs():
     """Get all jobs"""
     with job_lock:
         jobs = list(job_status.values())
+        # Remove upload_path from response (internal only)
+        for job in jobs:
+            job.pop('upload_path', None)
         jobs.sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
         return jsonify(jobs)
 
@@ -304,11 +381,20 @@ def clear_history():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("Motorsights EPC PDF Automation - Web UI")
+    print("Motorsights EPC PDF Automation - Simplified Web UI")
     print("=" * 60)
+    print("\n⚠️  MANDATORY REVIEW MODE")
+    print("All extractions require manual review before submission")
+    print("\n📋 Master Categories Configured:")
+    for key, value in MASTER_CATEGORIES.items():
+        if value['id']:
+            print(f"  ✓ {value['name_en']} / {value['name_cn']}")
+        else:
+            print(f"  ✗ {value['name_en']} / {value['name_cn']} (UUID not configured)")
+    print("\n" + "=" * 60)
     print("\nServer starting...")
-    print("Open your browser and navigate to: http://localhost:5000")
-    print("\nPress Ctrl+C to stop the server")
+    print("Open your browser: http://localhost:5000")
+    print("\nPress Ctrl+C to stop")
     print("=" * 60)
     
     app.run(debug=True, host='0.0.0.0', port=5000)

@@ -12,8 +12,8 @@ import json
 class SumopodClient:
     """Client for Sumopod AI Gateway"""
     
-    # System prompt for PDF data extraction
-    EXTRACTION_SYSTEM_PROMPT = """You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
+    # Default system prompt for PDF data extraction
+    DEFAULT_EXTRACTION_PROMPT = """You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
 **CRITICAL: This PDF format uses part codes and sequential names, NOT "English / Chinese" format!**
 
@@ -109,7 +109,8 @@ Example Output:
         model: str = "gpt4o",
         temperature: float = 0.7,
         max_tokens: int = 2000,
-        max_retries: int = 3
+        max_retries: int = 3,
+        custom_system_prompt: Optional[str] = None
     ):
         """
         Initialize Sumopod client
@@ -117,16 +118,18 @@ Example Output:
         Args:
             base_url: Sumopod API base URL
             api_key: API key (sk-xxxx format)
-            model: Model to use (gpt4o, gpt4.1nano)
+            model: Model to use (gpt4o, gpt4.1nano, claude-3-5-sonnet, etc.)
             temperature: Temperature for generation (0.0-1.0)
             max_tokens: Maximum tokens in response
             max_retries: Maximum retry attempts for self-correction
+            custom_system_prompt: Optional custom system prompt to override default
         """
         self.base_url = base_url.rstrip('/')
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.max_retries = max_retries
+        self.system_prompt = custom_system_prompt or self.DEFAULT_EXTRACTION_PROMPT
         self.logger = logging.getLogger(__name__)
         
         # Initialize OpenAI client pointing to Sumopod
@@ -137,18 +140,27 @@ Example Output:
         
         self.logger.info(f"Initialized Sumopod client with model: {model}")
     
-    def extract_catalog_data(self, markdown_text: str, attempt: int = 1) -> Dict:
+    def extract_catalog_data(
+        self, 
+        markdown_text: str, 
+        attempt: int = 1,
+        custom_prompt: Optional[str] = None
+    ) -> Dict:
         """
         Extract structured catalog data from PDF markdown using Sumopod
         
         Args:
             markdown_text: PDF content converted to markdown
             attempt: Current attempt number (for retry logic)
+            custom_prompt: Optional custom prompt to override system prompt for this call
         
         Returns:
             Validated JSON data structure
         """
         self.logger.info(f"Starting LLM extraction via Sumopod (attempt {attempt}/{self.max_retries})")
+        
+        # Use custom prompt if provided, otherwise use instance system prompt
+        system_prompt = custom_prompt or self.system_prompt
         
         try:
             # Prepare user prompt
@@ -158,7 +170,7 @@ Example Output:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": self.EXTRACTION_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=self.temperature,
@@ -185,7 +197,8 @@ Example Output:
                     return self._retry_with_correction(
                         markdown_text, 
                         validation_result['errors'], 
-                        attempt + 1
+                        attempt + 1,
+                        custom_prompt=custom_prompt
                     )
                 else:
                     raise ValueError(f"Max retries reached. Validation errors: {validation_result['errors']}")
@@ -196,7 +209,8 @@ Example Output:
                 return self._retry_with_correction(
                     markdown_text,
                     [f"JSON parsing error: {str(e)}"],
-                    attempt + 1
+                    attempt + 1,
+                    custom_prompt=custom_prompt
                 )
             else:
                 raise ValueError(f"Max retries reached. Could not parse valid JSON: {e}")
@@ -280,9 +294,18 @@ Example Output:
             'errors': errors
         }
     
-    def _retry_with_correction(self, markdown_text: str, errors: List[str], attempt: int) -> Dict:
+    def _retry_with_correction(
+        self, 
+        markdown_text: str, 
+        errors: List[str], 
+        attempt: int,
+        custom_prompt: Optional[str] = None
+    ) -> Dict:
         """Retry extraction with error feedback for self-correction"""
         self.logger.info(f"Retrying extraction with error feedback via Sumopod (attempt {attempt})")
+        
+        # Use custom prompt if provided
+        system_prompt = custom_prompt or self.system_prompt
         
         error_message = "\n".join(f"- {error}" for error in errors)
         corrective_prompt = f"""The previous extraction had these errors:
@@ -302,7 +325,7 @@ Original markdown text:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": self.EXTRACTION_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": corrective_prompt}
                 ],
                 temperature=self.temperature,
@@ -323,7 +346,8 @@ Original markdown text:
                     return self._retry_with_correction(
                         markdown_text,
                         validation_result['errors'],
-                        attempt + 1
+                        attempt + 1,
+                        custom_prompt=custom_prompt
                     )
                 else:
                     raise ValueError(f"Max retries reached. Final errors: {validation_result['errors']}")

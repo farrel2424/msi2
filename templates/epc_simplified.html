@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motorsights EPC - Simplified Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header .subtitle {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #ff9800;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .nav {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .nav a {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            transition: background 0.3s;
+        }
+
+        .nav a:hover {
+            background: #764ba2;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 60px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f8f9ff;
+            margin-top: 20px;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #e8ebff;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 1.2em;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .upload-subtext {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .form-group select,
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1em;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        .form-group textarea {
+            min-height: 150px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+        }
+
+        .form-group select:focus,
+        .form-group input:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 0.85em;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .btn:hover {
+            background: #764ba2;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: #52c41a;
+        }
+
+        .btn-success:hover {
+            background: #389e0d;
+        }
+
+        .btn-warning {
+            background: #ff9800;
+        }
+
+        .btn-warning:hover {
+            background: #f57c00;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .alert-error {
+            background: #fff2f0;
+            border: 1px solid #ffccc7;
+            color: #cf1322;
+        }
+
+        .alert-success {
+            background: #f6ffed;
+            border: 1px solid #b7eb8f;
+            color: #389e0d;
+        }
+
+        .alert-warning {
+            background: #fffbe6;
+            border: 1px solid #ffe58f;
+            color: #d46b08;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .status-card {
+            background: #f8f9ff;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            border-left: 4px solid #667eea;
+        }
+
+        .status-card h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .status-value {
+            color: #333;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .status-queued { background: #ffd700; color: #333; }
+        .status-processing { background: #4a90e2; color: white; }
+        .status-pending_review { background: #ff9800; color: white; }
+        .status-submitting { background: #9c27b0; color: white; }
+        .status-completed { background: #52c41a; color: white; }
+        .status-failed { background: #ff4d4f; color: white; }
+        .status-error { background: #ff4d4f; color: white; }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s;
+        }
+
+        .editor-section {
+            margin-top: 20px;
+        }
+
+        .json-editor {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            border: 2px solid #e0e0e0;
+        }
+
+        .json-editor:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .info-box strong {
+            color: #1976d2;
+        }
+
+        .credentials-toggle {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .credentials-toggle summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #667eea;
+            user-select: none;
+        }
+
+        .credentials-toggle summary:hover {
+            color: #764ba2;
+        }
+
+        .credentials-content {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚗 Motorsights EPC</h1>
+            <p class="subtitle">Electronic Product Catalog - PDF Automation</p>
+            <span class="badge">⚠️ MANDATORY REVIEW MODE</span>
+            <div class="nav">
+                <a href="/">Upload</a>
+                <a href="/history">History</a>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📤 Upload & Extract</h2>
+            
+            <div id="alertContainer"></div>
+
+            <div class="info-box">
+                <strong>ℹ️ Workflow:</strong> Upload PDF → AI Extraction → Manual Review & Edit → Approve → Submit to Database
+            </div>
+
+            <!-- API Credentials (collapsible if using .env) -->
+            <details class="credentials-toggle">
+                <summary>🔑 API Credentials (optional - configure in .env)</summary>
+                <div class="credentials-content">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Sumopod API Key</label>
+                            <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
+                            <small>Only needed if not set in .env file</small>
+                        </div>
+                        <div class="form-group">
+                            <label>EPC Bearer Token</label>
+                            <input type="password" id="epcBearerToken" placeholder="Leave empty to use .env">
+                            <small>Only needed if not set in .env file</small>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <!-- Main Configuration -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Master Category *</label>
+                    <select id="masterCategory" required>
+                        <option value="">Select Master Category...</option>
+                    </select>
+                    <small>Choose the master category for this catalog</small>
+                </div>
+
+                <div class="form-group">
+                    <label>AI Model *</label>
+                    <select id="aiModel" required>
+                        <option value="gpt4o">GPT-4o (Recommended - Best Quality)</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini (Faster, Good Quality)</option>
+                        <option value="gpt4.1nano">GPT-4.1 Nano (Fast, Lower Cost)</option>
+                        <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (High Quality)</option>
+                        <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
+                    </select>
+                    <small>Select AI model for extraction</small>
+                </div>
+            </div>
+
+            <!-- Extraction Prompt -->
+            <div class="form-group">
+                <label>Extraction Prompt (editable)</label>
+                <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
+
+**CRITICAL: This PDF format uses part codes and sequential names!**
+
+PDF Structure Pattern:
+```
+10          Frame System 车架系统                                    1
+D C97259880020   Front Accessories 中保险杠...                        ...4
+D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     ...6
+```
+
+Rules:
+1. **Section headers** (number + bold text) = Category
+   - Format: `<number> <English Name> <Chinese Name>`
+   - Example: `10 Frame System 车架系统` → Category: "Frame System" / "车架系统"
+
+2. **Part entries** (code + names) = Subcategory
+   - Format: `<PartCode> <EnglishName> <ChineseName>...`
+   - Example: `D C97259880020 Front Accessories 中保险杠...`
+   - Extract: code="D C97259880020", name_en="Front Accessories", name_cn="中保险杠"
+
+3. Return ONLY valid JSON, no markdown, no explanations
+
+Output JSON schema:
+{
+  "categories": [
+    {
+      "category_name_en": "string",
+      "category_name_cn": "string",
+      "subcategories": [
+        {
+          "subcategory_code": "string",
+          "subcategory_name_en": "string",
+          "subcategory_name_cn": "string"
+        }
+      ]
+    }
+  ]
+}</textarea>
+                <small>Customize the extraction prompt if needed</small>
+            </div>
+
+            <!-- Upload Area -->
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📁</div>
+                <div class="upload-text">Drag & Drop your PDF catalog here</div>
+                <div class="upload-subtext">or click to browse</div>
+                <input type="file" id="fileInput" accept=".pdf">
+            </div>
+        </div>
+
+        <!-- Processing Status & Review Section -->
+        <div class="card hidden" id="statusCard">
+            <h2>📊 Processing Status</h2>
+            
+            <div class="status-card">
+                <h3>Current Status</h3>
+                <div class="status-item">
+                    <span class="status-label">File:</span>
+                    <span class="status-value" id="statusFilename">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value" id="statusBadge">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Stage:</span>
+                    <span class="status-value" id="statusStage">-</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Review & Edit Section -->
+            <div class="editor-section hidden" id="reviewSection">
+                <h3>📝 Review & Edit Extracted Data</h3>
+                <p style="color: #666; margin-bottom: 15px;">
+                    Review the extracted data below. You can edit directly in the JSON editor.
+                </p>
+                
+                <div contenteditable="true" class="json-editor" id="jsonEditor" spellcheck="false"></div>
+                
+                <div class="button-group">
+                    <button class="btn" id="downloadBtn">💾 Download JSON</button>
+                    <button class="btn btn-warning" id="reExtractBtn">🔄 Re-Extract with New Prompt</button>
+                    <button class="btn btn-success" id="approveBtn">✅ Approve & Submit to EPC</button>
+                </div>
+            </div>
+
+            <!-- Re-prompt Section -->
+            <div class="editor-section hidden" id="rePromptSection">
+                <h3>🔄 Re-Extract with Modified Prompt</h3>
+                <div class="form-group">
+                    <label>Modified Extraction Prompt</label>
+                    <textarea id="rePromptText" style="min-height: 200px;"></textarea>
+                </div>
+                <div class="button-group">
+                    <button class="btn" id="cancelRePrompt">❌ Cancel</button>
+                    <button class="btn btn-warning" id="confirmRePrompt">✅ Start Re-Extraction</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const statusCard = document.getElementById('statusCard');
+        const alertContainer = document.getElementById('alertContainer');
+        const reviewSection = document.getElementById('reviewSection');
+        const rePromptSection = document.getElementById('rePromptSection');
+        const jsonEditor = document.getElementById('jsonEditor');
+        
+        let currentJobId = null;
+        let statusInterval = null;
+        let currentExtractedData = null;
+
+        // Load master categories
+        async function loadMasterCategories() {
+            try {
+                const response = await fetch('/api/master-categories');
+                const categories = await response.json();
+                
+                const select = document.getElementById('masterCategory');
+                select.innerHTML = '<option value="">Select Master Category...</option>';
+                
+                categories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat.id;
+                    option.textContent = cat.display;
+                    select.appendChild(option);
+                });
+
+                if (categories.length === 0) {
+                    showAlert('⚠️ No master categories configured! Please set UUIDs in .env file.', 'warning');
+                }
+            } catch (error) {
+                showAlert('Failed to load master categories: ' + error.message, 'error');
+            }
+        }
+
+        // Upload handlers
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            if (e.dataTransfer.files.length > 0) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        async function handleFile(file) {
+            if (!file.name.toLowerCase().endsWith('.pdf')) {
+                showAlert('Please select a PDF file', 'error');
+                return;
+            }
+
+            const masterCategory = document.getElementById('masterCategory').value;
+            const aiModel = document.getElementById('aiModel').value;
+            const extractionPrompt = document.getElementById('extractionPrompt').value;
+
+            if (!masterCategory) {
+                showAlert('Please select a Master Category', 'error');
+                return;
+            }
+
+            uploadFile(file, masterCategory, aiModel, extractionPrompt);
+        }
+
+        async function uploadFile(file, masterCategoryId, aiModel, prompt) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('master_category_id', masterCategoryId);
+            formData.append('ai_model', aiModel);
+            formData.append('custom_prompt', prompt);
+            
+            // Optional credentials
+            const sumopodKey = document.getElementById('sumopodApiKey').value.trim();
+            const epcToken = document.getElementById('epcBearerToken').value.trim();
+            if (sumopodKey) formData.append('sumopod_api_key', sumopodKey);
+            if (epcToken) formData.append('epc_bearer_token', epcToken);
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    currentJobId = data.job_id;
+                    showAlert('✅ File uploaded! Extraction started...', 'success');
+                    statusCard.classList.remove('hidden');
+                    reviewSection.classList.add('hidden');
+                    rePromptSection.classList.add('hidden');
+                    startStatusPolling();
+                } else {
+                    showAlert('❌ ' + (data.error || 'Upload failed'), 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: ' + error.message, 'error');
+            }
+        }
+
+        function startStatusPolling() {
+            if (statusInterval) clearInterval(statusInterval);
+            
+            statusInterval = setInterval(async () => {
+                if (!currentJobId) return;
+
+                try {
+                    const response = await fetch('/api/status/' + currentJobId);
+                    const data = await response.json();
+
+                    updateStatus(data);
+
+                    if (data.status === 'completed' || data.status === 'failed' || data.status === 'error') {
+                        clearInterval(statusInterval);
+                    }
+                } catch (error) {
+                    console.error('Status polling error:', error);
+                }
+            }, 2000);
+        }
+
+        function updateStatus(data) {
+            document.getElementById('statusFilename').textContent = data.filename || '-';
+            document.getElementById('statusStage').textContent = data.stage || '-';
+            
+            const badge = document.getElementById('statusBadge');
+            badge.className = 'status-badge status-' + data.status;
+            badge.textContent = data.status.toUpperCase().replace('_', ' ');
+
+            const progressFill = document.querySelector('.progress-fill');
+            if (data.status === 'processing') {
+                progressFill.style.width = '50%';
+            } else if (data.status === 'pending_review') {
+                progressFill.style.width = '75%';
+            } else if (data.status === 'completed') {
+                progressFill.style.width = '100%';
+            }
+
+            // Show review section when extraction complete
+            if (data.status === 'pending_review' && data.extracted_data) {
+                currentExtractedData = data.extracted_data;
+                showReviewSection(data.extracted_data);
+            }
+
+            if (data.status === 'error' || data.status === 'failed') {
+                const errorMsg = data.error || (data.result && data.result.error) || 'Processing failed';
+                showAlert('❌ Error: ' + errorMsg, 'error');
+            }
+
+            if (data.status === 'completed') {
+                showAlert('✅ Successfully submitted to EPC database!', 'success');
+            }
+        }
+
+        function showReviewSection(extractedData) {
+            reviewSection.classList.remove('hidden');
+            rePromptSection.classList.add('hidden');
+            
+            // Display formatted JSON
+            jsonEditor.textContent = JSON.stringify(extractedData, null, 2);
+            
+            showAlert('⚠️ REVIEW REQUIRED: Please review and edit the extracted data before submitting', 'warning');
+        }
+
+        // Download button
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            if (currentJobId) {
+                window.location.href = '/api/download/' + currentJobId;
+            }
+        });
+
+        // Re-extract button
+        document.getElementById('reExtractBtn').addEventListener('click', () => {
+            reviewSection.classList.add('hidden');
+            rePromptSection.classList.remove('hidden');
+            
+            // Copy current prompt
+            const currentPrompt = document.getElementById('extractionPrompt').value;
+            document.getElementById('rePromptText').value = currentPrompt;
+        });
+
+        document.getElementById('cancelRePrompt').addEventListener('click', () => {
+            rePromptSection.classList.add('hidden');
+            reviewSection.classList.remove('hidden');
+        });
+
+        document.getElementById('confirmRePrompt').addEventListener('click', async () => {
+            const newPrompt = document.getElementById('rePromptText').value;
+            
+            if (!confirm('Start re-extraction with modified prompt?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/re-extract/' + currentJobId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: newPrompt })
+                });
+
+                if (response.ok) {
+                    showAlert('🔄 Re-extraction started...', 'success');
+                    rePromptSection.classList.add('hidden');
+                    reviewSection.classList.add('hidden');
+                    startStatusPolling();
+                } else {
+                    const data = await response.json();
+                    showAlert('❌ ' + (data.error || 'Re-extraction failed'), 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: ' + error.message, 'error');
+            }
+        });
+
+        // Approve and submit button
+        document.getElementById('approveBtn').addEventListener('click', async () => {
+            if (!confirm('⚠️ Submit to EPC database?\n\nThis will create categories and type categories in the system.')) {
+                return;
+            }
+
+            try {
+                // Get potentially edited data from editor
+                const editedText = jsonEditor.textContent;
+                let editedData;
+                
+                try {
+                    editedData = JSON.parse(editedText);
+                } catch (e) {
+                    showAlert('❌ Invalid JSON in editor. Please fix syntax errors.', 'error');
+                    return;
+                }
+
+                const response = await fetch('/api/approve/' + currentJobId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: editedData })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showAlert('✅ Successfully submitted to EPC database!', 'success');
+                    startStatusPolling();
+                } else {
+                    showAlert('❌ Submission failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: ' + error.message, 'error');
+            }
+        });
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-' + type;
+            alertDiv.textContent = message;
+            
+            alertContainer.innerHTML = '';
+            alertContainer.appendChild(alertDiv);
+
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 8000);
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            loadMasterCategories();
+        });
+    </script>
+</body>
+</html>
