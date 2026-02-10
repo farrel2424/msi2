@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Motorsights EPC - PDF Upload</title>
+    <title>Motorsights EPC - Simplified Interface</title>
     <style>
         * {
             margin: 0;
@@ -12,14 +12,14 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
 
         .container {
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
         }
 
@@ -38,9 +38,20 @@
             margin-bottom: 10px;
         }
 
-        .header p {
+        .header .subtitle {
             color: #666;
             font-size: 1.1em;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #ff9800;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-top: 10px;
         }
 
         .nav {
@@ -71,6 +82,13 @@
             margin-bottom: 30px;
         }
 
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
         .upload-area {
             border: 3px dashed #667eea;
             border-radius: 15px;
@@ -79,6 +97,7 @@
             cursor: pointer;
             transition: all 0.3s;
             background: #f8f9ff;
+            margin-top: 20px;
         }
 
         .upload-area:hover {
@@ -112,10 +131,6 @@
             display: none;
         }
 
-        .config-section {
-            margin-top: 30px;
-        }
-
         .form-group {
             margin-bottom: 20px;
         }
@@ -127,18 +142,27 @@
             font-weight: 600;
         }
 
+        .form-group select,
         .form-group input,
-        .form-group select {
+        .form-group textarea {
             width: 100%;
             padding: 12px;
             border: 2px solid #e0e0e0;
             border-radius: 8px;
             font-size: 1em;
+            font-family: inherit;
             transition: border-color 0.3s;
         }
 
+        .form-group textarea {
+            min-height: 150px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+        }
+
+        .form-group select:focus,
         .form-group input:focus,
-        .form-group select:focus {
+        .form-group textarea:focus {
             outline: none;
             border-color: #667eea;
         }
@@ -154,6 +178,72 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+
+        .btn:hover {
+            background: #764ba2;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: #52c41a;
+        }
+
+        .btn-success:hover {
+            background: #389e0d;
+        }
+
+        .btn-warning {
+            background: #ff9800;
+        }
+
+        .btn-warning:hover {
+            background: #f57c00;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .alert-error {
+            background: #fff2f0;
+            border: 1px solid #ffccc7;
+            color: #cf1322;
+        }
+
+        .alert-success {
+            background: #f6ffed;
+            border: 1px solid #b7eb8f;
+            color: #389e0d;
+        }
+
+        .alert-warning {
+            background: #fffbe6;
+            border: 1px solid #ffe58f;
+            color: #d46b08;
+        }
+
+        .hidden {
+            display: none;
         }
 
         .status-card {
@@ -220,76 +310,68 @@
             transition: width 0.3s;
         }
 
-        .result-section {
+        .editor-section {
             margin-top: 20px;
         }
 
-        .result-json {
+        .json-editor {
             background: #f5f5f5;
             padding: 20px;
             border-radius: 8px;
-            max-height: 400px;
+            max-height: 500px;
             overflow-y: auto;
             font-family: 'Courier New', monospace;
             font-size: 0.9em;
             white-space: pre-wrap;
+            border: 2px solid #e0e0e0;
         }
 
-        .btn {
-            padding: 12px 30px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
-            cursor: pointer;
-            transition: background 0.3s;
-            font-weight: 600;
-            margin-right: 10px;
+        .json-editor:focus {
+            outline: none;
+            border-color: #667eea;
         }
 
-        .btn:hover {
-            background: #764ba2;
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
         }
 
-        .btn-success {
-            background: #52c41a;
-        }
-
-        .btn-success:hover {
-            background: #389e0d;
-        }
-
-        .alert {
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
             padding: 15px;
-            border-radius: 8px;
+            border-radius: 5px;
             margin-bottom: 20px;
         }
 
-        .alert-error {
-            background: #fff2f0;
-            border: 1px solid #ffccc7;
-            color: #cf1322;
+        .info-box strong {
+            color: #1976d2;
         }
 
-        .alert-success {
-            background: #f6ffed;
-            border: 1px solid #b7eb8f;
-            color: #389e0d;
+        .credentials-toggle {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e0e0e0;
         }
 
-        .hidden {
-            display: none;
+        .credentials-toggle summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #667eea;
+            user-select: none;
         }
 
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
+        .credentials-toggle summary:hover {
+            color: #764ba2;
         }
 
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
+        .credentials-content {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
         }
     </style>
 </head>
@@ -297,115 +379,125 @@
     <div class="container">
         <div class="header">
             <h1>🚗 Motorsights EPC</h1>
-            <p>Electronic Product Catalog - PDF Automation (Powered by Sumopod AI)</p>
+            <p class="subtitle">Electronic Product Catalog - PDF Automation</p>
             <div class="nav">
                 <a href="/">Upload</a>
-                <a href="/config">Configuration</a>
                 <a href="/history">History</a>
             </div>
         </div>
 
         <div class="card">
-            <h2>Upload Catalog PDF</h2>
-            <div id="alertContainer"></div>
+            <h2>📤 Upload & Extract</h2>
             
+            <div id="alertContainer"></div>
+
+            <div class="info-box">
+                <strong>ℹ️ Workflow:</strong> Upload PDF → AI Extraction → Manual Review & Edit → Approve → Submit to Database
+            </div>
+
+            <!-- API Credentials (collapsible if using .env) -->
+            <details class="credentials-toggle">
+                <summary>🔑 API Credentials (optional - configure in .env)</summary>
+                <div class="credentials-content">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Sumopod API Key</label>
+                            <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
+                            <small>Only needed if not set in .env file</small>
+                        </div>
+                        <div class="form-group">
+                            <label>EPC Bearer Token</label>
+                            <input type="password" id="epcBearerToken" placeholder="Leave empty to use .env">
+                            <small>Only needed if not set in .env file</small>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <!-- Main Configuration -->
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Master Category *</label>
+                    <select id="masterCategory" required>
+                        <option value="">Select Master Category...</option>
+                    </select>
+                    <small>Choose the master category for this catalog</small>
+                </div>
+
+                <div class="form-group">
+                    <label>AI Model *</label>
+                    <select id="aiModel" required>
+                        <option value="gpt4o">GPT-4o (Recommended - Best Quality)</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini (Faster, Good Quality)</option>
+                        <option value="gpt4.1nano">GPT-4.1 Nano (Fast, Lower Cost)</option>
+                        <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (High Quality)</option>
+                        <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
+                    </select>
+                    <small>Select AI model for extraction</small>
+                </div>
+            </div>
+
+            <!-- Extraction Prompt -->
+            <div class="form-group">
+                <label>Extraction Prompt (editable)</label>
+                <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
+
+**CRITICAL: This PDF format uses part codes and sequential names!**
+
+PDF Structure Pattern:
+```
+10          Frame System 车架系统                                    1
+D C97259880020   Front Accessories 中保险杠...                        ...4
+D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     ...6
+```
+
+Rules:
+1. **Section headers** (number + bold text) = Category
+   - Format: `<number> <English Name> <Chinese Name>`
+   - Example: `10 Frame System 车架系统` → Category: "Frame System" / "车架系统"
+
+2. **Part entries** (code + names) = Subcategory
+   - Format: `<PartCode> <EnglishName> <ChineseName>...`
+   - Example: `D C97259880020 Front Accessories 中保险杠...`
+   - Extract: code="D C97259880020", name_en="Front Accessories", name_cn="中保险杠"
+
+3. Return ONLY valid JSON, no markdown, no explanations
+
+Output JSON schema:
+{
+  "categories": [
+    {
+      "category_name_en": "string",
+      "category_name_cn": "string",
+      "subcategories": [
+        {
+          "subcategory_code": "string",
+          "subcategory_name_en": "string",
+          "subcategory_name_cn": "string"
+        }
+      ]
+    }
+  ]
+}</textarea>
+                <small>Customize the extraction prompt if needed</small>
+            </div>
+
+            <!-- Upload Area -->
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📁</div>
                 <div class="upload-text">Drag & Drop your PDF catalog here</div>
                 <div class="upload-subtext">or click to browse</div>
                 <input type="file" id="fileInput" accept=".pdf">
             </div>
-
-            <div class="config-section">
-                <h3>Configuration</h3>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Sumopod Base URL</label>
-                        <input type="text" id="sumopodBaseUrl" 
-                               value="https://ai.sumopod.com/v1"
-                               placeholder="https://ai.sumopod.com/v1">
-                        <small>Sumopod AI Gateway URL</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Sumopod API Key</label>
-                        <input type="password" id="sumopodApiKey" 
-                               placeholder="sk-...">
-                        <small>API key for Sumopod (or set SUMOPOD_API_KEY env var)</small>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>EPC API Base URL</label>
-                        <input type="text" id="epcBaseUrl" 
-                               value="https://dev-epc.motorsights.com"
-                               placeholder="https://dev-epc.motorsights.com">
-                        <small>Motorsights EPC API endpoint</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label>EPC Bearer Token</label>
-                        <input type="password" id="epcBearerToken" 
-                               placeholder="your-token">
-                        <small>Bearer token for EPC API (or set EPC_BEARER_TOKEN env var)</small>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>AI Model</label>
-                        <select id="sumopodModel">
-                            <option value="gpt4o">GPT-4o (Recommended)</option>
-                            <option value="gpt4.1nano">GPT-4.1 Nano</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Temperature</label>
-                        <input type="number" id="sumopodTemperature" value="0.7" min="0" max="1" step="0.1">
-                        <small>AI creativity level (0.0-1.0)</small>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Max Tokens</label>
-                        <input type="number" id="sumopodMaxTokens" value="2000" min="100" max="4000" step="100">
-                        <small>Maximum response length</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Max Retries</label>
-                        <input type="number" id="maxRetries" value="3" min="1" max="10">
-                        <small>Number of retry attempts</small>
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Master Category ID (Required)</label>
-                        <input type="text" id="masterCategoryId" 
-                               placeholder="123e4567-e89b-12d3-a456-426614174000"
-                               pattern="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}">
-                        <small>UUID of master category (get from your mentor)</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="checkbox-group">
-                            <input type="checkbox" id="enableReview" checked>
-                            <span>Enable Review Mode</span>
-                        </label>
-                        <small>Review extracted data before submitting to EPC</small>
-                    </div>
-                </div>
-            </div>
         </div>
 
+        <!-- Processing Status & Review Section -->
         <div class="card hidden" id="statusCard">
+            <h2>📊 Processing Status</h2>
+            
             <div class="status-card">
-                <h3>Processing Status</h3>
+                <h3>Current Status</h3>
                 <div class="status-item">
                     <span class="status-label">File:</span>
                     <span class="status-value" id="statusFilename">-</span>
@@ -418,20 +510,38 @@
                     <span class="status-label">Stage:</span>
                     <span class="status-value" id="statusStage">-</span>
                 </div>
-                <div class="progress-bar" id="progressBar">
+                <div class="progress-bar">
                     <div class="progress-fill" style="width: 0%"></div>
                 </div>
             </div>
 
-            <div class="result-section hidden" id="resultSection">
-                <h3>Extracted Data</h3>
-                <div class="result-json" id="resultJson"></div>
-                <button class="btn" id="downloadBtn" style="margin-top: 15px;">
-                    💾 Download JSON
-                </button>
-                <button class="btn btn-success hidden" id="approveBtn" style="margin-top: 15px;">
-                    ✅ Approve & Submit to EPC
-                </button>
+            <!-- Review & Edit Section -->
+            <div class="editor-section hidden" id="reviewSection">
+                <h3>📝 Review & Edit Extracted Data</h3>
+                <p style="color: #666; margin-bottom: 15px;">
+                    Review the extracted data below. You can edit directly in the JSON editor.
+                </p>
+                
+                <div contenteditable="true" class="json-editor" id="jsonEditor" spellcheck="false"></div>
+                
+                <div class="button-group">
+                    <button class="btn" id="downloadBtn">💾 Download JSON</button>
+                    <button class="btn btn-warning" id="reExtractBtn">🔄 Re-Extract with New Prompt</button>
+                    <button class="btn btn-success" id="approveBtn">✅ Approve & Submit to EPC</button>
+                </div>
+            </div>
+
+            <!-- Re-prompt Section -->
+            <div class="editor-section hidden" id="rePromptSection">
+                <h3>🔄 Re-Extract with Modified Prompt</h3>
+                <div class="form-group">
+                    <label>Modified Extraction Prompt</label>
+                    <textarea id="rePromptText" style="min-height: 200px;"></textarea>
+                </div>
+                <div class="button-group">
+                    <button class="btn" id="cancelRePrompt">❌ Cancel</button>
+                    <button class="btn btn-warning" id="confirmRePrompt">✅ Start Re-Extraction</button>
+                </div>
             </div>
         </div>
     </div>
@@ -441,10 +551,39 @@
         const fileInput = document.getElementById('fileInput');
         const statusCard = document.getElementById('statusCard');
         const alertContainer = document.getElementById('alertContainer');
+        const reviewSection = document.getElementById('reviewSection');
+        const rePromptSection = document.getElementById('rePromptSection');
+        const jsonEditor = document.getElementById('jsonEditor');
         
         let currentJobId = null;
         let statusInterval = null;
+        let currentExtractedData = null;
 
+        // Load master categories
+        async function loadMasterCategories() {
+            try {
+                const response = await fetch('/api/master-categories');
+                const categories = await response.json();
+                
+                const select = document.getElementById('masterCategory');
+                select.innerHTML = '<option value="">Select Master Category...</option>';
+                
+                categories.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat.id;
+                    option.textContent = cat.display;
+                    select.appendChild(option);
+                });
+
+                if (categories.length === 0) {
+                    showAlert('⚠️ No master categories configured! Please set UUIDs in .env file.', 'warning');
+                }
+            } catch (error) {
+                showAlert('Failed to load master categories: ' + error.message, 'error');
+            }
+        }
+
+        // Upload handlers
         uploadArea.addEventListener('click', () => fileInput.click());
 
         uploadArea.addEventListener('dragover', (e) => {
@@ -471,49 +610,36 @@
             }
         });
 
-        function handleFile(file) {
+        async function handleFile(file) {
             if (!file.name.toLowerCase().endsWith('.pdf')) {
                 showAlert('Please select a PDF file', 'error');
                 return;
             }
 
-            const sumopodKey = document.getElementById('sumopodApiKey').value.trim();
-            const epcToken = document.getElementById('epcBearerToken').value.trim();
-            const masterCategoryId = document.getElementById('masterCategoryId').value.trim();
+            const masterCategory = document.getElementById('masterCategory').value;
+            const aiModel = document.getElementById('aiModel').value;
+            const extractionPrompt = document.getElementById('extractionPrompt').value;
 
-            if (!sumopodKey || !epcToken) {
-                showAlert('Please provide Sumopod API Key and EPC Bearer Token', 'error');
+            if (!masterCategory) {
+                showAlert('Please select a Master Category', 'error');
                 return;
             }
 
-            if (!masterCategoryId) {
-                showAlert('Master Category ID is REQUIRED. Please enter the UUID.', 'error');
-                return;
-            }
-
-            // Validate UUID format
-            const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            if (!uuidPattern.test(masterCategoryId)) {
-                showAlert('Master Category ID must be a valid UUID format (e.g., 123e4567-e89b-12d3-a456-426614174000)', 'error');
-                return;
-            }
-
-            uploadFile(file);
+            uploadFile(file, masterCategory, aiModel, extractionPrompt);
         }
 
-        async function uploadFile(file) {
+        async function uploadFile(file, masterCategoryId, aiModel, prompt) {
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('sumopod_base_url', document.getElementById('sumopodBaseUrl').value);
-            formData.append('sumopod_api_key', document.getElementById('sumopodApiKey').value);
-            formData.append('sumopod_model', document.getElementById('sumopodModel').value);
-            formData.append('sumopod_temperature', document.getElementById('sumopodTemperature').value);
-            formData.append('sumopod_max_tokens', document.getElementById('sumopodMaxTokens').value);
-            formData.append('epc_base_url', document.getElementById('epcBaseUrl').value);
-            formData.append('epc_bearer_token', document.getElementById('epcBearerToken').value);
-            formData.append('max_retries', document.getElementById('maxRetries').value);
-            formData.append('enable_review_mode', document.getElementById('enableReview').checked);
-            formData.append('master_category_id', document.getElementById('masterCategoryId').value);
+            formData.append('master_category_id', masterCategoryId);
+            formData.append('ai_model', aiModel);
+            formData.append('custom_prompt', prompt);
+            
+            // Optional credentials
+            const sumopodKey = document.getElementById('sumopodApiKey').value.trim();
+            const epcToken = document.getElementById('epcBearerToken').value.trim();
+            if (sumopodKey) formData.append('sumopod_api_key', sumopodKey);
+            if (epcToken) formData.append('epc_bearer_token', epcToken);
 
             try {
                 const response = await fetch('/api/upload', {
@@ -525,11 +651,13 @@
 
                 if (response.ok) {
                     currentJobId = data.job_id;
-                    showAlert('File uploaded successfully! Job ID: ' + data.job_id, 'success');
+                    showAlert('✅ File uploaded! Extraction started...', 'success');
                     statusCard.classList.remove('hidden');
+                    reviewSection.classList.add('hidden');
+                    rePromptSection.classList.add('hidden');
                     startStatusPolling();
                 } else {
-                    showAlert(data.error || 'Upload failed', 'error');
+                    showAlert('❌ ' + (data.error || 'Upload failed'), 'error');
                 }
             } catch (error) {
                 showAlert('Network error: ' + error.message, 'error');
@@ -572,65 +700,120 @@
                 progressFill.style.width = '75%';
             } else if (data.status === 'completed') {
                 progressFill.style.width = '100%';
-            } else {
-                progressFill.style.width = '30%';
             }
 
-            if ((data.status === 'completed' || data.status === 'pending_review') && data.extracted_data) {
-                const resultSection = document.getElementById('resultSection');
-                const resultJson = document.getElementById('resultJson');
-                const approveBtn = document.getElementById('approveBtn');
-                
-                resultSection.classList.remove('hidden');
-                resultJson.textContent = JSON.stringify(data.extracted_data, null, 2);
-                
-                document.getElementById('downloadBtn').onclick = () => {
-                    window.location.href = '/api/download/' + currentJobId;
-                };
-
-                if (data.status === 'pending_review') {
-                    approveBtn.classList.remove('hidden');
-                    approveBtn.onclick = () => approveSubmission();
-                } else {
-                    approveBtn.classList.add('hidden');
-                }
+            // Show review section when extraction complete
+            if (data.status === 'pending_review' && data.extracted_data) {
+                currentExtractedData = data.extracted_data;
+                showReviewSection(data.extracted_data);
             }
 
-            if (data.status === 'failed' || data.status === 'error') {
+            if (data.status === 'error' || data.status === 'failed') {
                 const errorMsg = data.error || (data.result && data.result.error) || 'Processing failed';
-                showAlert('Error: ' + errorMsg, 'error');
+                showAlert('❌ Error: ' + errorMsg, 'error');
             }
 
             if (data.status === 'completed') {
-                showAlert('✅ Processing completed successfully!', 'success');
+                showAlert('✅ Successfully submitted to EPC database!', 'success');
             }
         }
 
-        async function approveSubmission() {
-            if (!confirm('Submit extracted data to Motorsights EPC?')) {
+        function showReviewSection(extractedData) {
+            reviewSection.classList.remove('hidden');
+            rePromptSection.classList.add('hidden');
+            
+            // Display formatted JSON
+            jsonEditor.textContent = JSON.stringify(extractedData, null, 2);
+            
+            showAlert('⚠️ REVIEW REQUIRED: Please review and edit the extracted data before submitting', 'warning');
+        }
+
+        // Download button
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            if (currentJobId) {
+                window.location.href = '/api/download/' + currentJobId;
+            }
+        });
+
+        // Re-extract button
+        document.getElementById('reExtractBtn').addEventListener('click', () => {
+            reviewSection.classList.add('hidden');
+            rePromptSection.classList.remove('hidden');
+            
+            // Copy current prompt
+            const currentPrompt = document.getElementById('extractionPrompt').value;
+            document.getElementById('rePromptText').value = currentPrompt;
+        });
+
+        document.getElementById('cancelRePrompt').addEventListener('click', () => {
+            rePromptSection.classList.add('hidden');
+            reviewSection.classList.remove('hidden');
+        });
+
+        document.getElementById('confirmRePrompt').addEventListener('click', async () => {
+            const newPrompt = document.getElementById('rePromptText').value;
+            
+            if (!confirm('Start re-extraction with modified prompt?')) {
                 return;
             }
 
             try {
+                const response = await fetch('/api/re-extract/' + currentJobId, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: newPrompt })
+                });
+
+                if (response.ok) {
+                    showAlert('🔄 Re-extraction started...', 'success');
+                    rePromptSection.classList.add('hidden');
+                    reviewSection.classList.add('hidden');
+                    startStatusPolling();
+                } else {
+                    const data = await response.json();
+                    showAlert('❌ ' + (data.error || 'Re-extraction failed'), 'error');
+                }
+            } catch (error) {
+                showAlert('Network error: ' + error.message, 'error');
+            }
+        });
+
+        // Approve and submit button
+        document.getElementById('approveBtn').addEventListener('click', async () => {
+            if (!confirm('⚠️ Submit to EPC database?\n\nThis will create categories and type categories in the system.')) {
+                return;
+            }
+
+            try {
+                // Get potentially edited data from editor
+                const editedText = jsonEditor.textContent;
+                let editedData;
+                
+                try {
+                    editedData = JSON.parse(editedText);
+                } catch (e) {
+                    showAlert('❌ Invalid JSON in editor. Please fix syntax errors.', 'error');
+                    return;
+                }
+
                 const response = await fetch('/api/approve/' + currentJobId, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ data: editedData })
                 });
 
                 const data = await response.json();
 
                 if (response.ok && data.success) {
-                    showAlert('✅ Successfully submitted to EPC!', 'success');
-                    startStatusPolling(); // Resume polling to update status
+                    showAlert('✅ Successfully submitted to EPC database!', 'success');
+                    startStatusPolling();
                 } else {
                     showAlert('❌ Submission failed: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 showAlert('Network error: ' + error.message, 'error');
             }
-        }
+        });
 
         function showAlert(message, type) {
             const alertDiv = document.createElement('div');
@@ -642,31 +825,12 @@
 
             setTimeout(() => {
                 alertDiv.remove();
-            }, 5000);
+            }, 8000);
         }
 
-        // Load saved settings
+        // Initialize
         window.addEventListener('load', () => {
-            const savedBaseUrl = localStorage.getItem('sumopodBaseUrl');
-            const savedModel = localStorage.getItem('sumopodModel');
-            const savedTemperature = localStorage.getItem('sumopodTemperature');
-            const savedMaxTokens = localStorage.getItem('sumopodMaxTokens');
-            const savedRetries = localStorage.getItem('maxRetries');
-            const savedEpcUrl = localStorage.getItem('epcBaseUrl');
-
-            if (savedBaseUrl) document.getElementById('sumopodBaseUrl').value = savedBaseUrl;
-            if (savedModel) document.getElementById('sumopodModel').value = savedModel;
-            if (savedTemperature) document.getElementById('sumopodTemperature').value = savedTemperature;
-            if (savedMaxTokens) document.getElementById('sumopodMaxTokens').value = savedMaxTokens;
-            if (savedRetries) document.getElementById('maxRetries').value = savedRetries;
-            if (savedEpcUrl) document.getElementById('epcBaseUrl').value = savedEpcUrl;
-        });
-
-        // Save settings on change
-        ['sumopodBaseUrl', 'sumopodModel', 'sumopodTemperature', 'sumopodMaxTokens', 'maxRetries', 'epcBaseUrl'].forEach(id => {
-            document.getElementById(id).addEventListener('change', (e) => {
-                localStorage.setItem(id, e.target.value);
-            });
+            loadMasterCategories();
         });
     </script>
 </body>

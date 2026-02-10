@@ -118,7 +118,7 @@ def process_pdf_async(job_id, pdf_path, config_params):
 @app.route('/')
 def index():
     """Render main page"""
-    return render_template('epc_simplified.html')
+    return render_template('epc_index.html')
 
 
 @app.route('/history')
