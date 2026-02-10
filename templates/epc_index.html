@@ -297,7 +297,7 @@
     <div class="container">
         <div class="header">
             <h1>🚗 Motorsights EPC</h1>
-            <p>Electronic Product Catalog - PDF Automation</p>
+            <p>Electronic Product Catalog - PDF Automation (Powered by Sumopod AI)</p>
             <div class="nav">
                 <a href="/">Upload</a>
                 <a href="/config">Configuration</a>
@@ -321,18 +321,18 @@
                 
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Maia Router Endpoint</label>
-                        <input type="text" id="maiaEndpoint" 
-                               value="https://maia.motorsights.com/v1/chat/completions"
-                               placeholder="https://maia.motorsights.com/v1/chat/completions">
-                        <small>Maia Router AI Gateway URL</small>
+                        <label>Sumopod Base URL</label>
+                        <input type="text" id="sumopodBaseUrl" 
+                               value="https://ai.sumopod.com/v1"
+                               placeholder="https://ai.sumopod.com/v1">
+                        <small>Sumopod AI Gateway URL</small>
                     </div>
 
                     <div class="form-group">
-                        <label>Maia Router API Key</label>
-                        <input type="password" id="maiaApiKey" 
+                        <label>Sumopod API Key</label>
+                        <input type="password" id="sumopodApiKey" 
                                placeholder="sk-...">
-                        <small>API key for Maia Router (or set MAIA_ROUTER_API_KEY env var)</small>
+                        <small>API key for Sumopod (or set SUMOPOD_API_KEY env var)</small>
                     </div>
                 </div>
 
@@ -356,11 +356,24 @@
                 <div class="form-row">
                     <div class="form-group">
                         <label>AI Model</label>
-                        <select id="maiaModel">
-                            <option value="gpt-4o">GPT-4o (Recommended)</option>
-                            <option value="gpt-4.1">GPT-4.1</option>
-                            <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                        <select id="sumopodModel">
+                            <option value="gpt4o">GPT-4o (Recommended)</option>
+                            <option value="gpt4.1nano">GPT-4.1 Nano</option>
                         </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Temperature</label>
+                        <input type="number" id="sumopodTemperature" value="0.7" min="0" max="1" step="0.1">
+                        <small>AI creativity level (0.0-1.0)</small>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Max Tokens</label>
+                        <input type="number" id="sumopodMaxTokens" value="2000" min="100" max="4000" step="100">
+                        <small>Maximum response length</small>
                     </div>
 
                     <div class="form-group">
@@ -464,12 +477,12 @@
                 return;
             }
 
-            const maiaKey = document.getElementById('maiaApiKey').value.trim();
+            const sumopodKey = document.getElementById('sumopodApiKey').value.trim();
             const epcToken = document.getElementById('epcBearerToken').value.trim();
             const masterCategoryId = document.getElementById('masterCategoryId').value.trim();
 
-            if (!maiaKey || !epcToken) {
-                showAlert('Please provide Maia Router API Key and EPC Bearer Token', 'error');
+            if (!sumopodKey || !epcToken) {
+                showAlert('Please provide Sumopod API Key and EPC Bearer Token', 'error');
                 return;
             }
 
@@ -491,9 +504,11 @@
         async function uploadFile(file) {
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('maia_endpoint', document.getElementById('maiaEndpoint').value);
-            formData.append('maia_api_key', document.getElementById('maiaApiKey').value);
-            formData.append('maia_model', document.getElementById('maiaModel').value);
+            formData.append('sumopod_base_url', document.getElementById('sumopodBaseUrl').value);
+            formData.append('sumopod_api_key', document.getElementById('sumopodApiKey').value);
+            formData.append('sumopod_model', document.getElementById('sumopodModel').value);
+            formData.append('sumopod_temperature', document.getElementById('sumopodTemperature').value);
+            formData.append('sumopod_max_tokens', document.getElementById('sumopodMaxTokens').value);
             formData.append('epc_base_url', document.getElementById('epcBaseUrl').value);
             formData.append('epc_bearer_token', document.getElementById('epcBearerToken').value);
             formData.append('max_retries', document.getElementById('maxRetries').value);
@@ -632,19 +647,23 @@
 
         // Load saved settings
         window.addEventListener('load', () => {
-            const savedEndpoint = localStorage.getItem('maiaEndpoint');
-            const savedModel = localStorage.getItem('maiaModel');
+            const savedBaseUrl = localStorage.getItem('sumopodBaseUrl');
+            const savedModel = localStorage.getItem('sumopodModel');
+            const savedTemperature = localStorage.getItem('sumopodTemperature');
+            const savedMaxTokens = localStorage.getItem('sumopodMaxTokens');
             const savedRetries = localStorage.getItem('maxRetries');
             const savedEpcUrl = localStorage.getItem('epcBaseUrl');
 
-            if (savedEndpoint) document.getElementById('maiaEndpoint').value = savedEndpoint;
-            if (savedModel) document.getElementById('maiaModel').value = savedModel;
+            if (savedBaseUrl) document.getElementById('sumopodBaseUrl').value = savedBaseUrl;
+            if (savedModel) document.getElementById('sumopodModel').value = savedModel;
+            if (savedTemperature) document.getElementById('sumopodTemperature').value = savedTemperature;
+            if (savedMaxTokens) document.getElementById('sumopodMaxTokens').value = savedMaxTokens;
             if (savedRetries) document.getElementById('maxRetries').value = savedRetries;
             if (savedEpcUrl) document.getElementById('epcBaseUrl').value = savedEpcUrl;
         });
 
         // Save settings on change
-        ['maiaEndpoint', 'maiaModel', 'maxRetries', 'epcBaseUrl'].forEach(id => {
+        ['sumopodBaseUrl', 'sumopodModel', 'sumopodTemperature', 'sumopodMaxTokens', 'maxRetries', 'epcBaseUrl'].forEach(id => {
             document.getElementById(id).addEventListener('change', (e) => {
                 localStorage.setItem(id, e.target.value);
             });

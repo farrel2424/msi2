@@ -42,9 +42,11 @@ def process_pdf_async(job_id, pdf_path, config_params):
         
         # Create config
         config = EPCAutomationConfig(
-            maia_endpoint=config_params.get('maia_endpoint', 'https://maia.motorsights.com/v1/chat/completions'),
-            maia_api_key=config_params.get('maia_api_key'),
-            maia_model=config_params.get('maia_model', 'gpt-4o'),
+            sumopod_base_url=config_params.get('sumopod_base_url', 'https://ai.sumopod.com/v1'),
+            sumopod_api_key=config_params.get('sumopod_api_key'),
+            sumopod_model=config_params.get('sumopod_model', 'gpt4o'),
+            sumopod_temperature=float(config_params.get('sumopod_temperature', 0.7)),
+            sumopod_max_tokens=int(config_params.get('sumopod_max_tokens', 2000)),
             
             epc_base_url=config_params.get('epc_base_url', 'https://dev-epc.motorsights.com'),
             epc_bearer_token=config_params.get('epc_bearer_token'),
@@ -129,9 +131,11 @@ def upload_file():
     
     # Get configuration from form
     config_params = {
-        'maia_endpoint': request.form.get('maia_endpoint', 'https://maia.motorsights.com/v1/chat/completions'),
-        'maia_api_key': request.form.get('maia_api_key', os.getenv('MAIA_ROUTER_API_KEY')),
-        'maia_model': request.form.get('maia_model', 'gpt-4o'),
+        'sumopod_base_url': request.form.get('sumopod_base_url', 'https://ai.sumopod.com/v1'),
+        'sumopod_api_key': request.form.get('sumopod_api_key', os.getenv('SUMOPOD_API_KEY')),
+        'sumopod_model': request.form.get('sumopod_model', 'gpt4o'),
+        'sumopod_temperature': request.form.get('sumopod_temperature', '0.7'),
+        'sumopod_max_tokens': request.form.get('sumopod_max_tokens', '2000'),
         
         'epc_base_url': request.form.get('epc_base_url', 'https://dev-epc.motorsights.com'),
         'epc_bearer_token': request.form.get('epc_bearer_token', os.getenv('EPC_BEARER_TOKEN')),
@@ -142,11 +146,14 @@ def upload_file():
     }
     
     # Validate required fields
-    if not config_params['maia_api_key']:
-        return jsonify({'error': 'Maia Router API Key is required'}), 400
+    if not config_params['sumopod_api_key']:
+        return jsonify({'error': 'Sumopod API Key is required'}), 400
     
     if not config_params['epc_bearer_token']:
         return jsonify({'error': 'EPC Bearer Token is required'}), 400
+    
+    if not config_params['master_category_id']:
+        return jsonify({'error': 'Master Category ID is required'}), 400
     
     # Save uploaded file
     filename = secure_filename(file.filename)
@@ -208,9 +215,11 @@ def approve_submission(job_id):
     try:
         # Create automation instance
         config = EPCAutomationConfig(
-            maia_endpoint=job['config']['maia_endpoint'],
-            maia_api_key=job['config']['maia_api_key'],
-            maia_model=job['config']['maia_model'],
+            sumopod_base_url=job['config']['sumopod_base_url'],
+            sumopod_api_key=job['config']['sumopod_api_key'],
+            sumopod_model=job['config']['sumopod_model'],
+            sumopod_temperature=float(job['config'].get('sumopod_temperature', 0.7)),
+            sumopod_max_tokens=int(job['config'].get('sumopod_max_tokens', 2000)),
             epc_base_url=job['config']['epc_base_url'],
             epc_bearer_token=job['config']['epc_bearer_token'],
             master_category_id=job['config'].get('master_category_id')  # UUID string

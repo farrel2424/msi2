@@ -1,6 +1,6 @@
 """
-Maia Router AI Gateway Client
-Universal AI gateway for all LLM requests (GPT-4o, GPT-4.1, Claude-3-Sonnet)
+Sumopod AI Client
+OpenAI-compatible API client for Sumopod AI Gateway
 """
 
 from openai import OpenAI
@@ -9,8 +9,8 @@ import logging
 import json
 
 
-class MaiaRouterClient:
-    """Client for Maia Router AI Gateway"""
+class SumopodClient:
+    """Client for Sumopod AI Gateway"""
     
     # System prompt for PDF data extraction
     EXTRACTION_SYSTEM_PROMPT = """You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
@@ -47,12 +47,12 @@ Output JSON schema:
   "categories": [
     {
       "category_name_en": "string (from section header, English part)",
-      "category_name_zh": "string (from section header, Chinese part)",
+      "category_name_cn": "string (from section header, Chinese part)",
       "subcategories": [
         {
           "subcategory_code": "string (part code, e.g., D C97259880020)",
           "subcategory_name_en": "string (English name after code)",
-          "subcategory_name_zh": "string (Chinese name, look for Chinese characters)"
+          "subcategory_name_cn": "string (Chinese name, look for Chinese characters)"
         }
       ]
     }
@@ -74,28 +74,28 @@ Example Output:
   "categories": [
     {
       "category_name_en": "Frame System",
-      "category_name_zh": "车架系统",
+      "category_name_cn": "车架系统",
       "subcategories": [
         {
           "subcategory_code": "D C97259880020",
           "subcategory_name_en": "Front Accessories",
-          "subcategory_name_zh": "中保险杠"
+          "subcategory_name_cn": "中保险杠"
         },
         {
           "subcategory_code": "D C95259510002",
           "subcategory_name_en": "Transmission Auxiliary Crossbeam",
-          "subcategory_name_zh": "变速器辅助横梁"
+          "subcategory_name_cn": "变速器辅助横梁"
         }
       ]
     },
     {
       "category_name_en": "Dynamic System",
-      "category_name_zh": "动力系统",
+      "category_name_cn": "动力系统",
       "subcategories": [
         {
           "subcategory_code": "D C62119011339",
           "subcategory_name_en": "Engine Assembly",
-          "subcategory_name_zh": "发动机总成"
+          "subcategory_name_cn": "发动机总成"
         }
       ]
     }
@@ -104,36 +104,42 @@ Example Output:
     
     def __init__(
         self, 
-        endpoint: str = "https://maia.motorsights.com/v1/chat/completions",
+        base_url: str = "https://ai.sumopod.com/v1",
         api_key: Optional[str] = None,
-        model: str = "gpt-4o",
+        model: str = "gpt4o",
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
         max_retries: int = 3
     ):
         """
-        Initialize Maia Router client
+        Initialize Sumopod client
         
         Args:
-            endpoint: Maia Router endpoint URL
-            api_key: Bearer token (sk-xxxx format)
-            model: Model to use (gpt-4o, gpt-4.1, claude-3-sonnet)
+            base_url: Sumopod API base URL
+            api_key: API key (sk-xxxx format)
+            model: Model to use (gpt4o, gpt4.1nano)
+            temperature: Temperature for generation (0.0-1.0)
+            max_tokens: Maximum tokens in response
             max_retries: Maximum retry attempts for self-correction
         """
-        self.endpoint = endpoint
+        self.base_url = base_url.rstrip('/')
         self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
         self.max_retries = max_retries
         self.logger = logging.getLogger(__name__)
         
-        # Initialize OpenAI client pointing to Maia Router
+        # Initialize OpenAI client pointing to Sumopod
         self.client = OpenAI(
-            base_url=endpoint.replace('/chat/completions', ''),  # Base URL without endpoint
+            base_url=base_url,
             api_key=api_key
         )
         
-        self.logger.info(f"Initialized Maia Router client with model: {model}")
+        self.logger.info(f"Initialized Sumopod client with model: {model}")
     
     def extract_catalog_data(self, markdown_text: str, attempt: int = 1) -> Dict:
         """
-        Extract structured catalog data from PDF markdown using Maia Router
+        Extract structured catalog data from PDF markdown using Sumopod
         
         Args:
             markdown_text: PDF content converted to markdown
@@ -142,26 +148,26 @@ Example Output:
         Returns:
             Validated JSON data structure
         """
-        self.logger.info(f"Starting LLM extraction via Maia Router (attempt {attempt}/{self.max_retries})")
+        self.logger.info(f"Starting LLM extraction via Sumopod (attempt {attempt}/{self.max_retries})")
         
         try:
             # Prepare user prompt
             user_prompt = f"Extract structured EPC catalog data from this PDF markdown:\n\n{markdown_text}"
             
-            # Call Maia Router (OpenAI-compatible API)
+            # Call Sumopod (OpenAI-compatible API)
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": self.EXTRACTION_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1,  # Low temperature for consistency
-                max_tokens=4000
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
             )
             
             # Extract response text
             response_text = response.choices[0].message.content.strip()
-            self.logger.debug(f"Maia Router response: {response_text[:200]}...")
+            self.logger.debug(f"Sumopod response: {response_text[:200]}...")
             
             # Parse JSON
             extracted_data = self._parse_json_response(response_text)
@@ -244,7 +250,7 @@ Example Output:
             errors.append("'categories' list is empty")
             return {'valid': False, 'errors': errors}
         
-        # Validate each category (Type Category)
+        # Validate each category
         for idx, category in enumerate(data['categories']):
             if not isinstance(category, dict):
                 errors.append(f"Category {idx} is not a dictionary")
@@ -259,7 +265,7 @@ Example Output:
             elif not isinstance(category['subcategories'], list):
                 errors.append(f"Category {idx} 'subcategories' must be a list")
             else:
-                # Validate subcategories (Categories)
+                # Validate subcategories (Type Categories)
                 for sub_idx, subcategory in enumerate(category['subcategories']):
                     if not isinstance(subcategory, dict):
                         errors.append(f"Category {idx}, subcategory {sub_idx} is not a dictionary")
@@ -268,9 +274,6 @@ Example Output:
                     # Required: at least English name
                     if 'subcategory_name_en' not in subcategory:
                         errors.append(f"Category {idx}, subcategory {sub_idx} missing 'subcategory_name_en'")
-                    
-                    # Code is optional but good to have
-                    # Note: subcategory_code is optional, no validation error if missing
         
         return {
             'valid': len(errors) == 0,
@@ -279,7 +282,7 @@ Example Output:
     
     def _retry_with_correction(self, markdown_text: str, errors: List[str], attempt: int) -> Dict:
         """Retry extraction with error feedback for self-correction"""
-        self.logger.info(f"Retrying extraction with error feedback via Maia Router (attempt {attempt})")
+        self.logger.info(f"Retrying extraction with error feedback via Sumopod (attempt {attempt})")
         
         error_message = "\n".join(f"- {error}" for error in errors)
         corrective_prompt = f"""The previous extraction had these errors:
@@ -289,8 +292,8 @@ Please extract the data again, ensuring:
 1. Valid JSON format (no markdown code blocks)
 2. All required fields are present
 3. Correct data types (lists, dictionaries, strings)
-4. Bold text (**text**) = Type Category (category_name_en/zh)
-5. Normal text = Category (subcategory_name_en/zh)
+4. Category format: section headers with numbers and bold text
+5. Subcategory format: part codes followed by names
 
 Original markdown text:
 {markdown_text}"""
@@ -302,8 +305,8 @@ Original markdown text:
                     {"role": "system", "content": self.EXTRACTION_SYSTEM_PROMPT},
                     {"role": "user", "content": corrective_prompt}
                 ],
-                temperature=0.1,
-                max_tokens=4000
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
             )
             
             response_text = response.choices[0].message.content.strip()
@@ -313,7 +316,7 @@ Original markdown text:
             validation_result = self._validate_extracted_data(extracted_data)
             
             if validation_result['valid']:
-                self.logger.info("Self-correction successful via Maia Router")
+                self.logger.info("Self-correction successful via Sumopod")
                 return extracted_data
             else:
                 if attempt < self.max_retries:

@@ -348,11 +348,11 @@ class MotorsightsEPCClient:
                     "categories": [
                         {
                             "category_name_en": "Electronics",
-                            "category_name_zh": "电子产品",
+                            "category_name_cn": "电子产品",
                             "subcategories": [
                                 {
                                     "subcategory_name_en": "Mobile Phones",
-                                    "subcategory_name_zh": "手机"
+                                    "subcategory_name_cn": "手机"
                                 }
                             ]
                         }
@@ -395,8 +395,8 @@ class MotorsightsEPCClient:
                     type_cat_data['type_category_code'] = str(uuid.uuid4())[:10]
                 
                 # Add Chinese name if present
-                if subcategory.get('subcategory_name_zh'):
-                    type_cat_data['type_category_name_cn'] = subcategory['subcategory_name_zh']
+                if subcategory.get('subcategory_name_cn'):
+                    type_cat_data['type_category_name_cn'] = subcategory['subcategory_name_cn']
                 
                 # Optional description
                 type_cat_data['type_category_description'] = f"Type category for {subcategory['subcategory_name_en']}"
@@ -410,8 +410,8 @@ class MotorsightsEPCClient:
             }
             
             # Add Chinese name if present
-            if pdf_category.get('category_name_zh'):
-                category_request['category_name_cn'] = pdf_category['category_name_zh']
+            if pdf_category.get('category_name_cn'):
+                category_request['category_name_cn'] = pdf_category['category_name_cn']
             
             # Add optional fields
             category_request['category_description'] = f"Category for {pdf_category['category_name_en']}"

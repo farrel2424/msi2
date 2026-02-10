@@ -1,7 +1,7 @@
 """
 Motorsights EPC PDF Automation
 Main orchestrator for PDF extraction and EPC submission
-Uses Maia Router for AI and Motorsights EPC API for data submission
+Uses Sumopod AI Gateway and Motorsights EPC API
 """
 
 import os
@@ -15,7 +15,7 @@ import hashlib
 
 import pymupdf4llm
 
-from maia_router_client import MaiaRouterClient
+from sumopod_client import SumopodClient
 from motorsights_epc_client import MotorsightsEPCClient
 
 
@@ -24,10 +24,12 @@ class EPCAutomationConfig:
     
     def __init__(
         self,
-        # Maia Router (AI Gateway)
-        maia_endpoint: str = "https://maia.motorsights.com/v1/chat/completions",
-        maia_api_key: Optional[str] = None,
-        maia_model: str = "gpt-4o",
+        # Sumopod AI Gateway
+        sumopod_base_url: str = "https://ai.sumopod.com/v1",
+        sumopod_api_key: Optional[str] = None,
+        sumopod_model: str = "gpt4o",
+        sumopod_temperature: float = 0.7,
+        sumopod_max_tokens: int = 2000,
         
         # Motorsights EPC API
         epc_base_url: str = "https://dev-epc.motorsights.com",
@@ -36,16 +38,27 @@ class EPCAutomationConfig:
         # Processing options
         max_retries: int = 3,
         enable_review_mode: bool = True,
-        master_category_id: Optional[str] = None,  # Now required as UUID string
+        master_category_id: Optional[str] = None,  # Required UUID string
         
         # Logging
         processed_log_file: str = "epc_processed_files.json"
     ):
-        self.maia_endpoint = maia_endpoint
-        self.maia_api_key = maia_api_key or os.getenv("MAIA_ROUTER_API_KEY")
-        self.maia_model = maia_model or os.getenv("MAIA_ROUTER_MODEL", "gpt-4o")
+        self.sumopod_base_url = sumopod_base_url or os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1")
+        self.sumopod_api_key = sumopod_api_key or os.getenv("SUMOPOD_API_KEY")
+        self.sumopod_model = sumopod_model or os.getenv("SUMOPOD_MODEL", "gpt4o")
         
-        self.epc_base_url = epc_base_url or os.getenv("EPC_API_BASE_URL")
+        # Convert temperature and max_tokens from env vars if needed
+        try:
+            self.sumopod_temperature = float(os.getenv("SUMOPOD_TEMPERATURE", str(sumopod_temperature)))
+        except (ValueError, TypeError):
+            self.sumopod_temperature = sumopod_temperature
+        
+        try:
+            self.sumopod_max_tokens = int(os.getenv("SUMOPOD_MAX_TOKENS", str(sumopod_max_tokens)))
+        except (ValueError, TypeError):
+            self.sumopod_max_tokens = sumopod_max_tokens
+        
+        self.epc_base_url = epc_base_url or os.getenv("EPC_API_BASE_URL", "https://dev-epc.motorsights.com")
         self.epc_bearer_token = epc_bearer_token or os.getenv("EPC_BEARER_TOKEN")
         
         self.max_retries = max_retries
@@ -55,8 +68,8 @@ class EPCAutomationConfig:
         self.processed_log_file = processed_log_file
         
         # Validate configuration
-        if not self.maia_api_key:
-            raise ValueError("Maia Router API key must be provided via parameter or MAIA_ROUTER_API_KEY env variable")
+        if not self.sumopod_api_key:
+            raise ValueError("Sumopod API key must be provided via parameter or SUMOPOD_API_KEY env variable")
         if not self.epc_bearer_token:
             raise ValueError("EPC Bearer token must be provided via parameter or EPC_BEARER_TOKEN env variable")
         
@@ -138,10 +151,12 @@ class EPCPDFAutomation:
         self.tracker = ProcessedFilesTracker(config.processed_log_file)
         
         # Initialize clients
-        self.maia_client = MaiaRouterClient(
-            endpoint=config.maia_endpoint,
-            api_key=config.maia_api_key,
-            model=config.maia_model,
+        self.ai_client = SumopodClient(
+            base_url=config.sumopod_base_url,
+            api_key=config.sumopod_api_key,
+            model=config.sumopod_model,
+            temperature=config.sumopod_temperature,
+            max_tokens=config.sumopod_max_tokens,
             max_retries=config.max_retries
         )
         
@@ -221,10 +236,10 @@ class EPCPDFAutomation:
             markdown_text = pymupdf4llm.to_markdown(str(pdf_path))
             self.logger.info(f"Converted to markdown ({len(markdown_text)} characters)")
             
-            # Stage 2: Extract data using Maia Router
+            # Stage 2: Extract data using Sumopod
             result['stage'] = 'ai_extraction'
-            self.logger.info("Stage 2: Extracting catalog data via Maia Router")
-            extracted_data = self.maia_client.extract_catalog_data(markdown_text)
+            self.logger.info("Stage 2: Extracting catalog data via Sumopod AI")
+            extracted_data = self.ai_client.extract_catalog_data(markdown_text)
             result['extracted_data'] = extracted_data
             
             categories_count = len(extracted_data.get('categories', []))
@@ -234,8 +249,8 @@ class EPCPDFAutomation:
             )
             
             self.logger.info(
-                f"Extracted {categories_count} type categories "
-                f"with {subcategories_count} subcategories"
+                f"Extracted {categories_count} categories "
+                f"with {subcategories_count} type categories (subcategories)"
             )
             
             # Stage 3: Review or Auto-submit
@@ -381,9 +396,11 @@ def main():
     """Main entry point for EPC automation"""
     # Configuration
     config = EPCAutomationConfig(
-        maia_endpoint="https://maia.motorsights.com/v1/chat/completions",
-        # maia_api_key will be read from MAIA_ROUTER_API_KEY env variable
-        maia_model="gpt-4o",  # or gpt-4.1, claude-3-sonnet
+        sumopod_base_url="https://ai.sumopod.com/v1",
+        # sumopod_api_key will be read from SUMOPOD_API_KEY env variable
+        sumopod_model="gpt4o",  # or gpt4.1nano
+        sumopod_temperature=0.7,
+        sumopod_max_tokens=2000,
         
         epc_base_url="https://dev-epc.motorsights.com",
         # epc_bearer_token will be read from EPC_BEARER_TOKEN env variable

@@ -144,7 +144,7 @@
             <h3>Option 1: Environment Variables (Recommended)</h3>
             <div class="step">
                 <p>Create a <code>.env</code> file in the project directory:</p>
-                <div class="code-block">MAIA_ROUTER_API_KEY=sk-your-maia-key-here
+                <div class="code-block">SUMOPOD_API_KEY=sk-your-sumopod-key-here
 EPC_BEARER_TOKEN=your-epc-token-here</div>
             </div>
 
@@ -158,9 +158,9 @@ EPC_BEARER_TOKEN=your-epc-token-here</div>
             <h2>Configuration Parameters</h2>
             
             <div class="info-box">
-                <h3>Maia Router API Key</h3>
-                <p><strong>Variable:</strong> <code>MAIA_ROUTER_API_KEY</code></p>
-                <p>Your API key for Maia Router (Universal AI Gateway). Get this from your mentor.</p>
+                <h3>Sumopod API Key</h3>
+                <p><strong>Variable:</strong> <code>SUMOPOD_API_KEY</code></p>
+                <p>Your API key for Sumopod AI Gateway. Get this from your mentor.</p>
                 <p><strong>Format:</strong> <code>sk-xxxx...</code></p>
             </div>
 
@@ -171,9 +171,9 @@ EPC_BEARER_TOKEN=your-epc-token-here</div>
             </div>
 
             <div class="info-box">
-                <h3>Master Category ID (Optional)</h3>
+                <h3>Master Category ID (Required)</h3>
                 <p><strong>Variable:</strong> <code>DEFAULT_MASTER_CATEGORY_ID</code></p>
-                <p>If you have a default master category, set its ID here to automatically link all uploaded items.</p>
+                <p>UUID of the default master category for all uploaded items.</p>
             </div>
         </div>
 
