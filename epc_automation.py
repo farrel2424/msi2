@@ -30,6 +30,7 @@ class EPCAutomationConfig:
         sumopod_model: str = "gpt4o",
         sumopod_temperature: float = 0.7,
         sumopod_max_tokens: int = 2000,
+        sumopod_custom_prompt: Optional[str] = None,  # FIX: Custom extraction prompt
         
         # Motorsights EPC API
         epc_base_url: str = "https://dev-epc.motorsights.com",
@@ -46,6 +47,7 @@ class EPCAutomationConfig:
         self.sumopod_base_url = sumopod_base_url or os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1")
         self.sumopod_api_key = sumopod_api_key or os.getenv("SUMOPOD_API_KEY")
         self.sumopod_model = sumopod_model or os.getenv("SUMOPOD_MODEL", "gpt4o")
+        self.sumopod_custom_prompt = sumopod_custom_prompt  # FIX: Store custom prompt
         
         # Convert temperature and max_tokens from env vars if needed
         try:
@@ -151,13 +153,15 @@ class EPCPDFAutomation:
         self.tracker = ProcessedFilesTracker(config.processed_log_file)
         
         # Initialize clients
+        # FIX: Pass custom_system_prompt to SumopodClient
         self.ai_client = SumopodClient(
             base_url=config.sumopod_base_url,
             api_key=config.sumopod_api_key,
             model=config.sumopod_model,
             temperature=config.sumopod_temperature,
             max_tokens=config.sumopod_max_tokens,
-            max_retries=config.max_retries
+            max_retries=config.max_retries,
+            custom_system_prompt=config.sumopod_custom_prompt  # FIX: Pass custom prompt
         )
         
         self.epc_client = MotorsightsEPCClient(

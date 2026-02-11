@@ -65,13 +65,17 @@ def process_pdf_async(job_id, pdf_path, config_params):
             job_status[job_id]['status'] = 'processing'
             job_status[job_id]['stage'] = 'initializing'
         
-        # Create config
+        # FIX: Extract custom_prompt from config_params
+        custom_prompt = config_params.get('custom_prompt', '').strip()
+        
+        # Create config with custom prompt
         config = EPCAutomationConfig(
             sumopod_base_url=config_params.get('sumopod_base_url', 'https://ai.sumopod.com/v1'),
             sumopod_api_key=config_params.get('sumopod_api_key'),
             sumopod_model=config_params.get('sumopod_model', 'gpt4o'),
             sumopod_temperature=float(config_params.get('sumopod_temperature', 0.7)),
             sumopod_max_tokens=int(config_params.get('sumopod_max_tokens', 2000)),
+            sumopod_custom_prompt=custom_prompt if custom_prompt else None,  # FIX: Pass custom prompt
             
             epc_base_url=config_params.get('epc_base_url', 'https://dev-epc.motorsights.com'),
             epc_bearer_token=config_params.get('epc_bearer_token'),
@@ -162,7 +166,7 @@ def upload_file():
     epc_bearer_token = request.form.get('epc_bearer_token', os.getenv('EPC_BEARER_TOKEN'))
     master_category_id = request.form.get('master_category_id', '')
     ai_model = request.form.get('ai_model', 'gpt4o')
-    custom_prompt = request.form.get('custom_prompt', '')
+    custom_prompt = request.form.get('custom_prompt', '')  # FIX: Get custom prompt from form
     
     # Validate required fields
     if not sumopod_api_key:
@@ -183,7 +187,7 @@ def upload_file():
         'epc_base_url': 'https://dev-epc.motorsights.com',
         'epc_bearer_token': epc_bearer_token,
         'master_category_id': master_category_id,
-        'custom_prompt': custom_prompt  # Store for potential re-prompting
+        'custom_prompt': custom_prompt  # FIX: Store custom prompt properly
     }
     
     # Save uploaded file
@@ -240,7 +244,7 @@ def re_extract(job_id):
     
     # Update config with new prompt
     config_params = job['config'].copy()
-    config_params['custom_prompt'] = new_prompt
+    config_params['custom_prompt'] = new_prompt  # FIX: Update custom prompt
     
     # Reset job status
     with job_lock:
@@ -287,6 +291,7 @@ def approve_submission(job_id):
         job_status[job_id]['stage'] = 'epc_submission'
     
     try:
+        # FIX: Don't need custom prompt for submission, just for extraction
         # Create automation instance
         config = EPCAutomationConfig(
             sumopod_base_url=job['config']['sumopod_base_url'],
