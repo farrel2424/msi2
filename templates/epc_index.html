@@ -427,9 +427,7 @@
                 <div class="form-group">
                     <label>AI Model *</label>
                     <select id="aiModel" required>
-                        <option value="gpt4o">GPT-4o (Recommended - Best Quality)</option>
-                        <option value="gpt-4o-mini">GPT-4o Mini (Faster, Good Quality)</option>
-                        <option value="gpt4.1nano">GPT-4.1 Nano (Fast, Lower Cost)</option>
+                        <option value="gpt-4o">GPT-4o (Recommended - Best Quality)</option>
                         <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (High Quality)</option>
                         <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
                         <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
@@ -470,11 +468,11 @@ Output JSON schema:
     {
       "category_name_en": "string",
       "category_name_cn": "string",
-      "subcategories": [
+      "data_type": [
         {
-          "subcategory_code": "string",
-          "subcategory_name_en": "string",
-          "subcategory_name_cn": "string"
+          "data_type_code": "string",
+          "data_type_code_en": "string",
+          "data_type_code_cn": "string"
         }
       ]
     }

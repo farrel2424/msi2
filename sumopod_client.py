@@ -48,11 +48,12 @@ Output JSON schema:
     {
       "category_name_en": "string (from section header, English part)",
       "category_name_cn": "string (from section header, Chinese part)",
-      "subcategories": [
+      "data_type": [
         {
-          "subcategory_code": "string (part code, e.g., D C97259880020)",
-          "subcategory_name_en": "string (English name after code)",
-          "subcategory_name_cn": "string (Chinese name, look for Chinese characters)"
+          "type_category_code": "string (part code, e.g., D C97259880020)",
+          "type_category_name_en": "string (English name after code)",
+          "type_category_name_cn": "string (Chinese name, look for Chinese characters)",
+          "type_category_description": "string (optional, can be empty)"
         }
       ]
     }
@@ -75,27 +76,30 @@ Example Output:
     {
       "category_name_en": "Frame System",
       "category_name_cn": "车架系统",
-      "subcategories": [
+      "data_type": [
         {
-          "subcategory_code": "D C97259880020",
-          "subcategory_name_en": "Front Accessories",
-          "subcategory_name_cn": "中保险杠"
+          "type_category_code": "D C97259880020",
+          "type_category_name_en": "Front Accessories",
+          "type_category_name_cn": "中保险杠",
+          "type_category_description": "string (optional, can be empty)"
         },
         {
-          "subcategory_code": "D C95259510002",
-          "subcategory_name_en": "Transmission Auxiliary Crossbeam",
-          "subcategory_name_cn": "变速器辅助横梁"
+          "type_category_code": "D C95259510002",
+          "type_category_name_en": "Transmission Auxiliary Crossbeam",
+          "type_category_name_cn": "变速器辅助横梁",
+          "type_category_description": "string (optional, can be empty)"
         }
       ]
     },
     {
       "category_name_en": "Dynamic System",
       "category_name_cn": "动力系统",
-      "subcategories": [
+      "data_type": [
         {
-          "subcategory_code": "D C62119011339",
-          "subcategory_name_en": "Engine Assembly",
-          "subcategory_name_cn": "发动机总成"
+          "type_category_code": "D C62119011339",
+          "type_category_name_en": "Engine Assembly",
+          "type_category_name_cn": "发动机总成",
+          "type_category_description": "string (optional, can be empty)"
         }
       ]
     }

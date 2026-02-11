@@ -3,3 +3,7 @@ venv/
 __pycache__/
 *.pyc
 .vscode/
+outputs/
+uploads/
+epc_automation.log
+epc_processed_files.json
