@@ -447,40 +447,36 @@ class MotorsightsEPCClient:
             # Build data_type array (Type Categories)
             data_type = []
             for type_cat in pdf_category.get('data_type', []):
-                type_cat_data = {
-                    "type_category_name_en": type_cat.get('type_category_name_en', '')
-                }
+                # Build in exact order from API documentation
+                type_cat_data = {}
                 
-                # Use extracted code if present, otherwise generate
+                # 1. type_category_code (required)
                 if type_cat.get('type_category_code'):
                     type_cat_data['type_category_code'] = type_cat['type_category_code']
                 else:
                     type_cat_data['type_category_code'] = str(uuid.uuid4())[:10]
                 
-                # Add Chinese name if present
-                if type_cat.get('type_category_name_cn'):
-                    type_cat_data['type_category_name_cn'] = type_cat['type_category_name_cn']
+                # 2. type_category_name_en (required)
+                type_cat_data['type_category_name_en'] = type_cat.get('type_category_name_en', '')
                 
-                # Optional description
+                # 3. type_category_name_cn (optional)
+                type_cat_data['type_category_name_cn'] = type_cat.get('type_category_name_cn', '')
+                
+                # 4. type_category_description (optional)
                 type_cat_data['type_category_description'] = type_cat.get('type_category_description', f"Type category for {type_cat.get('type_category_name_en', '')}")
                 
                 data_type.append(type_cat_data)
             
-            # Build category creation request with CORRECT FORMAT
-            # CRITICAL: Use 'master_category_name_en' as per mentor's correction
+            # Build category creation request with CORRECT FORMAT AND ORDER
+            # CRITICAL: Match exact field order from API documentation
             category_request = {
                 "master_category_id": master_category_id,
-                "master_category_name_en": pdf_category['category_name_en'],  # FIXED: Use correct field name
+                "master_category_name_en": pdf_category['category_name_en'],
+                "category_name_cn": pdf_category.get('category_name_cn', ''),
+                "category_description": f"Category for {pdf_category['category_name_en']}",
                 "categories_code": str(uuid.uuid4())[:10],  # Generate code
                 "data_type": data_type
             }
-            
-            # Add Chinese name if present
-            if pdf_category.get('category_name_cn'):
-                category_request['category_name_cn'] = pdf_category['category_name_cn']
-            
-            # Add description
-            category_request['category_description'] = f"Category for {pdf_category['category_name_en']}"
             
             self.logger.debug(f"Creating category with request: {category_request}")
             
