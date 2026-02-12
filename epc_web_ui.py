@@ -1,6 +1,6 @@
 """
 Web UI for Motorsights EPC PDF Automation
-Simplified interface with mandatory review workflow
+Updated to use SSO authentication for dynamic bearer token generation
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -24,7 +24,6 @@ Path(app.config['UPLOAD_FOLDER']).mkdir(exist_ok=True)
 Path('outputs').mkdir(exist_ok=True)
 
 # Master Categories Configuration
-# TODO: Get actual UUIDs from your EPC system
 MASTER_CATEGORIES = {
     'transmission': {
         'id': os.getenv('MASTER_CATEGORY_TRANSMISSION_ID', ''),
@@ -65,20 +64,24 @@ def process_pdf_async(job_id, pdf_path, config_params):
             job_status[job_id]['status'] = 'processing'
             job_status[job_id]['stage'] = 'initializing'
         
-        # FIX: Extract custom_prompt from config_params
+        # Extract parameters
         custom_prompt = config_params.get('custom_prompt', '').strip()
         
-        # Create config with custom prompt
+        # Create config with SSO authentication
         config = EPCAutomationConfig(
             sumopod_base_url=config_params.get('sumopod_base_url', 'https://ai.sumopod.com/v1'),
             sumopod_api_key=config_params.get('sumopod_api_key'),
             sumopod_model=config_params.get('sumopod_model', 'gpt4o'),
             sumopod_temperature=float(config_params.get('sumopod_temperature', 0.7)),
             sumopod_max_tokens=int(config_params.get('sumopod_max_tokens', 2000)),
-            sumopod_custom_prompt=custom_prompt if custom_prompt else None,  # FIX: Pass custom prompt
+            sumopod_custom_prompt=custom_prompt if custom_prompt else None,
             
-            epc_base_url=config_params.get('epc_base_url', 'https://dev-epc.motorsights.com'),
-            epc_bearer_token=config_params.get('epc_bearer_token'),
+            # SSO Authentication
+            sso_gateway_url=config_params.get('sso_gateway_url', 'https://dev-gateway.motorsights.com'),
+            sso_email=config_params.get('sso_email'),
+            sso_password=config_params.get('sso_password'),
+            
+            epc_base_url=config_params.get('epc_base_url', 'https://dev-gateway.motorsights.com/api/epc'),
             
             max_retries=3,
             enable_review_mode=True,  # ALWAYS True - mandatory review
@@ -92,13 +95,13 @@ def process_pdf_async(job_id, pdf_path, config_params):
         with job_lock:
             job_status[job_id]['stage'] = 'converting_pdf'
         
-        # Process PDF - EXTRACTION ONLY (auto_submit=False always)
+        # Process PDF - EXTRACTION ONLY
         result = automation.process_pdf(
             Path(pdf_path),
             auto_submit=False  # MANDATORY: Never auto-submit
         )
         
-        # Update final status - ALWAYS pending_review
+        # Update final status
         with job_lock:
             job_status[job_id]['status'] = 'pending_review'
             job_status[job_id]['extracted_data'] = result['extracted_data']
@@ -163,17 +166,21 @@ def upload_file():
     
     # Get configuration from form
     sumopod_api_key = request.form.get('sumopod_api_key', os.getenv('SUMOPOD_API_KEY'))
-    epc_bearer_token = request.form.get('epc_bearer_token', os.getenv('EPC_BEARER_TOKEN'))
+    
+    # SSO credentials (required for bearer token generation)
+    sso_email = request.form.get('sso_email', os.getenv('SSO_EMAIL'))
+    sso_password = request.form.get('sso_password', os.getenv('SSO_PASSWORD'))
+    
     master_category_id = request.form.get('master_category_id', '')
     ai_model = request.form.get('ai_model', 'gpt4o')
-    custom_prompt = request.form.get('custom_prompt', '')  # FIX: Get custom prompt from form
+    custom_prompt = request.form.get('custom_prompt', '')
     
     # Validate required fields
     if not sumopod_api_key:
         return jsonify({'error': 'Sumopod API Key is required (set in .env or provide in form)'}), 400
     
-    if not epc_bearer_token:
-        return jsonify({'error': 'EPC Bearer Token is required (set in .env or provide in form)'}), 400
+    if not sso_email or not sso_password:
+        return jsonify({'error': 'SSO Email and Password are required for authentication (set in .env or provide in form)'}), 400
     
     if not master_category_id:
         return jsonify({'error': 'Master Category is required'}), 400
@@ -184,10 +191,12 @@ def upload_file():
         'sumopod_model': ai_model,
         'sumopod_temperature': 0.7,
         'sumopod_max_tokens': 2000,
-        'epc_base_url': 'https://dev-epc.motorsights.com',
-        'epc_bearer_token': epc_bearer_token,
+        'sso_gateway_url': 'https://dev-gateway.motorsights.com',
+        'sso_email': sso_email,
+        'sso_password': sso_password,
+        'epc_base_url': 'https://dev-gateway.motorsights.com/api/epc',
         'master_category_id': master_category_id,
-        'custom_prompt': custom_prompt  # FIX: Store custom prompt properly
+        'custom_prompt': custom_prompt
     }
     
     # Save uploaded file
@@ -244,7 +253,7 @@ def re_extract(job_id):
     
     # Update config with new prompt
     config_params = job['config'].copy()
-    config_params['custom_prompt'] = new_prompt  # FIX: Update custom prompt
+    config_params['custom_prompt'] = new_prompt
     
     # Reset job status
     with job_lock:
@@ -291,16 +300,17 @@ def approve_submission(job_id):
         job_status[job_id]['stage'] = 'epc_submission'
     
     try:
-        # FIX: Don't need custom prompt for submission, just for extraction
-        # Create automation instance
+        # Create automation instance with SSO auth
         config = EPCAutomationConfig(
             sumopod_base_url=job['config']['sumopod_base_url'],
             sumopod_api_key=job['config']['sumopod_api_key'],
             sumopod_model=job['config']['sumopod_model'],
             sumopod_temperature=float(job['config'].get('sumopod_temperature', 0.7)),
             sumopod_max_tokens=int(job['config'].get('sumopod_max_tokens', 2000)),
+            sso_gateway_url=job['config'].get('sso_gateway_url', 'https://dev-gateway.motorsights.com'),
+            sso_email=job['config']['sso_email'],
+            sso_password=job['config']['sso_password'],
             epc_base_url=job['config']['epc_base_url'],
-            epc_bearer_token=job['config']['epc_bearer_token'],
             master_category_id=job['config'].get('master_category_id')
         )
         
@@ -348,9 +358,15 @@ def get_jobs():
     """Get all jobs"""
     with job_lock:
         jobs = list(job_status.values())
-        # Remove upload_path from response (internal only)
+        # Remove sensitive data from response
         for job in jobs:
             job.pop('upload_path', None)
+            # Don't expose SSO credentials in response
+            if 'config' in job:
+                config = job['config'].copy()
+                config.pop('sso_password', None)
+                config.pop('sumopod_api_key', None)
+                job['config'] = config
         jobs.sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
         return jsonify(jobs)
 
@@ -386,8 +402,10 @@ def clear_history():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("Motorsights EPC PDF Automation - Simplified Web UI")
+    print("Motorsights EPC PDF Automation - Web UI with SSO Auth")
     print("=" * 60)
+    print("\n🔐 SSO Authentication Enabled")
+    print("Bearer tokens are generated dynamically via SSO login")
     print("\n⚠️  MANDATORY REVIEW MODE")
     print("All extractions require manual review before submission")
     print("\n📋 Master Categories Configured:")

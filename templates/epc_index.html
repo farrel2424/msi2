@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Motorsights EPC - Simplified Interface</title>
+    <title>Motorsights EPC - SSO Authentication</title>
     <style>
         * {
             margin: 0;
@@ -45,7 +45,7 @@
 
         .badge {
             display: inline-block;
-            background: #ff9800;
+            background: #4caf50;
             color: white;
             padding: 5px 15px;
             border-radius: 20px;
@@ -373,6 +373,18 @@
             padding-top: 15px;
             border-top: 1px solid #e0e0e0;
         }
+
+        .sso-info {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .sso-info strong {
+            color: #2e7d32;
+        }
     </style>
 </head>
 <body>
@@ -380,6 +392,7 @@
         <div class="header">
             <h1>🚚 Motorsights EPC 🚚</h1>
             <p class="subtitle">Electronic Product Catalog - PDF Automation</p>
+            <div class="badge">🔐 SSO Authentication Enabled</div>
             <div class="nav">
                 <a href="/">Upload</a>
                 <a href="/history">History</a>
@@ -395,20 +408,31 @@
                 <strong>ℹ️ Workflow:</strong> Upload PDF → AI Extraction → Manual Review & Edit → Approve → Submit to Database
             </div>
 
-            <!-- API Credentials (collapsible if using .env) -->
+            <div class="sso-info">
+                <strong>🔐 SSO Authentication:</strong> Bearer tokens are now generated dynamically via SSO login. You can configure your SSO credentials in the .env file or enter them below.
+            </div>
+
+            <!-- API Credentials (collapsible) -->
             <details class="credentials-toggle">
                 <summary>🔑 API Credentials (optional - configure in .env)</summary>
                 <div class="credentials-content">
+                    <div class="form-group">
+                        <label>Sumopod API Key</label>
+                        <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
+                        <small>Only needed if not set in .env file</small>
+                    </div>
+                    
+                    <h3 style="margin: 20px 0 10px 0; color: #333;">SSO Credentials</h3>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Sumopod API Key</label>
-                            <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
-                            <small>Only needed if not set in .env file</small>
+                            <label>SSO Email *</label>
+                            <input type="email" id="ssoEmail" placeholder="your-email@motorsights.net (or use .env)">
+                            <small>Required for bearer token generation</small>
                         </div>
                         <div class="form-group">
-                            <label>EPC Bearer Token</label>
-                            <input type="password" id="epcBearerToken" placeholder="Leave empty to use .env">
-                            <small>Only needed if not set in .env file</small>
+                            <label>SSO Password *</label>
+                            <input type="password" id="ssoPassword" placeholder="Leave empty to use .env">
+                            <small>Required for bearer token generation</small>
                         </div>
                     </div>
                 </div>
@@ -436,7 +460,7 @@
                 </div>
             </div>
 
-            <!-- Extraction Prompt - FIXED WITH CORRECT FIELD NAMES -->
+            <!-- Extraction Prompt -->
             <div class="form-group">
                 <label>Extraction Prompt (editable)</label>
                 <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
@@ -654,9 +678,12 @@ Example Output:
             
             // Optional credentials
             const sumopodKey = document.getElementById('sumopodApiKey').value.trim();
-            const epcToken = document.getElementById('epcBearerToken').value.trim();
+            const ssoEmail = document.getElementById('ssoEmail').value.trim();
+            const ssoPassword = document.getElementById('ssoPassword').value.trim();
+            
             if (sumopodKey) formData.append('sumopod_api_key', sumopodKey);
-            if (epcToken) formData.append('epc_bearer_token', epcToken);
+            if (ssoEmail) formData.append('sso_email', ssoEmail);
+            if (ssoPassword) formData.append('sso_password', ssoPassword);
 
             try {
                 const response = await fetch('/api/upload', {

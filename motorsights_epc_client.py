@@ -1,6 +1,7 @@
 """
 Motorsights EPC API Client
 Handles all interactions with the dev-epc.motorsights.com API
+Updated to support dynamic bearer token generation via SSO
 """
 
 import requests
@@ -9,23 +10,39 @@ import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from motorsights_auth_client import MotorsightsAuthClient
+
 
 class MotorsightsEPCClient:
     """Client for Motorsights Electronic Product Catalog API"""
     
-    def __init__(self, base_url: str, bearer_token: str, max_retries: int = 3):
+    def __init__(
+        self, 
+        base_url: str, 
+        bearer_token: Optional[str] = None,
+        auth_client: Optional[MotorsightsAuthClient] = None,
+        max_retries: int = 3
+    ):
         """
         Initialize EPC API client
         
         Args:
-            base_url: Base URL for EPC API (e.g., https://dev-epc.motorsights.com)
-            bearer_token: Bearer token for authentication
+            base_url: Base URL for EPC API (e.g., https://dev-gateway.motorsights.com/api/epc/)
+            bearer_token: Static bearer token (deprecated - use auth_client instead)
+            auth_client: MotorsightsAuthClient for dynamic token generation
             max_retries: Maximum number of retry attempts
+        
+        Note: Either bearer_token OR auth_client must be provided.
+              auth_client is recommended for automatic token refresh.
         """
         self.base_url = base_url.rstrip('/')
-        self.bearer_token = bearer_token
+        self.bearer_token = bearer_token  # Static token (deprecated)
+        self.auth_client = auth_client    # Dynamic token client (recommended)
         self.logger = logging.getLogger(__name__)
         self.session = self._create_session(max_retries)
+        
+        if not bearer_token and not auth_client:
+            raise ValueError("Either bearer_token or auth_client must be provided")
     
     def _create_session(self, max_retries: int) -> requests.Session:
         """Create requests session with retry configuration"""
@@ -44,12 +61,49 @@ class MotorsightsEPCClient:
         
         return session
     
+    def _get_bearer_token(self) -> str:
+        """
+        Get bearer token (either static or dynamic)
+        
+        Returns:
+            Bearer token string
+        """
+        if self.auth_client:
+            # Use dynamic token from auth client (auto-refreshes if expired)
+            return self.auth_client.get_bearer_token()
+        else:
+            # Use static token
+            return self.bearer_token
+    
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers with authentication"""
+        bearer_token = self._get_bearer_token()
         return {
-            "Authorization": f"Bearer {self.bearer_token}",
+            "Authorization": f"Bearer {bearer_token}",
             "Content-Type": "application/json"
         }
+    
+    def _handle_401_retry(self, func, *args, **kwargs):
+        """
+        Handle 401 errors by refreshing token and retrying once
+        
+        Args:
+            func: Function to call
+            *args, **kwargs: Arguments to pass to function
+        
+        Returns:
+            Function result
+        """
+        try:
+            return func(*args, **kwargs)
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401 and self.auth_client:
+                # Token might be expired, refresh and retry once
+                self.logger.warning("Got 401, refreshing bearer token and retrying...")
+                self.auth_client.invalidate_token()
+                return func(*args, **kwargs)
+            else:
+                raise
     
     # ===== MASTER CATEGORY ENDPOINTS =====
     
@@ -65,7 +119,7 @@ class MotorsightsEPCClient:
         """
         url = f"{self.base_url}/master_category/get"
         
-        try:
+        def _request():
             response = self.session.post(
                 url,
                 json=filters or {},
@@ -74,6 +128,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to get master categories: {e}")
             return False, None
@@ -90,7 +147,7 @@ class MotorsightsEPCClient:
         """
         url = f"{self.base_url}/master_category/create"
         
-        try:
+        def _request():
             response = self.session.post(
                 url,
                 json=data,
@@ -99,6 +156,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to create master category: {e}")
             return False, None
@@ -107,7 +167,7 @@ class MotorsightsEPCClient:
         """Get master category by ID"""
         url = f"{self.base_url}/master_category/{category_id}"
         
-        try:
+        def _request():
             response = self.session.get(
                 url,
                 headers=self._get_headers(),
@@ -115,6 +175,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to get master category {category_id}: {e}")
             return False, None
@@ -125,7 +188,7 @@ class MotorsightsEPCClient:
         """Get all type categories with pagination and filters"""
         url = f"{self.base_url}/type_category/get"
         
-        try:
+        def _request():
             response = self.session.post(
                 url,
                 json=filters or {},
@@ -134,6 +197,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to get type categories: {e}")
             return False, None
@@ -153,20 +219,10 @@ class MotorsightsEPCClient:
         
         Returns:
             Tuple of (success, response_data)
-            Success response format:
-            {
-                "success": true,
-                "data": {
-                    "type_category_id": "uuid",
-                    "type_category_name_en": "...",
-                    "type_category_name_cn": "...",
-                    ...
-                }
-            }
         """
         url = f"{self.base_url}/type_category/create"
         
-        try:
+        def _request():
             response = self.session.post(
                 url,
                 json=data,
@@ -176,7 +232,6 @@ class MotorsightsEPCClient:
             response.raise_for_status()
             result = response.json()
             
-            # Check if API returned success
             if not result.get('success', False):
                 error_msg = result.get('error', 'Unknown error')
                 self.logger.error(f"API returned error: {error_msg}")
@@ -184,6 +239,9 @@ class MotorsightsEPCClient:
             
             self.logger.info(f"Created type category: {result.get('data', {}).get('type_category_name_en')}")
             return True, result
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to create type category: {e}")
             if hasattr(e, 'response') and e.response is not None:
@@ -194,7 +252,7 @@ class MotorsightsEPCClient:
         """Get type category by ID"""
         url = f"{self.base_url}/type_category/{type_category_id}"
         
-        try:
+        def _request():
             response = self.session.get(
                 url,
                 headers=self._get_headers(),
@@ -202,6 +260,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to get type category {type_category_id}: {e}")
             return False, None
@@ -212,7 +273,7 @@ class MotorsightsEPCClient:
         """Get all categories with pagination and filters"""
         url = f"{self.base_url}/categories/get"
         
-        try:
+        def _request():
             response = self.session.post(
                 url,
                 json=filters or {},
@@ -221,6 +282,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to get categories: {e}")
             return False, None
@@ -229,39 +293,32 @@ class MotorsightsEPCClient:
         """
         Create new category with type categories
         
-        Args:
-            data: Category data
-                Example: {
-                    "master_category_id": "uuid-string",
-                    "master_category_name_en": "Electronics",
-                    "category_name_cn": "电子产品",
-                    "category_description": "Description (optional)",
-                    "categories_code": "1234567890",
-                    "data_type": [
-                        {
-                            "type_category_code": "1234567890",
-                            "type_category_name_en": "Mobile Phones",
-                            "type_category_name_cn": "手机",
-                            "type_category_description": "Description (optional)"
-                        }
-                    ]
+        CRITICAL: Request body format (as per mentor's correction):
+        {
+            "master_category_id": "uuid-string",
+            "master_category_name_en": "Electronics",  # THIS FIELD IS REQUIRED
+            "category_name_cn": "电子产品",
+            "category_description": "Description (optional)",
+            "categories_code": "1234567890",
+            "data_type": [
+                {
+                    "type_category_code": "1234567890",
+                    "type_category_name_en": "Mobile Phones",
+                    "type_category_name_cn": "手机",
+                    "type_category_description": "Description (optional)"
                 }
+            ]
+        }
+        
+        Args:
+            data: Category data (must follow format above)
         
         Returns:
             Tuple of (success, response_data)
-            Success response format:
-            {
-                "success": true,
-                "data": {
-                    "category_id": "uuid",
-                    "category_name_en": "...",
-                    "data_type": [...]
-                }
-            }
         """
         url = f"{self.base_url}/categories/create"
         
-        try:
+        def _request():
             response = self.session.post(
                 url,
                 json=data,
@@ -271,14 +328,16 @@ class MotorsightsEPCClient:
             response.raise_for_status()
             result = response.json()
             
-            # Check if API returned success
             if not result.get('success', False):
                 error_msg = result.get('error', 'Unknown error')
                 self.logger.error(f"API returned error: {error_msg}")
                 return False, result
             
-            self.logger.info(f"Created category: {result.get('data', {}).get('category_name_en')}")
+            self.logger.info(f"Created category: {result.get('data', {}).get('category_name_en', result.get('data', {}).get('master_category_name_en'))}")
             return True, result
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to create category: {e}")
             if hasattr(e, 'response') and e.response is not None:
@@ -289,7 +348,7 @@ class MotorsightsEPCClient:
         """Get category by ID"""
         url = f"{self.base_url}/categories/{category_id}"
         
-        try:
+        def _request():
             response = self.session.get(
                 url,
                 headers=self._get_headers(),
@@ -297,6 +356,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to get category {category_id}: {e}")
             return False, None
@@ -315,7 +377,7 @@ class MotorsightsEPCClient:
         """
         url = f"{self.base_url}/products/create"
         
-        try:
+        def _request():
             response = self.session.post(
                 url,
                 json=data,
@@ -324,6 +386,9 @@ class MotorsightsEPCClient:
             )
             response.raise_for_status()
             return True, response.json()
+        
+        try:
+            return self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to create product: {e}")
             return False, None
@@ -333,7 +398,7 @@ class MotorsightsEPCClient:
     def batch_create_type_categories_and_categories(
         self, 
         catalog_data: Dict,
-        master_category_id: str  # Now required as UUID string
+        master_category_id: str  # Required as UUID string
     ) -> Tuple[bool, Dict]:
         """
         Batch create categories with nested type categories from extracted PDF data
@@ -375,17 +440,13 @@ class MotorsightsEPCClient:
             'errors': []
         }
         
-        # FIX: Changed from 'subcategories' to 'data_type'
         for pdf_category in catalog_data.get('categories', []):
             # Each PDF category becomes a Category in EPC
             # Its data_type items become Type Categories nested within
             
-            # Generate UUID for this category
-            category_id = str(uuid.uuid4())
-            
             # Build data_type array (Type Categories)
             data_type = []
-            for type_cat in pdf_category.get('data_type', []):  # FIX: Changed from subcategories to data_type
+            for type_cat in pdf_category.get('data_type', []):
                 type_cat_data = {
                     "type_category_name_en": type_cat.get('type_category_name_en', '')
                 }
@@ -405,20 +466,23 @@ class MotorsightsEPCClient:
                 
                 data_type.append(type_cat_data)
             
-            # Build category creation request
+            # Build category creation request with CORRECT FORMAT
+            # CRITICAL: Use 'master_category_name_en' as per mentor's correction
             category_request = {
                 "master_category_id": master_category_id,
-                "master_category_name_en": pdf_category['category_name_en']
+                "master_category_name_en": pdf_category['category_name_en'],  # FIXED: Use correct field name
+                "categories_code": str(uuid.uuid4())[:10],  # Generate code
+                "data_type": data_type
             }
             
             # Add Chinese name if present
             if pdf_category.get('category_name_cn'):
                 category_request['category_name_cn'] = pdf_category['category_name_cn']
             
-            # Add optional fields
+            # Add description
             category_request['category_description'] = f"Category for {pdf_category['category_name_en']}"
-            category_request['categories_code'] = str(uuid.uuid4())[:10]  # Generate code
-            category_request['data_type'] = data_type
+            
+            self.logger.debug(f"Creating category with request: {category_request}")
             
             # Create the category with nested type categories
             success, cat_response = self.create_category(category_request)

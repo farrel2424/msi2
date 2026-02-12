@@ -1,7 +1,7 @@
 """
 Motorsights EPC PDF Automation
 Main orchestrator for PDF extraction and EPC submission
-Uses Sumopod AI Gateway and Motorsights EPC API
+Updated to use SSO authentication for dynamic bearer token generation
 """
 
 import os
@@ -17,6 +17,7 @@ import pymupdf4llm
 
 from sumopod_client import SumopodClient
 from motorsights_epc_client import MotorsightsEPCClient
+from motorsights_auth_client import MotorsightsAuthClient
 
 
 class EPCAutomationConfig:
@@ -30,16 +31,21 @@ class EPCAutomationConfig:
         sumopod_model: str = "gpt4o",
         sumopod_temperature: float = 0.7,
         sumopod_max_tokens: int = 2000,
-        sumopod_custom_prompt: Optional[str] = None,  # FIX: Custom extraction prompt
+        sumopod_custom_prompt: Optional[str] = None,
+        
+        # Motorsights SSO Authentication (REQUIRED for dynamic bearer token)
+        sso_gateway_url: str = "https://dev-gateway.motorsights.com",
+        sso_email: Optional[str] = None,
+        sso_password: Optional[str] = None,
         
         # Motorsights EPC API
-        epc_base_url: str = "https://dev-epc.motorsights.com",
-        epc_bearer_token: Optional[str] = None,
+        epc_base_url: str = "https://dev-gateway.motorsights.com/api/epc",
+        epc_bearer_token: Optional[str] = None,  # Deprecated - use SSO instead
         
         # Processing options
         max_retries: int = 3,
         enable_review_mode: bool = True,
-        master_category_id: Optional[str] = None,  # Required UUID string
+        master_category_id: Optional[str] = None,
         
         # Logging
         processed_log_file: str = "epc_processed_files.json"
@@ -47,7 +53,7 @@ class EPCAutomationConfig:
         self.sumopod_base_url = sumopod_base_url or os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1")
         self.sumopod_api_key = sumopod_api_key or os.getenv("SUMOPOD_API_KEY")
         self.sumopod_model = sumopod_model or os.getenv("SUMOPOD_MODEL", "gpt4o")
-        self.sumopod_custom_prompt = sumopod_custom_prompt  # FIX: Store custom prompt
+        self.sumopod_custom_prompt = sumopod_custom_prompt
         
         # Convert temperature and max_tokens from env vars if needed
         try:
@@ -60,8 +66,15 @@ class EPCAutomationConfig:
         except (ValueError, TypeError):
             self.sumopod_max_tokens = sumopod_max_tokens
         
-        self.epc_base_url = epc_base_url or os.getenv("EPC_API_BASE_URL", "https://dev-epc.motorsights.com")
+        # SSO Authentication (recommended)
+        self.sso_gateway_url = sso_gateway_url or os.getenv("SSO_GATEWAY_URL", "https://dev-gateway.motorsights.com")
+        self.sso_email = sso_email or os.getenv("SSO_EMAIL")
+        self.sso_password = sso_password or os.getenv("SSO_PASSWORD")
+        
+        # Static bearer token (deprecated - only for backward compatibility)
         self.epc_bearer_token = epc_bearer_token or os.getenv("EPC_BEARER_TOKEN")
+        
+        self.epc_base_url = epc_base_url or os.getenv("EPC_API_BASE_URL", "https://dev-gateway.motorsights.com/api/epc")
         
         self.max_retries = max_retries
         self.enable_review_mode = enable_review_mode
@@ -72,10 +85,15 @@ class EPCAutomationConfig:
         # Validate configuration
         if not self.sumopod_api_key:
             raise ValueError("Sumopod API key must be provided via parameter or SUMOPOD_API_KEY env variable")
-        if not self.epc_bearer_token:
-            raise ValueError("EPC Bearer token must be provided via parameter or EPC_BEARER_TOKEN env variable")
         
-        # CRITICAL: Master category ID is now REQUIRED for EPC API
+        # Either SSO credentials OR static bearer token must be provided
+        if not (self.sso_email and self.sso_password) and not self.epc_bearer_token:
+            raise ValueError(
+                "Either SSO credentials (SSO_EMAIL and SSO_PASSWORD) OR static EPC_BEARER_TOKEN must be provided. "
+                "SSO authentication is recommended for automatic token refresh."
+            )
+        
+        # CRITICAL: Master category ID is REQUIRED for EPC API
         if not self.master_category_id:
             raise ValueError(
                 "Master Category ID is REQUIRED for EPC API. "
@@ -152,8 +170,7 @@ class EPCPDFAutomation:
         self.logger = self._setup_logging()
         self.tracker = ProcessedFilesTracker(config.processed_log_file)
         
-        # Initialize clients
-        # FIX: Pass custom_system_prompt to SumopodClient
+        # Initialize AI client
         self.ai_client = SumopodClient(
             base_url=config.sumopod_base_url,
             api_key=config.sumopod_api_key,
@@ -161,14 +178,33 @@ class EPCPDFAutomation:
             temperature=config.sumopod_temperature,
             max_tokens=config.sumopod_max_tokens,
             max_retries=config.max_retries,
-            custom_system_prompt=config.sumopod_custom_prompt  # FIX: Pass custom prompt
+            custom_system_prompt=config.sumopod_custom_prompt
         )
         
-        self.epc_client = MotorsightsEPCClient(
-            base_url=config.epc_base_url,
-            bearer_token=config.epc_bearer_token,
-            max_retries=config.max_retries
-        )
+        # Initialize EPC client with SSO authentication or static token
+        self.auth_client = None
+        if config.sso_email and config.sso_password:
+            # Use SSO authentication (recommended)
+            self.logger.info("Initializing SSO authentication for EPC API")
+            self.auth_client = MotorsightsAuthClient(
+                gateway_url=config.sso_gateway_url,
+                email=config.sso_email,
+                password=config.sso_password
+            )
+            
+            self.epc_client = MotorsightsEPCClient(
+                base_url=config.epc_base_url,
+                auth_client=self.auth_client,
+                max_retries=config.max_retries
+            )
+        else:
+            # Use static bearer token (deprecated)
+            self.logger.warning("Using static bearer token (deprecated). Consider migrating to SSO authentication.")
+            self.epc_client = MotorsightsEPCClient(
+                base_url=config.epc_base_url,
+                bearer_token=config.epc_bearer_token,
+                max_retries=config.max_retries
+            )
     
     def _setup_logging(self) -> logging.Logger:
         """Configure logging"""
@@ -186,7 +222,7 @@ class EPCPDFAutomation:
     def process_pdf(
         self, 
         pdf_path: Path,
-        master_category_id: Optional[str] = None,  # UUID string
+        master_category_id: Optional[str] = None,
         auto_submit: bool = None
     ) -> Dict:
         """
@@ -248,13 +284,13 @@ class EPCPDFAutomation:
             
             categories_count = len(extracted_data.get('categories', []))
             subcategories_count = sum(
-                len(cat.get('subcategories', [])) 
+                len(cat.get('data_type', []))  # Changed from subcategories to data_type
                 for cat in extracted_data.get('categories', [])
             )
             
             self.logger.info(
                 f"Extracted {categories_count} categories "
-                f"with {subcategories_count} type categories (subcategories)"
+                f"with {subcategories_count} type categories"
             )
             
             # Stage 3: Review or Auto-submit
@@ -307,7 +343,7 @@ class EPCPDFAutomation:
     def submit_to_epc(
         self,
         extracted_data: Dict,
-        master_category_id: Optional[str] = None  # UUID string
+        master_category_id: Optional[str] = None
     ) -> Tuple[bool, Dict]:
         """
         Submit extracted data to Motorsights EPC (for manual review workflow)
@@ -336,7 +372,7 @@ class EPCPDFAutomation:
         self, 
         directory: Path, 
         recursive: bool = False,
-        master_category_id: Optional[str] = None,  # UUID string
+        master_category_id: Optional[str] = None,
         auto_submit: bool = None
     ) -> List[Dict]:
         """
@@ -398,16 +434,19 @@ class EPCPDFAutomation:
 
 def main():
     """Main entry point for EPC automation"""
-    # Configuration
+    # Configuration with SSO authentication
     config = EPCAutomationConfig(
         sumopod_base_url="https://ai.sumopod.com/v1",
         # sumopod_api_key will be read from SUMOPOD_API_KEY env variable
-        sumopod_model="gpt4o",  # or gpt4.1nano
+        sumopod_model="gpt4o",
         sumopod_temperature=0.7,
         sumopod_max_tokens=2000,
         
-        epc_base_url="https://dev-epc.motorsights.com",
-        # epc_bearer_token will be read from EPC_BEARER_TOKEN env variable
+        # SSO Authentication (recommended)
+        sso_gateway_url="https://dev-gateway.motorsights.com",
+        # sso_email and sso_password will be read from env variables
+        
+        epc_base_url="https://dev-gateway.motorsights.com/api/epc",
         
         max_retries=3,
         enable_review_mode=True,  # Set to False for auto-submit
