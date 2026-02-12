@@ -104,20 +104,26 @@ class MotorsightsAuthClient:
             response.raise_for_status()
             data = response.json()
             
-            # Extract sso_token
-            sso_token = data.get('sso_token')
-            if not sso_token:
-                # Try alternate response formats
-                sso_token = data.get('token') or data.get('access_token')
+            # FIX: Token is nested at data.data.oauth.sso_token
+            # Try the correct nested path first, then fall back to top-level keys
+            sso_token = (
+                data.get('data', {}).get('oauth', {}).get('sso_token')
+                or data.get('sso_token')
+                or data.get('token')
+                or data.get('access_token')
+            )
             
             if not sso_token:
                 raise ValueError(f"SSO token not found in response: {data}")
             
-            # Store token with expiry (assume 24 hours if not specified)
+            # Store token with expiry
             self._token = sso_token
             
-            # Try to get expiry from response, default to 23 hours (to be safe)
-            expires_in = data.get('expires_in', 82800)  # 23 hours in seconds
+            # Try to get expiry from nested oauth object, default to 23 hours (to be safe)
+            expires_in = (
+                data.get('data', {}).get('oauth', {}).get('expires_in')
+                or data.get('expires_in', 82800)  # 23 hours in seconds
+            )
             self._token_expiry = datetime.now() + timedelta(seconds=expires_in)
             
             self.logger.info(f"Successfully obtained bearer token (expires in {expires_in}s)")

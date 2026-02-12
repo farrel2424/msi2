@@ -5,11 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Motorsights EPC - SSO Authentication</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -18,10 +14,7 @@
             padding: 20px;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+        .container { max-width: 1200px; margin: 0 auto; }
 
         .header {
             background: white;
@@ -32,16 +25,8 @@
             text-align: center;
         }
 
-        .header h1 {
-            color: #667eea;
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-
-        .header .subtitle {
-            color: #666;
-            font-size: 1.1em;
-        }
+        .header h1 { color: #667eea; font-size: 2.5em; margin-bottom: 10px; }
+        .header .subtitle { color: #666; font-size: 1.1em; }
 
         .badge {
             display: inline-block;
@@ -54,13 +39,7 @@
             margin-top: 10px;
         }
 
-        .nav {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            margin-top: 20px;
-        }
-
+        .nav { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
         .nav a {
             padding: 10px 20px;
             background: #667eea;
@@ -69,10 +48,7 @@
             border-radius: 8px;
             transition: background 0.3s;
         }
-
-        .nav a:hover {
-            background: #764ba2;
-        }
+        .nav a:hover { background: #764ba2; }
 
         .card {
             background: white;
@@ -81,7 +57,6 @@
             box-shadow: 0 10px 40px rgba(0,0,0,0.1);
             margin-bottom: 30px;
         }
-
         .card h2 {
             color: #333;
             margin-bottom: 20px;
@@ -99,49 +74,15 @@
             background: #f8f9ff;
             margin-top: 20px;
         }
+        .upload-area:hover { border-color: #764ba2; background: #f0f2ff; }
+        .upload-area.dragover { border-color: #764ba2; background: #e8ebff; transform: scale(1.02); }
+        .upload-icon { font-size: 4em; margin-bottom: 20px; }
+        .upload-text { font-size: 1.2em; color: #333; margin-bottom: 10px; }
+        .upload-subtext { color: #666; font-size: 0.9em; }
+        #fileInput { display: none; }
 
-        .upload-area:hover {
-            border-color: #764ba2;
-            background: #f0f2ff;
-        }
-
-        .upload-area.dragover {
-            border-color: #764ba2;
-            background: #e8ebff;
-            transform: scale(1.02);
-        }
-
-        .upload-icon {
-            font-size: 4em;
-            margin-bottom: 20px;
-        }
-
-        .upload-text {
-            font-size: 1.2em;
-            color: #333;
-            margin-bottom: 10px;
-        }
-
-        .upload-subtext {
-            color: #666;
-            font-size: 0.9em;
-        }
-
-        #fileInput {
-            display: none;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 600;
-        }
-
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: #333; font-weight: 600; }
         .form-group select,
         .form-group input,
         .form-group textarea {
@@ -153,32 +94,13 @@
             font-family: inherit;
             transition: border-color 0.3s;
         }
-
-        .form-group textarea {
-            min-height: 150px;
-            font-family: 'Courier New', monospace;
-            resize: vertical;
-        }
-
+        .form-group textarea { min-height: 150px; font-family: 'Courier New', monospace; resize: vertical; }
         .form-group select:focus,
         .form-group input:focus,
-        .form-group textarea:focus {
-            outline: none;
-            border-color: #667eea;
-        }
+        .form-group textarea:focus { outline: none; border-color: #667eea; }
+        .form-group small { display: block; margin-top: 5px; color: #666; font-size: 0.85em; }
 
-        .form-group small {
-            display: block;
-            margin-top: 5px;
-            color: #666;
-            font-size: 0.85em;
-        }
-
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 
         .btn {
             padding: 12px 30px;
@@ -192,59 +114,20 @@
             font-weight: 600;
             margin-right: 10px;
         }
+        .btn:hover { background: #764ba2; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+        .btn-success { background: #52c41a; }
+        .btn-success:hover { background: #389e0d; }
+        .btn-warning { background: #ff9800; }
+        .btn-warning:hover { background: #f57c00; }
 
-        .btn:hover {
-            background: #764ba2;
-        }
+        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .alert-error { background: #fff2f0; border: 1px solid #ffccc7; color: #cf1322; }
+        .alert-success { background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; }
+        .alert-warning { background: #fffbe6; border: 1px solid #ffe58f; color: #d46b08; }
+        .alert-info { background: #e6f7ff; border: 1px solid #91d5ff; color: #096dd9; }
 
-        .btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-
-        .btn-success {
-            background: #52c41a;
-        }
-
-        .btn-success:hover {
-            background: #389e0d;
-        }
-
-        .btn-warning {
-            background: #ff9800;
-        }
-
-        .btn-warning:hover {
-            background: #f57c00;
-        }
-
-        .alert {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
-
-        .alert-error {
-            background: #fff2f0;
-            border: 1px solid #ffccc7;
-            color: #cf1322;
-        }
-
-        .alert-success {
-            background: #f6ffed;
-            border: 1px solid #b7eb8f;
-            color: #389e0d;
-        }
-
-        .alert-warning {
-            background: #fffbe6;
-            border: 1px solid #ffe58f;
-            color: #d46b08;
-        }
-
-        .hidden {
-            display: none;
-        }
+        .hidden { display: none; }
 
         .status-card {
             background: #f8f9ff;
@@ -253,11 +136,7 @@
             margin-top: 20px;
             border-left: 4px solid #667eea;
         }
-
-        .status-card h3 {
-            color: #667eea;
-            margin-bottom: 15px;
-        }
+        .status-card h3 { color: #667eea; margin-bottom: 15px; }
 
         .status-item {
             display: flex;
@@ -265,19 +144,9 @@
             padding: 10px 0;
             border-bottom: 1px solid #e0e0e0;
         }
-
-        .status-item:last-child {
-            border-bottom: none;
-        }
-
-        .status-label {
-            color: #666;
-            font-weight: 600;
-        }
-
-        .status-value {
-            color: #333;
-        }
+        .status-item:last-child { border-bottom: none; }
+        .status-label { color: #666; font-weight: 600; }
+        .status-value { color: #333; }
 
         .status-badge {
             display: inline-block;
@@ -286,7 +155,6 @@
             font-size: 0.85em;
             font-weight: 600;
         }
-
         .status-queued { background: #ffd700; color: #333; }
         .status-processing { background: #4a90e2; color: white; }
         .status-pending_review { background: #ff9800; color: white; }
@@ -303,39 +171,36 @@
             overflow: hidden;
             margin-top: 10px;
         }
-
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #667eea, #764ba2);
             transition: width 0.3s;
         }
 
-        .editor-section {
-            margin-top: 20px;
-        }
+        .editor-section { margin-top: 20px; }
 
+        /* ── FIX: textarea replaces contenteditable div ── */
         .json-editor {
-            background: #f5f5f5;
+            width: 100%;
+            min-height: 400px;
+            max-height: 600px;
+            background: #1e1e1e;
+            color: #d4d4d4;
             padding: 20px;
             border-radius: 8px;
-            max-height: 500px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
+            font-family: 'Courier New', 'Consolas', monospace;
             font-size: 0.9em;
-            white-space: pre-wrap;
+            line-height: 1.5;
             border: 2px solid #e0e0e0;
+            resize: vertical;
+            tab-size: 2;
+            white-space: pre;
+            overflow: auto;
+            display: block;
         }
+        .json-editor:focus { outline: none; border-color: #667eea; }
 
-        .json-editor:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .button-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-        }
+        .button-group { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
 
         .info-box {
             background: #e3f2fd;
@@ -344,10 +209,7 @@
             border-radius: 5px;
             margin-bottom: 20px;
         }
-
-        .info-box strong {
-            color: #1976d2;
-        }
+        .info-box strong { color: #1976d2; }
 
         .credentials-toggle {
             background: #f5f5f5;
@@ -356,18 +218,13 @@
             margin-bottom: 20px;
             border: 1px solid #e0e0e0;
         }
-
         .credentials-toggle summary {
             cursor: pointer;
             font-weight: 600;
             color: #667eea;
             user-select: none;
         }
-
-        .credentials-toggle summary:hover {
-            color: #764ba2;
-        }
-
+        .credentials-toggle summary:hover { color: #764ba2; }
         .credentials-content {
             margin-top: 15px;
             padding-top: 15px;
@@ -381,10 +238,27 @@
             border-radius: 5px;
             margin-bottom: 20px;
         }
+        .sso-info strong { color: #2e7d32; }
 
-        .sso-info strong {
-            color: #2e7d32;
+        .submission-summary {
+            background: #f6ffed;
+            border: 1px solid #b7eb8f;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
         }
+        .submission-summary h4 { color: #389e0d; margin-bottom: 8px; }
+        .submission-summary .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 0.95em;
+        }
+        .summary-row .label { color: #555; }
+        .summary-row .value { font-weight: 600; }
+        .summary-row .value.skipped { color: #d46b08; }
+        .summary-row .value.created { color: #389e0d; }
+        .summary-row .value.error { color: #cf1322; }
     </style>
 </head>
 <body>
@@ -401,7 +275,7 @@
 
         <div class="card">
             <h2>📤 Upload & Extract</h2>
-            
+
             <div id="alertContainer"></div>
 
             <div class="info-box">
@@ -409,19 +283,19 @@
             </div>
 
             <div class="sso-info">
-                <strong>🔐 SSO Authentication:</strong> Bearer tokens are now generated dynamically via SSO login. You can configure your SSO credentials in the .env file or enter them below.
+                <strong>🔐 SSO Authentication:</strong> Bearer tokens are generated dynamically via SSO login. Configure credentials in <code>.env</code> or enter them below.
             </div>
 
             <!-- API Credentials (collapsible) -->
             <details class="credentials-toggle">
-                <summary>🔑 API Credentials (optional - configure in .env)</summary>
+                <summary>🔑 API Credentials (optional — configure in .env)</summary>
                 <div class="credentials-content">
                     <div class="form-group">
                         <label>Sumopod API Key</label>
                         <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
                         <small>Only needed if not set in .env file</small>
                     </div>
-                    
+
                     <h3 style="margin: 20px 0 10px 0; color: #333;">SSO Credentials</h3>
                     <div class="form-row">
                         <div class="form-group">
@@ -460,9 +334,9 @@
                 </div>
             </div>
 
-            <!-- Extraction Prompt - CORRECTED VERSION -->
+            <!-- Extraction Prompt -->
             <div class="form-group">
-                <label>Extraction Prompt (editable) - ✅ CORRECTED FORMAT</label>
+                <label>Extraction Prompt (editable) — ✅ Corrected Format</label>
                 <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
 **CRITICAL: Extract data in the EXACT format shown below - NO codes required!**
@@ -520,7 +394,7 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
         <!-- Processing Status & Review Section -->
         <div class="card hidden" id="statusCard">
             <h2>📊 Processing Status</h2>
-            
+
             <div class="status-card">
                 <h3>Current Status</h3>
                 <div class="status-item">
@@ -536,7 +410,7 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
                     <span class="status-value" id="statusStage">-</span>
                 </div>
                 <div class="progress-bar">
-                    <div class="progress-fill" style="width: 0%"></div>
+                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
                 </div>
             </div>
 
@@ -544,17 +418,22 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
             <div class="editor-section hidden" id="reviewSection">
                 <h3>📝 Review & Edit Extracted Data</h3>
                 <p style="color: #666; margin-bottom: 15px;">
-                    Review the extracted data below. You can edit directly in the JSON editor.
+                    Edit the JSON directly below before submitting.
+                    Duplicate categories (already in DB) are automatically skipped — no need to remove them.
                 </p>
-                
-                <div contenteditable="true" class="json-editor" id="jsonEditor" spellcheck="false"></div>
-                
+
+                <!-- ── FIX: proper textarea instead of contenteditable div ── -->
+                <textarea class="json-editor" id="jsonEditor" spellcheck="false"></textarea>
+
                 <div class="button-group">
                     <button class="btn" id="downloadBtn">💾 Download JSON</button>
                     <button class="btn btn-warning" id="reExtractBtn">🔄 Re-Extract with New Prompt</button>
                     <button class="btn btn-success" id="approveBtn">✅ Approve & Submit to EPC</button>
                 </div>
             </div>
+
+            <!-- Submission Result -->
+            <div class="hidden" id="submissionResult"></div>
 
             <!-- Re-prompt Section -->
             <div class="editor-section hidden" id="rePromptSection">
@@ -572,27 +451,27 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
     </div>
 
     <script>
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const statusCard = document.getElementById('statusCard');
+        const uploadArea    = document.getElementById('uploadArea');
+        const fileInput     = document.getElementById('fileInput');
+        const statusCard    = document.getElementById('statusCard');
         const alertContainer = document.getElementById('alertContainer');
         const reviewSection = document.getElementById('reviewSection');
         const rePromptSection = document.getElementById('rePromptSection');
-        const jsonEditor = document.getElementById('jsonEditor');
-        
+        const jsonEditor    = document.getElementById('jsonEditor');  // now a textarea
+
         let currentJobId = null;
         let statusInterval = null;
-        let currentExtractedData = null;
+        let editorPopulated = false;  // prevent polling from overwriting user edits
 
-        // Load master categories
+        // ── Load master categories ──────────────────────────────────────────
         async function loadMasterCategories() {
             try {
                 const response = await fetch('/api/master-categories');
                 const categories = await response.json();
-                
+
                 const select = document.getElementById('masterCategory');
                 select.innerHTML = '<option value="">Select Master Category...</option>';
-                
+
                 categories.forEach(cat => {
                     const option = document.createElement('option');
                     option.value = cat.id;
@@ -608,31 +487,17 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
             }
         }
 
-        // Upload handlers
+        // ── Upload handlers ─────────────────────────────────────────────────
         uploadArea.addEventListener('click', () => fileInput.click());
-
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
+        uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
         uploadArea.addEventListener('drop', (e) => {
             e.preventDefault();
             uploadArea.classList.remove('dragover');
-            
-            if (e.dataTransfer.files.length > 0) {
-                handleFile(e.dataTransfer.files[0]);
-            }
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
         });
-
         fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) {
-                handleFile(e.target.files[0]);
-            }
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
         });
 
         async function handleFile(file) {
@@ -640,16 +505,10 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
                 showAlert('Please select a PDF file', 'error');
                 return;
             }
-
             const masterCategory = document.getElementById('masterCategory').value;
             const aiModel = document.getElementById('aiModel').value;
             const extractionPrompt = document.getElementById('extractionPrompt').value;
-
-            if (!masterCategory) {
-                showAlert('Please select a Master Category', 'error');
-                return;
-            }
-
+            if (!masterCategory) { showAlert('Please select a Master Category', 'error'); return; }
             uploadFile(file, masterCategory, aiModel, extractionPrompt);
         }
 
@@ -659,30 +518,26 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
             formData.append('master_category_id', masterCategoryId);
             formData.append('ai_model', aiModel);
             formData.append('custom_prompt', prompt);
-            
-            // Optional credentials
-            const sumopodKey = document.getElementById('sumopodApiKey').value.trim();
-            const ssoEmail = document.getElementById('ssoEmail').value.trim();
+
+            const sumopodKey  = document.getElementById('sumopodApiKey').value.trim();
+            const ssoEmail    = document.getElementById('ssoEmail').value.trim();
             const ssoPassword = document.getElementById('ssoPassword').value.trim();
-            
-            if (sumopodKey) formData.append('sumopod_api_key', sumopodKey);
-            if (ssoEmail) formData.append('sso_email', ssoEmail);
+            if (sumopodKey)  formData.append('sumopod_api_key', sumopodKey);
+            if (ssoEmail)    formData.append('sso_email', ssoEmail);
             if (ssoPassword) formData.append('sso_password', ssoPassword);
 
             try {
-                const response = await fetch('/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
+                const response = await fetch('/api/upload', { method: 'POST', body: formData });
                 const data = await response.json();
 
                 if (response.ok) {
                     currentJobId = data.job_id;
+                    editorPopulated = false;  // reset for new job
                     showAlert('✅ File uploaded! Extraction started...', 'success');
                     statusCard.classList.remove('hidden');
                     reviewSection.classList.add('hidden');
                     rePromptSection.classList.add('hidden');
+                    document.getElementById('submissionResult').classList.add('hidden');
                     startStatusPolling();
                 } else {
                     showAlert('❌ ' + (data.error || 'Upload failed'), 'error');
@@ -692,18 +547,15 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
             }
         }
 
+        // ── Status polling ──────────────────────────────────────────────────
         function startStatusPolling() {
             if (statusInterval) clearInterval(statusInterval);
-            
             statusInterval = setInterval(async () => {
                 if (!currentJobId) return;
-
                 try {
                     const response = await fetch('/api/status/' + currentJobId);
                     const data = await response.json();
-
                     updateStatus(data);
-
                     if (data.status === 'completed' || data.status === 'failed' || data.status === 'error') {
                         clearInterval(statusInterval);
                     }
@@ -715,62 +567,44 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
 
         function updateStatus(data) {
             document.getElementById('statusFilename').textContent = data.filename || '-';
-            document.getElementById('statusStage').textContent = data.stage || '-';
-            
+            document.getElementById('statusStage').textContent   = data.stage || '-';
+
             const badge = document.getElementById('statusBadge');
             badge.className = 'status-badge status-' + data.status;
-            badge.textContent = data.status.toUpperCase().replace('_', ' ');
+            badge.textContent = data.status.toUpperCase().replace(/_/g, ' ');
 
-            const progressFill = document.querySelector('.progress-fill');
-            if (data.status === 'processing') {
-                progressFill.style.width = '50%';
-            } else if (data.status === 'pending_review') {
-                progressFill.style.width = '75%';
-            } else if (data.status === 'completed') {
-                progressFill.style.width = '100%';
-            }
+            const progressFill = document.getElementById('progressFill');
+            const progressMap = { processing: '50%', pending_review: '75%', submitting: '90%', completed: '100%' };
+            progressFill.style.width = progressMap[data.status] || progressFill.style.width;
 
-            // Show review section when extraction complete
-            if (data.status === 'pending_review' && data.extracted_data) {
-                currentExtractedData = data.extracted_data;
+            if (data.status === 'pending_review' && data.extracted_data && !editorPopulated) {
                 showReviewSection(data.extracted_data);
+                editorPopulated = true;  // lock — don't overwrite user edits on next poll
             }
-
             if (data.status === 'error' || data.status === 'failed') {
                 const errorMsg = data.error || (data.result && data.result.error) || 'Processing failed';
                 showAlert('❌ Error: ' + errorMsg, 'error');
-            }
-
-            if (data.status === 'completed') {
-                showAlert('✅ Successfully submitted to EPC database!', 'success');
             }
         }
 
         function showReviewSection(extractedData) {
             reviewSection.classList.remove('hidden');
             rePromptSection.classList.add('hidden');
-            
-            // Display formatted JSON
-            jsonEditor.textContent = JSON.stringify(extractedData, null, 2);
-            
-            showAlert('⚠️ REVIEW REQUIRED: Please review and edit the extracted data before submitting', 'warning');
+            // ── FIX: use .value for textarea ──
+            jsonEditor.value = JSON.stringify(extractedData, null, 2);
+            showAlert('⚠️ REVIEW REQUIRED: Edit the data if needed, then click Approve & Submit.', 'warning');
         }
 
-        // Download button
+        // ── Download ────────────────────────────────────────────────────────
         document.getElementById('downloadBtn').addEventListener('click', () => {
-            if (currentJobId) {
-                window.location.href = '/api/download/' + currentJobId;
-            }
+            if (currentJobId) window.location.href = '/api/download/' + currentJobId;
         });
 
-        // Re-extract button
+        // ── Re-extract ──────────────────────────────────────────────────────
         document.getElementById('reExtractBtn').addEventListener('click', () => {
             reviewSection.classList.add('hidden');
             rePromptSection.classList.remove('hidden');
-            
-            // Copy current prompt
-            const currentPrompt = document.getElementById('extractionPrompt').value;
-            document.getElementById('rePromptText').value = currentPrompt;
+            document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
         });
 
         document.getElementById('cancelRePrompt').addEventListener('click', () => {
@@ -780,10 +614,7 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
 
         document.getElementById('confirmRePrompt').addEventListener('click', async () => {
             const newPrompt = document.getElementById('rePromptText').value;
-            
-            if (!confirm('Start re-extraction with modified prompt?')) {
-                return;
-            }
+            if (!confirm('Start re-extraction with modified prompt?')) return;
 
             try {
                 const response = await fetch('/api/re-extract/' + currentJobId, {
@@ -793,6 +624,7 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
                 });
 
                 if (response.ok) {
+                    editorPopulated = false;  // reset so editor gets refreshed with new data
                     showAlert('🔄 Re-extraction started...', 'success');
                     rePromptSection.classList.add('hidden');
                     reviewSection.classList.add('hidden');
@@ -806,24 +638,25 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
             }
         });
 
-        // Approve and submit button
+        // ── Approve & Submit ────────────────────────────────────────────────
         document.getElementById('approveBtn').addEventListener('click', async () => {
-            if (!confirm('⚠️ Submit to EPC database?\n\nThis will create categories and type categories in the system.')) {
+            if (!confirm('⚠️ Submit to EPC database?\n\nThis will create categories in the system.\nDuplicate categories will be skipped automatically.')) return;
+
+            let editedData;
+            try {
+                // ── FIX: read from textarea .value ──
+                editedData = JSON.parse(jsonEditor.value);
+            } catch (e) {
+                showAlert('❌ Invalid JSON in editor. Please fix syntax errors before submitting.', 'error');
                 return;
             }
 
-            try {
-                // Get potentially edited data from editor
-                const editedText = jsonEditor.textContent;
-                let editedData;
-                
-                try {
-                    editedData = JSON.parse(editedText);
-                } catch (e) {
-                    showAlert('❌ Invalid JSON in editor. Please fix syntax errors.', 'error');
-                    return;
-                }
+            // Disable button to prevent double-submit
+            const approveBtn = document.getElementById('approveBtn');
+            approveBtn.disabled = true;
+            approveBtn.textContent = '⏳ Submitting...';
 
+            try {
                 const response = await fetch('/api/approve/' + currentJobId, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -833,33 +666,68 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
                 const data = await response.json();
 
                 if (response.ok && data.success) {
-                    showAlert('✅ Successfully submitted to EPC database!', 'success');
+                    const results = data.results || {};
+                    showSubmissionSummary(results);
                     startStatusPolling();
                 } else {
                     showAlert('❌ Submission failed: ' + (data.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
                 showAlert('Network error: ' + error.message, 'error');
+            } finally {
+                approveBtn.disabled = false;
+                approveBtn.textContent = '✅ Approve & Submit to EPC';
             }
         });
 
+        function showSubmissionSummary(results) {
+            const created  = (results.categories_created  || []).length;
+            const skipped  = (results.categories_skipped  || []).length;
+            const typeCats = (results.type_categories_created || []).length;
+            const errors   = (results.errors || []).length;
+
+            const container = document.getElementById('submissionResult');
+            container.classList.remove('hidden');
+            container.innerHTML = `
+                <div class="submission-summary">
+                    <h4>📊 Submission Summary</h4>
+                    <div class="summary-row">
+                        <span class="label">Categories created:</span>
+                        <span class="value created">${created}</span>
+                    </div>
+                    <div class="summary-row">
+                        <span class="label">Skipped (already exist):</span>
+                        <span class="value skipped">${skipped}</span>
+                    </div>
+                    <div class="summary-row">
+                        <span class="label">Type categories created:</span>
+                        <span class="value created">${typeCats}</span>
+                    </div>
+                    ${errors > 0 ? `<div class="summary-row">
+                        <span class="label">Errors:</span>
+                        <span class="value error">${errors}</span>
+                    </div>` : ''}
+                </div>
+            `;
+
+            if (errors === 0) {
+                showAlert(`✅ Done! ${created} new, ${skipped} skipped (duplicates), ${typeCats} type categories.`, 'success');
+            } else {
+                showAlert(`⚠️ Completed with ${errors} error(s). Check summary below.`, 'warning');
+            }
+        }
+
+        // ── Utilities ───────────────────────────────────────────────────────
         function showAlert(message, type) {
             const alertDiv = document.createElement('div');
             alertDiv.className = 'alert alert-' + type;
             alertDiv.textContent = message;
-            
             alertContainer.innerHTML = '';
             alertContainer.appendChild(alertDiv);
-
-            setTimeout(() => {
-                alertDiv.remove();
-            }, 8000);
+            setTimeout(() => alertDiv.remove(), 10000);
         }
 
-        // Initialize
-        window.addEventListener('load', () => {
-            loadMasterCategories();
-        });
+        window.addEventListener('load', loadMasterCategories);
     </script>
 </body>
 </html>

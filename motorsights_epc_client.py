@@ -25,21 +25,9 @@ class MotorsightsEPCClient:
         auth_client: Optional[MotorsightsAuthClient] = None,
         max_retries: int = 3
     ):
-        """
-        Initialize EPC API client
-        
-        Args:
-            base_url: Base URL for EPC API (e.g., https://dev-gateway.motorsights.com/api/epc/)
-            bearer_token: Static bearer token (deprecated - use auth_client instead)
-            auth_client: MotorsightsAuthClient for dynamic token generation
-            max_retries: Maximum number of retry attempts
-        
-        Note: Either bearer_token OR auth_client must be provided.
-              auth_client is recommended for automatic token refresh.
-        """
         self.base_url = base_url.rstrip('/')
-        self.bearer_token = bearer_token  # Static token (deprecated)
-        self.auth_client = auth_client    # Dynamic token client (recommended)
+        self.bearer_token = bearer_token
+        self.auth_client = auth_client
         self.logger = logging.getLogger(__name__)
         self.session = self._create_session(max_retries)
         
@@ -53,6 +41,7 @@ class MotorsightsEPCClient:
         retry_strategy = Retry(
             total=max_retries,
             backoff_factor=2.0,
+            # NOTE: 409 is intentionally excluded — we handle it ourselves
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET", "POST", "PUT", "DELETE"]
         )
@@ -64,21 +53,12 @@ class MotorsightsEPCClient:
         return session
     
     def _get_bearer_token(self) -> str:
-        """
-        Get bearer token (either static or dynamic)
-        
-        Returns:
-            Bearer token string
-        """
         if self.auth_client:
-            # Use dynamic token from auth client (auto-refreshes if expired)
             return self.auth_client.get_bearer_token()
         else:
-            # Use static token
             return self.bearer_token
     
     def _get_headers(self) -> Dict[str, str]:
-        """Get request headers with authentication"""
         bearer_token = self._get_bearer_token()
         return {
             "Authorization": f"Bearer {bearer_token}",
@@ -86,21 +66,10 @@ class MotorsightsEPCClient:
         }
     
     def _handle_401_retry(self, func, *args, **kwargs):
-        """
-        Handle 401 errors by refreshing token and retrying once
-        
-        Args:
-            func: Function to call
-            *args, **kwargs: Arguments to pass to function
-        
-        Returns:
-            Function result
-        """
         try:
             return func(*args, **kwargs)
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401 and self.auth_client:
-                # Token might be expired, refresh and retry once
                 self.logger.warning("Got 401, refreshing bearer token and retrying...")
                 self.auth_client.invalidate_token()
                 return func(*args, **kwargs)
@@ -110,23 +79,11 @@ class MotorsightsEPCClient:
     # ===== MASTER CATEGORY ENDPOINTS =====
     
     def get_master_categories(self, filters: Optional[Dict] = None) -> Tuple[bool, Optional[Dict]]:
-        """
-        Get all master categories with pagination and filters
-        
-        Args:
-            filters: Optional filters (e.g., {"page": 1, "limit": 10})
-        
-        Returns:
-            Tuple of (success, response_data)
-        """
         url = f"{self.base_url}/master_category/get"
         
         def _request():
             response = self.session.post(
-                url,
-                json=filters or {},
-                headers=self._get_headers(),
-                timeout=30
+                url, json=filters or {}, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -138,23 +95,11 @@ class MotorsightsEPCClient:
             return False, None
     
     def create_master_category(self, data: Dict) -> Tuple[bool, Optional[Dict]]:
-        """
-        Create new master category
-        
-        Args:
-            data: Master category data (e.g., {"name": "Electronics", "name_zh": "电子产品"})
-        
-        Returns:
-            Tuple of (success, response_data)
-        """
         url = f"{self.base_url}/master_category/create"
         
         def _request():
             response = self.session.post(
-                url,
-                json=data,
-                headers=self._get_headers(),
-                timeout=30
+                url, json=data, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -166,14 +111,11 @@ class MotorsightsEPCClient:
             return False, None
     
     def get_master_category_by_id(self, category_id: int) -> Tuple[bool, Optional[Dict]]:
-        """Get master category by ID"""
         url = f"{self.base_url}/master_category/{category_id}"
         
         def _request():
             response = self.session.get(
-                url,
-                headers=self._get_headers(),
-                timeout=30
+                url, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -187,15 +129,11 @@ class MotorsightsEPCClient:
     # ===== TYPE CATEGORY ENDPOINTS =====
     
     def get_type_categories(self, filters: Optional[Dict] = None) -> Tuple[bool, Optional[Dict]]:
-        """Get all type categories with pagination and filters"""
         url = f"{self.base_url}/type_category/get"
         
         def _request():
             response = self.session.post(
-                url,
-                json=filters or {},
-                headers=self._get_headers(),
-                timeout=30
+                url, json=filters or {}, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -207,29 +145,11 @@ class MotorsightsEPCClient:
             return False, None
     
     def create_type_category(self, data: Dict) -> Tuple[bool, Optional[Dict]]:
-        """
-        Create new type category
-        
-        Args:
-            data: Type category data
-                Example: {
-                    "category_id": "uuid-string",  # Master category UUID
-                    "type_category_name_en": "Electronics",
-                    "type_category_name_cn": "电子产品",
-                    "type_category_description": "Description (optional)"
-                }
-        
-        Returns:
-            Tuple of (success, response_data)
-        """
         url = f"{self.base_url}/type_category/create"
         
         def _request():
             response = self.session.post(
-                url,
-                json=data,
-                headers=self._get_headers(),
-                timeout=30
+                url, json=data, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             result = response.json()
@@ -251,14 +171,11 @@ class MotorsightsEPCClient:
             return False, None
     
     def get_type_category_by_id(self, type_category_id: int) -> Tuple[bool, Optional[Dict]]:
-        """Get type category by ID"""
         url = f"{self.base_url}/type_category/{type_category_id}"
         
         def _request():
             response = self.session.get(
-                url,
-                headers=self._get_headers(),
-                timeout=30
+                url, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -272,15 +189,11 @@ class MotorsightsEPCClient:
     # ===== CATEGORIES ENDPOINTS =====
     
     def get_categories(self, filters: Optional[Dict] = None) -> Tuple[bool, Optional[Dict]]:
-        """Get all categories with pagination and filters"""
         url = f"{self.base_url}/categories/get"
         
         def _request():
             response = self.session.post(
-                url,
-                json=filters or {},
-                headers=self._get_headers(),
-                timeout=30
+                url, json=filters or {}, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -291,51 +204,43 @@ class MotorsightsEPCClient:
             self.logger.error(f"Failed to get categories: {e}")
             return False, None
     
-    def create_category(self, data: Dict) -> Tuple[bool, Optional[Dict]]:
+    def create_category(self, data: Dict) -> Tuple[bool, Optional[Dict], bool]:
         """
-        Create new category with type categories
-        
-        ACTUAL WORKING FORMAT (from network inspection):
-        {
-            "master_category_id": "ee6eb407-fd6e-4c3d-b696-e56feed4fdf6",
-            "master_category_name_en": "Engine",
-            "category_name_en": "gem",
-            "category_name_cn": "em",
-            "category_description": "em",
-            "data_type": [
-                {
-                    "type_category_name_en": "em",
-                    "type_category_name_cn": "em",
-                    "type_category_description": "em"
-                }
-            ]
-        }
-        
-        Args:
-            data: Category data (must follow format above)
-        
+        Create new category with type categories.
+
         Returns:
-            Tuple of (success, response_data)
+            Tuple of (success, response_data, was_skipped)
+            was_skipped=True means the category already existed (409) and was skipped gracefully.
         """
         url = f"{self.base_url}/categories/create"
         
         def _request():
             response = self.session.post(
-                url,
-                json=data,
-                headers=self._get_headers(),
-                timeout=30
+                url, json=data, headers=self._get_headers(), timeout=30
             )
+
+            # --- Graceful 409 handling ---
+            if response.status_code == 409:
+                category_name = data.get('category_name_en', '(unknown)')
+                msg = response.json().get('message', 'Conflict')
+                self.logger.warning(
+                    f"Skipping duplicate category '{category_name}': {msg}"
+                )
+                return True, {'skipped': True, 'message': msg, 'data': data}, True
+
             response.raise_for_status()
             result = response.json()
             
             if not result.get('success', False):
                 error_msg = result.get('error', 'Unknown error')
                 self.logger.error(f"API returned error: {error_msg}")
-                return False, result
+                return False, result, False
             
-            self.logger.info(f"Created category: {result.get('data', {}).get('category_name_en', result.get('data', {}).get('master_category_name_en'))}")
-            return True, result
+            self.logger.info(
+                f"Created category: "
+                f"{result.get('data', {}).get('category_name_en', '(unknown)')}"
+            )
+            return True, result, False
         
         try:
             return self._handle_401_retry(_request)
@@ -343,17 +248,14 @@ class MotorsightsEPCClient:
             self.logger.error(f"Failed to create category: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 self.logger.error(f"Response: {e.response.text}")
-            return False, None
+            return False, None, False
     
     def get_category_by_id(self, category_id: int) -> Tuple[bool, Optional[Dict]]:
-        """Get category by ID"""
         url = f"{self.base_url}/categories/{category_id}"
         
         def _request():
             response = self.session.get(
-                url,
-                headers=self._get_headers(),
-                timeout=30
+                url, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -367,23 +269,11 @@ class MotorsightsEPCClient:
     # ===== PRODUCTS ENDPOINTS =====
     
     def create_product(self, data: Dict) -> Tuple[bool, Optional[Dict]]:
-        """
-        Create new product
-        
-        Args:
-            data: Product data
-        
-        Returns:
-            Tuple of (success, response_data)
-        """
         url = f"{self.base_url}/products/create"
         
         def _request():
             response = self.session.post(
-                url,
-                json=data,
-                headers=self._get_headers(),
-                timeout=30
+                url, json=data, headers=self._get_headers(), timeout=30
             )
             response.raise_for_status()
             return True, response.json()
@@ -399,62 +289,27 @@ class MotorsightsEPCClient:
     def batch_create_type_categories_and_categories(
         self, 
         catalog_data: Dict,
-        master_category_id: str  # Required as UUID string
+        master_category_id: str
     ) -> Tuple[bool, Dict]:
         """
-        Batch create categories with nested type categories from extracted PDF data
-        
-        ACTUAL WORKING FORMAT (discovered via network inspection):
-        {
-            "master_category_id": "uuid-string",
-            "master_category_name_en": "Engine",
-            "category_name_en": "gem",
-            "category_name_cn": "em",
-            "category_description": "em",
-            "data_type": [
-                {
-                    "type_category_name_en": "em",
-                    "type_category_name_cn": "em",
-                    "type_category_description": "em"
-                }
-            ]
-        }
-        
-        Args:
-            catalog_data: Extracted data from PDF
-                Format: {
-                    "categories": [
-                        {
-                            "category_name_en": "Electronics",
-                            "category_name_cn": "电子产品",
-                            "data_type": [
-                                {
-                                    "type_category_name_en": "Mobile Phones",
-                                    "type_category_name_cn": "手机"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            master_category_id: Required master category UUID (e.g., "123e4567-...")
-        
-        Returns:
-            Tuple of (success, results_dict)
+        Batch create categories with nested type categories from extracted PDF data.
+        409 conflicts (duplicate category names) are skipped gracefully and counted
+        separately — they do NOT cause the overall batch to be marked as failed.
         """
         if not master_category_id:
             raise ValueError("master_category_id is required and must be a valid UUID")
         
         results = {
             'categories_created': [],
+            'categories_skipped': [],   # duplicates that already exist
             'type_categories_created': [],
             'errors': []
         }
         
         for pdf_category in catalog_data.get('categories', []):
-            # Build data_type array (Type Categories) - SIMPLIFIED FORMAT
+            # Build data_type array
             data_type = []
             for type_cat in pdf_category.get('data_type', []):
-                # ACTUAL WORKING FORMAT - no type_category_code needed!
                 type_cat_data = {
                     "type_category_name_en": type_cat.get('type_category_name_en', ''),
                     "type_category_name_cn": type_cat.get('type_category_name_cn', ''),
@@ -462,28 +317,35 @@ class MotorsightsEPCClient:
                 }
                 data_type.append(type_cat_data)
             
-            # Build category request - EXACT FORMAT FROM NETWORK INSPECTION
             category_request = {
                 "master_category_id": master_category_id,
                 "master_category_name_en": pdf_category['category_name_en'],
-                "category_name_en": pdf_category.get('category_name_en', ''),  # REQUIRED field
+                "category_name_en": pdf_category.get('category_name_en', ''),
                 "category_name_cn": pdf_category.get('category_name_cn', ''),
-                "category_description": pdf_category.get('category_description', f"Category for {pdf_category['category_name_en']}"),
+                "category_description": pdf_category.get(
+                    'category_description',
+                    f"Category for {pdf_category['category_name_en']}"
+                ),
                 "data_type": data_type
             }
             
             self.logger.debug(f"Creating category with request: {category_request}")
             
-            # Create the category with nested type categories
-            success, cat_response = self.create_category(category_request)
+            success, cat_response, was_skipped = self.create_category(category_request)
             
-            if success:
+            if success and was_skipped:
+                # Duplicate — skip gracefully, don't count as error
+                results['categories_skipped'].append({
+                    'category_name_en': pdf_category['category_name_en'],
+                    'message': cat_response.get('message', 'Already exists')
+                })
+                self.logger.info(
+                    f"Skipped existing category '{pdf_category['category_name_en']}'"
+                )
+            elif success:
                 results['categories_created'].append(cat_response.get('data', {}))
-                
-                # Count type categories
                 nested_types = cat_response.get('data', {}).get('data_type', [])
                 results['type_categories_created'].extend(nested_types)
-                
                 self.logger.info(
                     f"Created category '{pdf_category['category_name_en']}' "
                     f"with {len(nested_types)} type categories"
@@ -501,7 +363,8 @@ class MotorsightsEPCClient:
         
         self.logger.info(
             f"Batch operation complete: "
-            f"{len(results['categories_created'])} categories created, "
+            f"{len(results['categories_created'])} created, "
+            f"{len(results['categories_skipped'])} skipped (already exist), "
             f"{len(results['type_categories_created'])} type categories created, "
             f"{len(results['errors'])} errors"
         )
