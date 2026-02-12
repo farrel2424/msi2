@@ -33,8 +33,8 @@ Rules:
 2. **Part entries** (after header) = Type Categories (subcategories)
    - Format: `<PartCode> <EnglishName> <ChineseName>...`
    - Example: `D C97259880020 Front Accessories 中保险杠...`
-   - Extract ONLY: name_en="Front Accessories", name_cn="中保险杠"
-   - IGNORE the part code - we don't need it!
+   - Extract: name_en="DC97259800020 Front Accessories Of Frame", name_cn="车架前端附件"
+   - IMPORTANT: INCLUDE the part code at the beginning of the English name!
 
 3. **Pattern recognition:**
    - English names come after the code
@@ -78,12 +78,12 @@ Example Output (EXACT format that works):
       "category_name_cn": "车架系统",
       "data_type": [
         {
-          "type_category_name_en": "Front Accessories",
+          "type_category_name_en": "DC97259800020 Front Accessories Of Frame",
           "type_category_name_cn": "中保险杠",
           "type_category_description": ""
         },
         {
-          "type_category_name_en": "Transmission Auxiliary Crossbeam",
+          "type_category_name_en": "DC95259510002 Transmission Auxiliary Crossbeam",
           "type_category_name_cn": "变速器辅助横梁",
           "type_category_description": ""
         }
@@ -94,7 +94,7 @@ Example Output (EXACT format that works):
       "category_name_cn": "动力系统",
       "data_type": [
         {
-          "type_category_name_en": "Engine Assembly",
+          "type_category_name_en": " DC62119011339 Engine Assembly",
           "type_category_name_cn": "发动机总成",
           "type_category_description": ""
         }

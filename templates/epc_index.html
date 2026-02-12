@@ -356,8 +356,8 @@ Rules:
 2. **Part entries** (after header) = Type Categories (subcategories)
    - Format: `<PartCode> <EnglishName> <ChineseName>...`
    - Example: `D C97259880020 Front Accessories 中保险杠...`
-   - Extract ONLY: name_en="Front Accessories", name_cn="中保险杠"
-   - IGNORE the part code - we don't need it!
+   - Extract: name_en="DC97259800020 Front Accessories Of Frame", name_cn="车架前端附件"
+   - IMPORTANT: INCLUDE the part code at the beginning of the English name!
 
 3. Return ONLY valid JSON, no markdown, no explanations
 
