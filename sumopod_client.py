@@ -81,13 +81,13 @@ Example Output:
           "type_category_code": "D C97259880020",
           "type_category_name_en": "Front Accessories",
           "type_category_name_cn": "中保险杠",
-          "type_category_description": "string (optional, can be empty)"
+          "type_category_description": ""
         },
         {
           "type_category_code": "D C95259510002",
           "type_category_name_en": "Transmission Auxiliary Crossbeam",
           "type_category_name_cn": "变速器辅助横梁",
-          "type_category_description": "string (optional, can be empty)"
+          "type_category_description": ""
         }
       ]
     },
@@ -99,7 +99,7 @@ Example Output:
           "type_category_code": "D C62119011339",
           "type_category_name_en": "Engine Assembly",
           "type_category_name_cn": "发动机总成",
-          "type_category_description": "string (optional, can be empty)"
+          "type_category_description": ""
         }
       ]
     }
@@ -278,20 +278,21 @@ Example Output:
             if 'category_name_en' not in category:
                 errors.append(f"Category {idx} missing 'category_name_en'")
             
-            if 'subcategories' not in category:
-                errors.append(f"Category {idx} missing 'subcategories'")
-            elif not isinstance(category['subcategories'], list):
-                errors.append(f"Category {idx} 'subcategories' must be a list")
+            # FIX: Changed from 'subcategories' to 'data_type'
+            if 'data_type' not in category:
+                errors.append(f"Category {idx} missing 'data_type'")
+            elif not isinstance(category['data_type'], list):
+                errors.append(f"Category {idx} 'data_type' must be a list")
             else:
-                # Validate subcategories (Type Categories)
-                for sub_idx, subcategory in enumerate(category['subcategories']):
-                    if not isinstance(subcategory, dict):
-                        errors.append(f"Category {idx}, subcategory {sub_idx} is not a dictionary")
+                # Validate data_type items (Type Categories)
+                for sub_idx, type_cat in enumerate(category['data_type']):
+                    if not isinstance(type_cat, dict):
+                        errors.append(f"Category {idx}, data_type {sub_idx} is not a dictionary")
                         continue
                     
                     # Required: at least English name
-                    if 'subcategory_name_en' not in subcategory:
-                        errors.append(f"Category {idx}, subcategory {sub_idx} missing 'subcategory_name_en'")
+                    if 'type_category_name_en' not in type_cat:
+                        errors.append(f"Category {idx}, data_type {sub_idx} missing 'type_category_name_en'")
         
         return {
             'valid': len(errors) == 0,
@@ -320,7 +321,7 @@ Please extract the data again, ensuring:
 2. All required fields are present
 3. Correct data types (lists, dictionaries, strings)
 4. Category format: section headers with numbers and bold text
-5. Subcategory format: part codes followed by names
+5. data_type format: part codes followed by names (use 'data_type' field, not 'subcategories')
 
 Original markdown text:
 {markdown_text}"""

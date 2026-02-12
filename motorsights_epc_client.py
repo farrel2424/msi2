@@ -349,10 +349,11 @@ class MotorsightsEPCClient:
                         {
                             "category_name_en": "Electronics",
                             "category_name_cn": "电子产品",
-                            "subcategories": [
+                            "data_type": [
                                 {
-                                    "subcategory_name_en": "Mobile Phones",
-                                    "subcategory_name_cn": "手机"
+                                    "type_category_name_en": "Mobile Phones",
+                                    "type_category_name_cn": "手机",
+                                    "type_category_code": "CODE123"
                                 }
                             ]
                         }
@@ -374,32 +375,33 @@ class MotorsightsEPCClient:
             'errors': []
         }
         
+        # FIX: Changed from 'subcategories' to 'data_type'
         for pdf_category in catalog_data.get('categories', []):
             # Each PDF category becomes a Category in EPC
-            # Its subcategories become Type Categories nested within
+            # Its data_type items become Type Categories nested within
             
             # Generate UUID for this category
             category_id = str(uuid.uuid4())
             
             # Build data_type array (Type Categories)
             data_type = []
-            for subcategory in pdf_category.get('subcategories', []):
+            for type_cat in pdf_category.get('data_type', []):  # FIX: Changed from subcategories to data_type
                 type_cat_data = {
-                    "type_category_name_en": subcategory['subcategory_name_en']
+                    "type_category_name_en": type_cat.get('type_category_name_en', '')
                 }
                 
                 # Use extracted code if present, otherwise generate
-                if subcategory.get('subcategory_code'):
-                    type_cat_data['type_category_code'] = subcategory['subcategory_code']
+                if type_cat.get('type_category_code'):
+                    type_cat_data['type_category_code'] = type_cat['type_category_code']
                 else:
                     type_cat_data['type_category_code'] = str(uuid.uuid4())[:10]
                 
                 # Add Chinese name if present
-                if subcategory.get('subcategory_name_cn'):
-                    type_cat_data['type_category_name_cn'] = subcategory['subcategory_name_cn']
+                if type_cat.get('type_category_name_cn'):
+                    type_cat_data['type_category_name_cn'] = type_cat['type_category_name_cn']
                 
                 # Optional description
-                type_cat_data['type_category_description'] = f"Type category for {subcategory['subcategory_name_en']}"
+                type_cat_data['type_category_description'] = type_cat.get('type_category_description', f"Type category for {type_cat.get('type_category_name_en', '')}")
                 
                 data_type.append(type_cat_data)
             

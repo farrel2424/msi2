@@ -436,7 +436,7 @@
                 </div>
             </div>
 
-            <!-- Extraction Prompt -->
+            <!-- Extraction Prompt - FIXED WITH CORRECT FIELD NAMES -->
             <div class="form-group">
                 <label>Extraction Prompt (editable)</label>
                 <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
@@ -455,7 +455,7 @@ Rules:
    - Format: `<number> <English Name> <Chinese Name>`
    - Example: `10 Frame System 车架系统` → Category: "Frame System" / "车架系统"
 
-2. **Part entries** (code + names) = Subcategory
+2. **Part entries** (code + names) = Type Category
    - Format: `<PartCode> <EnglishName> <ChineseName>...`
    - Example: `D C97259880020 Front Accessories 中保险杠...`
    - Extract: code="D C97259880020", name_en="Front Accessories", name_cn="中保险杠"
@@ -470,9 +470,28 @@ Output JSON schema:
       "category_name_cn": "string",
       "data_type": [
         {
-          "data_type_code": "string",
-          "data_type_code_en": "string",
-          "data_type_code_cn": "string"
+          "type_category_code": "string",
+          "type_category_name_en": "string",
+          "type_category_name_cn": "string",
+          "type_category_description": "string (optional)"
+        }
+      ]
+    }
+  ]
+}
+
+Example Output:
+{
+  "categories": [
+    {
+      "category_name_en": "Frame System",
+      "category_name_cn": "车架系统",
+      "data_type": [
+        {
+          "type_category_code": "D C97259880020",
+          "type_category_name_en": "Front Accessories",
+          "type_category_name_cn": "中保险杠",
+          "type_category_description": ""
         }
       ]
     }
