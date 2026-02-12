@@ -2,6 +2,8 @@
 Motorsights EPC API Client
 Handles all interactions with the dev-epc.motorsights.com API
 Updated to support dynamic bearer token generation via SSO
+
+CORRECTED based on actual network inspection - simplified format without codes
 """
 
 import requests
@@ -293,19 +295,18 @@ class MotorsightsEPCClient:
         """
         Create new category with type categories
         
-        CRITICAL: Request body format (as per mentor's correction):
+        ACTUAL WORKING FORMAT (from network inspection):
         {
-            "master_category_id": "uuid-string",
-            "master_category_name_en": "Electronics",  # THIS FIELD IS REQUIRED
-            "category_name_cn": "电子产品",
-            "category_description": "Description (optional)",
-            "categories_code": "1234567890",
+            "master_category_id": "ee6eb407-fd6e-4c3d-b696-e56feed4fdf6",
+            "master_category_name_en": "Engine",
+            "category_name_en": "gem",
+            "category_name_cn": "em",
+            "category_description": "em",
             "data_type": [
                 {
-                    "type_category_code": "1234567890",
-                    "type_category_name_en": "Mobile Phones",
-                    "type_category_name_cn": "手机",
-                    "type_category_description": "Description (optional)"
+                    "type_category_name_en": "em",
+                    "type_category_name_cn": "em",
+                    "type_category_description": "em"
                 }
             ]
         }
@@ -403,9 +404,21 @@ class MotorsightsEPCClient:
         """
         Batch create categories with nested type categories from extracted PDF data
         
-        IMPORTANT: The actual API structure is:
-        - Categories contain Type Categories (nested relationship)
-        - NOT Type Categories contain Categories as originally assumed
+        ACTUAL WORKING FORMAT (discovered via network inspection):
+        {
+            "master_category_id": "uuid-string",
+            "master_category_name_en": "Engine",
+            "category_name_en": "gem",
+            "category_name_cn": "em",
+            "category_description": "em",
+            "data_type": [
+                {
+                    "type_category_name_en": "em",
+                    "type_category_name_cn": "em",
+                    "type_category_description": "em"
+                }
+            ]
+        }
         
         Args:
             catalog_data: Extracted data from PDF
@@ -417,8 +430,7 @@ class MotorsightsEPCClient:
                             "data_type": [
                                 {
                                     "type_category_name_en": "Mobile Phones",
-                                    "type_category_name_cn": "手机",
-                                    "type_category_code": "CODE123"
+                                    "type_category_name_cn": "手机"
                                 }
                             ]
                         }
@@ -429,8 +441,6 @@ class MotorsightsEPCClient:
         Returns:
             Tuple of (success, results_dict)
         """
-        import uuid
-        
         if not master_category_id:
             raise ValueError("master_category_id is required and must be a valid UUID")
         
@@ -441,40 +451,24 @@ class MotorsightsEPCClient:
         }
         
         for pdf_category in catalog_data.get('categories', []):
-            # Each PDF category becomes a Category in EPC
-            # Its data_type items become Type Categories nested within
-            
-            # Build data_type array (Type Categories)
+            # Build data_type array (Type Categories) - SIMPLIFIED FORMAT
             data_type = []
             for type_cat in pdf_category.get('data_type', []):
-                # Build in exact order from API documentation
-                type_cat_data = {}
-                
-                # 1. type_category_code (required)
-                if type_cat.get('type_category_code'):
-                    type_cat_data['type_category_code'] = type_cat['type_category_code']
-                else:
-                    type_cat_data['type_category_code'] = str(uuid.uuid4())[:10]
-                
-                # 2. type_category_name_en (required)
-                type_cat_data['type_category_name_en'] = type_cat.get('type_category_name_en', '')
-                
-                # 3. type_category_name_cn (optional)
-                type_cat_data['type_category_name_cn'] = type_cat.get('type_category_name_cn', '')
-                
-                # 4. type_category_description (optional)
-                type_cat_data['type_category_description'] = type_cat.get('type_category_description', f"Type category for {type_cat.get('type_category_name_en', '')}")
-                
+                # ACTUAL WORKING FORMAT - no type_category_code needed!
+                type_cat_data = {
+                    "type_category_name_en": type_cat.get('type_category_name_en', ''),
+                    "type_category_name_cn": type_cat.get('type_category_name_cn', ''),
+                    "type_category_description": type_cat.get('type_category_description', '')
+                }
                 data_type.append(type_cat_data)
             
-            # Build category creation request with CORRECT FORMAT AND ORDER
-            # CRITICAL: Match exact field order from API documentation
+            # Build category request - EXACT FORMAT FROM NETWORK INSPECTION
             category_request = {
                 "master_category_id": master_category_id,
                 "master_category_name_en": pdf_category['category_name_en'],
+                "category_name_en": pdf_category.get('category_name_en', ''),  # REQUIRED field
                 "category_name_cn": pdf_category.get('category_name_cn', ''),
-                "category_description": f"Category for {pdf_category['category_name_en']}",
-                "categories_code": str(uuid.uuid4())[:10],  # Generate code
+                "category_description": pdf_category.get('category_description', f"Category for {pdf_category['category_name_en']}"),
                 "data_type": data_type
             }
             

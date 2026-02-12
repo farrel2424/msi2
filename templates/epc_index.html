@@ -460,12 +460,12 @@
                 </div>
             </div>
 
-            <!-- Extraction Prompt -->
+            <!-- Extraction Prompt - CORRECTED VERSION -->
             <div class="form-group">
-                <label>Extraction Prompt (editable)</label>
+                <label>Extraction Prompt (editable) - ✅ CORRECTED FORMAT</label>
                 <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
-**CRITICAL: This PDF format uses part codes and sequential names!**
+**CRITICAL: Extract data in the EXACT format shown below - NO codes required!**
 
 PDF Structure Pattern:
 ```
@@ -479,14 +479,15 @@ Rules:
    - Format: `<number> <English Name> <Chinese Name>`
    - Example: `10 Frame System 车架系统` → Category: "Frame System" / "车架系统"
 
-2. **Part entries** (code + names) = Type Category
+2. **Part entries** (after header) = Type Categories (subcategories)
    - Format: `<PartCode> <EnglishName> <ChineseName>...`
    - Example: `D C97259880020 Front Accessories 中保险杠...`
-   - Extract: code="D C97259880020", name_en="Front Accessories", name_cn="中保险杠"
+   - Extract ONLY: name_en="Front Accessories", name_cn="中保险杠"
+   - IGNORE the part code - we don't need it!
 
 3. Return ONLY valid JSON, no markdown, no explanations
 
-Output JSON schema:
+**EXACT OUTPUT FORMAT:**
 {
   "categories": [
     {
@@ -494,7 +495,6 @@ Output JSON schema:
       "category_name_cn": "string",
       "data_type": [
         {
-          "type_category_code": "string",
           "type_category_name_en": "string",
           "type_category_name_cn": "string",
           "type_category_description": "string (optional)"
@@ -504,24 +504,8 @@ Output JSON schema:
   ]
 }
 
-Example Output:
-{
-  "categories": [
-    {
-      "category_name_en": "Frame System",
-      "category_name_cn": "车架系统",
-      "data_type": [
-        {
-          "type_category_code": "D C97259880020",
-          "type_category_name_en": "Front Accessories",
-          "type_category_name_cn": "中保险杠",
-          "type_category_description": ""
-        }
-      ]
-    }
-  ]
-}</textarea>
-                <small>Customize the extraction prompt if needed</small>
+IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
+                <small>✅ Prompt corrected to match actual API format (no codes required)</small>
             </div>
 
             <!-- Upload Area -->

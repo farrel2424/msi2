@@ -1,6 +1,7 @@
 """
 Sumopod AI Client
 OpenAI-compatible API client for Sumopod AI Gateway
+CORRECTED: Extraction prompt updated to match actual API format (no codes required)
 """
 
 from openai import OpenAI
@@ -12,10 +13,10 @@ import json
 class SumopodClient:
     """Client for Sumopod AI Gateway"""
     
-    # Default system prompt for PDF data extraction
+    # CORRECTED: Default system prompt matching actual API format
     DEFAULT_EXTRACTION_PROMPT = """You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
-**CRITICAL: This PDF format uses part codes and sequential names, NOT "English / Chinese" format!**
+**CRITICAL: Extract data in the EXACT format shown below - NO codes required!**
 
 PDF Structure Pattern:
 ```
@@ -29,20 +30,20 @@ Rules:
    - Format: `<number> <English Name> <Chinese Name>`
    - Example: `10 Frame System 车架系统` → Category: "Frame System" / "车架系统"
 
-2. **Part entries** (code + names) = Type Category (subcategory)
+2. **Part entries** (after header) = Type Categories (subcategories)
    - Format: `<PartCode> <EnglishName> <ChineseName>...`
    - Example: `D C97259880020 Front Accessories 中保险杠...`
-   - Extract: code="D C97259880020", name_en="Front Accessories", name_cn="中保险杠"
+   - Extract ONLY: name_en="Front Accessories", name_cn="中保险杠"
+   - IGNORE the part code - we don't need it!
 
 3. **Pattern recognition:**
-   - Part codes start with letters/numbers (e.g., "D C95259510002")
    - English names come after the code
    - Chinese names follow English names (look for Chinese characters)
    - Ignore page numbers and dots
 
 4. Return ONLY valid JSON, no markdown formatting, no explanations
 
-Output JSON schema:
+**EXACT OUTPUT FORMAT (from actual working API):**
 {
   "categories": [
     {
@@ -50,9 +51,8 @@ Output JSON schema:
       "category_name_cn": "string (from section header, Chinese part)",
       "data_type": [
         {
-          "type_category_code": "string (part code, e.g., D C97259880020)",
           "type_category_name_en": "string (English name after code)",
-          "type_category_name_cn": "string (Chinese name, look for Chinese characters)",
+          "type_category_name_cn": "string (Chinese name)",
           "type_category_description": "string (optional, can be empty)"
         }
       ]
@@ -70,7 +70,7 @@ D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     .
 D C62119011339   Engine Assembly 发动机总成...                        ...11
 ```
 
-Example Output:
+Example Output (EXACT format that works):
 {
   "categories": [
     {
@@ -78,13 +78,11 @@ Example Output:
       "category_name_cn": "车架系统",
       "data_type": [
         {
-          "type_category_code": "D C97259880020",
           "type_category_name_en": "Front Accessories",
           "type_category_name_cn": "中保险杠",
           "type_category_description": ""
         },
         {
-          "type_category_code": "D C95259510002",
           "type_category_name_en": "Transmission Auxiliary Crossbeam",
           "type_category_name_cn": "变速器辅助横梁",
           "type_category_description": ""
@@ -96,7 +94,6 @@ Example Output:
       "category_name_cn": "动力系统",
       "data_type": [
         {
-          "type_category_code": "D C62119011339",
           "type_category_name_en": "Engine Assembly",
           "type_category_name_cn": "发动机总成",
           "type_category_description": ""
@@ -104,7 +101,9 @@ Example Output:
       ]
     }
   ]
-}"""
+}
+
+IMPORTANT: Do NOT include type_category_code or categories_code - the API doesn't need them!"""
     
     def __init__(
         self, 
@@ -278,7 +277,6 @@ Example Output:
             if 'category_name_en' not in category:
                 errors.append(f"Category {idx} missing 'category_name_en'")
             
-            # FIX: Changed from 'subcategories' to 'data_type'
             if 'data_type' not in category:
                 errors.append(f"Category {idx} missing 'data_type'")
             elif not isinstance(category['data_type'], list):
@@ -321,7 +319,9 @@ Please extract the data again, ensuring:
 2. All required fields are present
 3. Correct data types (lists, dictionaries, strings)
 4. Category format: section headers with numbers and bold text
-5. data_type format: part codes followed by names (use 'data_type' field, not 'subcategories')
+5. data_type format: ONLY name_en, name_cn, description (NO codes!)
+
+IMPORTANT: Do NOT include type_category_code or categories_code!
 
 Original markdown text:
 {markdown_text}"""
