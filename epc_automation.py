@@ -46,6 +46,7 @@ class EPCAutomationConfig:
         max_retries: int = 3,
         enable_review_mode: bool = True,
         master_category_id: Optional[str] = None,
+        master_category_name_en: Optional[str] = None,  # FIX: store the human-readable name
         
         # Logging
         processed_log_file: str = "epc_processed_files.json"
@@ -79,6 +80,7 @@ class EPCAutomationConfig:
         self.max_retries = max_retries
         self.enable_review_mode = enable_review_mode
         self.master_category_id = master_category_id or os.getenv("DEFAULT_MASTER_CATEGORY_ID")
+        self.master_category_name_en = master_category_name_en  # FIX: store name
         
         self.processed_log_file = processed_log_file
         
@@ -223,6 +225,7 @@ class EPCPDFAutomation:
         self, 
         pdf_path: Path,
         master_category_id: Optional[str] = None,
+        master_category_name_en: Optional[str] = None,
         auto_submit: bool = None
     ) -> Dict:
         """
@@ -231,6 +234,7 @@ class EPCPDFAutomation:
         Args:
             pdf_path: Path to PDF file
             master_category_id: Required master category UUID string
+            master_category_name_en: Human-readable master category name (e.g. "Engine")
             auto_submit: Override review mode for this file
         
         Returns:
@@ -249,9 +253,11 @@ class EPCPDFAutomation:
             'review_required': False
         }
         
-        # Use config default if not specified
+        # Use config defaults if not specified
         if master_category_id is None:
             master_category_id = self.config.master_category_id
+        if master_category_name_en is None:
+            master_category_name_en = self.config.master_category_name_en
         
         # Validate master category ID
         if not master_category_id:
@@ -284,7 +290,7 @@ class EPCPDFAutomation:
             
             categories_count = len(extracted_data.get('categories', []))
             subcategories_count = sum(
-                len(cat.get('data_type', []))  # Changed from subcategories to data_type
+                len(cat.get('data_type', []))
                 for cat in extracted_data.get('categories', [])
             )
             
@@ -300,7 +306,8 @@ class EPCPDFAutomation:
                 
                 success, epc_results = self.epc_client.batch_create_type_categories_and_categories(
                     catalog_data=extracted_data,
-                    master_category_id=master_category_id
+                    master_category_id=master_category_id,
+                    master_category_name_en=master_category_name_en  # FIX: pass name
                 )
                 
                 result['epc_submission'] = epc_results
@@ -343,7 +350,8 @@ class EPCPDFAutomation:
     def submit_to_epc(
         self,
         extracted_data: Dict,
-        master_category_id: Optional[str] = None
+        master_category_id: Optional[str] = None,
+        master_category_name_en: Optional[str] = None  # FIX: accept name param
     ) -> Tuple[bool, Dict]:
         """
         Submit extracted data to Motorsights EPC (for manual review workflow)
@@ -351,6 +359,7 @@ class EPCPDFAutomation:
         Args:
             extracted_data: Previously extracted catalog data
             master_category_id: Required master category UUID string
+            master_category_name_en: Human-readable master category name (e.g. "Engine")
         
         Returns:
             Tuple of (success, epc_results)
@@ -359,13 +368,16 @@ class EPCPDFAutomation:
         
         if master_category_id is None:
             master_category_id = self.config.master_category_id
+        if master_category_name_en is None:
+            master_category_name_en = self.config.master_category_name_en
         
         if not master_category_id:
             raise ValueError("Master Category ID is required for EPC submission")
         
         return self.epc_client.batch_create_type_categories_and_categories(
             catalog_data=extracted_data,
-            master_category_id=master_category_id
+            master_category_id=master_category_id,
+            master_category_name_en=master_category_name_en  # FIX: pass name
         )
     
     def process_directory(
@@ -373,6 +385,7 @@ class EPCPDFAutomation:
         directory: Path, 
         recursive: bool = False,
         master_category_id: Optional[str] = None,
+        master_category_name_en: Optional[str] = None,
         auto_submit: bool = None
     ) -> List[Dict]:
         """
@@ -382,6 +395,7 @@ class EPCPDFAutomation:
             directory: Directory containing PDF files
             recursive: Whether to search subdirectories
             master_category_id: Optional master category ID
+            master_category_name_en: Human-readable master category name
             auto_submit: Override review mode
         
         Returns:
@@ -401,6 +415,7 @@ class EPCPDFAutomation:
             result = self.process_pdf(
                 pdf_path,
                 master_category_id=master_category_id,
+                master_category_name_en=master_category_name_en,
                 auto_submit=auto_submit
             )
             results.append(result)
@@ -434,41 +449,27 @@ class EPCPDFAutomation:
 
 def main():
     """Main entry point for EPC automation"""
-    # Configuration with SSO authentication
     config = EPCAutomationConfig(
         sumopod_base_url="https://ai.sumopod.com/v1",
-        # sumopod_api_key will be read from SUMOPOD_API_KEY env variable
         sumopod_model="gpt4o",
         sumopod_temperature=0.7,
         sumopod_max_tokens=2000,
-        
-        # SSO Authentication (recommended)
         sso_gateway_url="https://dev-gateway.motorsights.com",
-        # sso_email and sso_password will be read from env variables
-        
         epc_base_url="https://dev-gateway.motorsights.com/api/epc",
-        
         max_retries=3,
-        enable_review_mode=True,  # Set to False for auto-submit
-        
-        # REQUIRED: Master Category UUID (get from your mentor)
-        master_category_id="123e4567-e89b-12d3-a456-426614174000"  # Replace with actual UUID
+        enable_review_mode=True,
+        master_category_id="123e4567-e89b-12d3-a456-426614174000",  # Replace with actual UUID
+        master_category_name_en="Engine"  # Replace with actual name
     )
     
-    # Create automation orchestrator
     automation = EPCPDFAutomation(config)
     
-    # Example: Process single file
-    # result = automation.process_pdf(Path("catalog.pdf"))
-    
-    # Example: Process directory
     results = automation.process_directory(
         Path("./pdfs"),
         recursive=False,
-        auto_submit=False  # Review mode enabled
+        auto_submit=False
     )
     
-    # Save results
     with open('epc_processing_results.json', 'w') as f:
         json.dump(results, f, indent=2)
     

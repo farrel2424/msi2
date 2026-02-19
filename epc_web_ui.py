@@ -47,6 +47,18 @@ MASTER_CATEGORIES = {
     }
 }
 
+
+def _get_master_category_name(master_category_id: str) -> str:
+    """
+    FIX: Resolve the English name for a master category UUID.
+    Returns the name_en (e.g. "Engine") or an empty string if not found.
+    """
+    for value in MASTER_CATEGORIES.values():
+        if value['id'] and value['id'] == master_category_id:
+            return value['name_en']
+    return ""
+
+
 # Global storage for job status
 job_status = {}
 job_lock = threading.Lock()
@@ -85,7 +97,8 @@ def process_pdf_async(job_id, pdf_path, config_params):
             
             max_retries=3,
             enable_review_mode=True,  # ALWAYS True - mandatory review
-            master_category_id=config_params.get('master_category_id')
+            master_category_id=config_params.get('master_category_id'),
+            master_category_name_en=config_params.get('master_category_name_en', '')  # FIX: pass name
         )
         
         # Create automation
@@ -185,6 +198,9 @@ def upload_file():
     if not master_category_id:
         return jsonify({'error': 'Master Category is required'}), 400
     
+    # FIX: resolve the human-readable name for this ID
+    master_category_name_en = _get_master_category_name(master_category_id)
+    
     config_params = {
         'sumopod_base_url': 'https://ai.sumopod.com/v1',
         'sumopod_api_key': sumopod_api_key,
@@ -196,6 +212,7 @@ def upload_file():
         'sso_password': sso_password,
         'epc_base_url': 'https://dev-gateway.motorsights.com/api/epc',
         'master_category_id': master_category_id,
+        'master_category_name_en': master_category_name_en,  # FIX: store resolved name
         'custom_prompt': custom_prompt
     }
     
@@ -300,6 +317,10 @@ def approve_submission(job_id):
         job_status[job_id]['stage'] = 'epc_submission'
     
     try:
+        # FIX: retrieve the stored master category name alongside the ID
+        master_category_id = job['config'].get('master_category_id')
+        master_category_name_en = job['config'].get('master_category_name_en', '')
+
         # Create automation instance with SSO auth
         config = EPCAutomationConfig(
             sumopod_base_url=job['config']['sumopod_base_url'],
@@ -311,13 +332,18 @@ def approve_submission(job_id):
             sso_email=job['config']['sso_email'],
             sso_password=job['config']['sso_password'],
             epc_base_url=job['config']['epc_base_url'],
-            master_category_id=job['config'].get('master_category_id')
+            master_category_id=master_category_id,
+            master_category_name_en=master_category_name_en  # FIX: pass name into config
         )
         
         automation = EPCPDFAutomation(config)
         
-        # Submit to EPC
-        success, epc_results = automation.submit_to_epc(extracted_data)
+        # FIX: pass master_category_name_en explicitly to submit_to_epc
+        success, epc_results = automation.submit_to_epc(
+            extracted_data,
+            master_category_id=master_category_id,
+            master_category_name_en=master_category_name_en
+        )
         
         with job_lock:
             if success:

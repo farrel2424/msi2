@@ -287,9 +287,10 @@ class MotorsightsEPCClient:
     # ===== BATCH OPERATIONS =====
     
     def batch_create_type_categories_and_categories(
-        self, 
+        self,
         catalog_data: Dict,
-        master_category_id: str
+        master_category_id: str,
+        master_category_name_en: Optional[str] = None  # FIX: accept the real master category name
     ) -> Tuple[bool, Dict]:
         """
         Batch create categories with nested type categories from extracted PDF data.
@@ -317,14 +318,17 @@ class MotorsightsEPCClient:
                 }
                 data_type.append(type_cat_data)
             
+            # FIX: use the passed-in master_category_name_en (e.g. "Engine"),
+            # NOT the pdf category name (e.g. "Frame System").
+            # Fall back to an empty string if somehow not provided.
             category_request = {
                 "master_category_id": master_category_id,
-                "master_category_name_en": pdf_category['category_name_en'],
+                "master_category_name_en": master_category_name_en or "",
                 "category_name_en": pdf_category.get('category_name_en', ''),
                 "category_name_cn": pdf_category.get('category_name_cn', ''),
                 "category_description": pdf_category.get(
                     'category_description',
-                    f"Category for {pdf_category['category_name_en']}"
+                    f"Category for {pdf_category.get('category_name_en', '')}"
                 ),
                 "data_type": data_type
             }
@@ -336,18 +340,18 @@ class MotorsightsEPCClient:
             if success and was_skipped:
                 # Duplicate — skip gracefully, don't count as error
                 results['categories_skipped'].append({
-                    'category_name_en': pdf_category['category_name_en'],
+                    'category_name_en': pdf_category.get('category_name_en', ''),
                     'message': cat_response.get('message', 'Already exists')
                 })
                 self.logger.info(
-                    f"Skipped existing category '{pdf_category['category_name_en']}'"
+                    f"Skipped existing category '{pdf_category.get('category_name_en', '')}'"
                 )
             elif success:
                 results['categories_created'].append(cat_response.get('data', {}))
                 nested_types = cat_response.get('data', {}).get('data_type', [])
                 results['type_categories_created'].extend(nested_types)
                 self.logger.info(
-                    f"Created category '{pdf_category['category_name_en']}' "
+                    f"Created category '{pdf_category.get('category_name_en', '')}' "
                     f"with {len(nested_types)} type categories"
                 )
             else:
