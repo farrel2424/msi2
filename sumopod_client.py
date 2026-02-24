@@ -138,7 +138,8 @@ IMPORTANT: Do NOT include type_category_code or categories_code - the API doesn'
         # Initialize OpenAI client pointing to Sumopod
         self.client = OpenAI(
             base_url=base_url,
-            api_key=api_key
+            api_key=api_key,
+            timeout=60.0
         )
         
         self.logger.info(f"Initialized Sumopod client with model: {model}")

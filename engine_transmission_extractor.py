@@ -290,7 +290,8 @@ def extract_transmission_categories(
             {"role": "user",   "content": user_message}
         ],
         temperature=0.2,   # Low temperature for deterministic translation
-        max_tokens=2000
+        max_tokens=2000,
+        timeout=60
     )
 
     raw_response = response.choices[0].message.content.strip()
