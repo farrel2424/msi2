@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Motorsights EPC - SSO Authentication</title>
+    <title>Motorsights EPC - PDF Automation</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -24,10 +24,8 @@
             margin-bottom: 30px;
             text-align: center;
         }
-
         .header h1 { color: #667eea; font-size: 2.5em; margin-bottom: 10px; }
         .header .subtitle { color: #666; font-size: 1.1em; }
-
         .badge {
             display: inline-block;
             background: #4caf50;
@@ -38,7 +36,6 @@
             font-weight: 600;
             margin-top: 10px;
         }
-
         .nav { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
         .nav a {
             padding: 10px 20px;
@@ -122,10 +119,10 @@
         .btn-warning:hover { background: #f57c00; }
 
         .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        .alert-error { background: #fff2f0; border: 1px solid #ffccc7; color: #cf1322; }
+        .alert-error   { background: #fff2f0; border: 1px solid #ffccc7; color: #cf1322; }
         .alert-success { background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; }
         .alert-warning { background: #fffbe6; border: 1px solid #ffe58f; color: #d46b08; }
-        .alert-info { background: #e6f7ff; border: 1px solid #91d5ff; color: #096dd9; }
+        .alert-info    { background: #e6f7ff; border: 1px solid #91d5ff; color: #096dd9; }
 
         .hidden { display: none; }
 
@@ -137,7 +134,6 @@
             border-left: 4px solid #667eea;
         }
         .status-card h3 { color: #667eea; margin-bottom: 15px; }
-
         .status-item {
             display: flex;
             justify-content: space-between;
@@ -155,13 +151,13 @@
             font-size: 0.85em;
             font-weight: 600;
         }
-        .status-queued { background: #ffd700; color: #333; }
-        .status-processing { background: #4a90e2; color: white; }
+        .status-queued       { background: #ffd700; color: #333; }
+        .status-processing   { background: #4a90e2; color: white; }
         .status-pending_review { background: #ff9800; color: white; }
-        .status-submitting { background: #9c27b0; color: white; }
-        .status-completed { background: #52c41a; color: white; }
-        .status-failed { background: #ff4d4f; color: white; }
-        .status-error { background: #ff4d4f; color: white; }
+        .status-submitting   { background: #9c27b0; color: white; }
+        .status-completed    { background: #52c41a; color: white; }
+        .status-failed       { background: #ff4d4f; color: white; }
+        .status-error        { background: #ff4d4f; color: white; }
 
         .progress-bar {
             width: 100%;
@@ -179,7 +175,6 @@
 
         .editor-section { margin-top: 20px; }
 
-        /* ── FIX: textarea replaces contenteditable div ── */
         .json-editor {
             width: 100%;
             min-height: 400px;
@@ -202,15 +197,52 @@
 
         .button-group { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
 
+        /* ── Info boxes ─────────────────────────────────────────────────── */
         .info-box {
             background: #e3f2fd;
             border-left: 4px solid #2196f3;
             padding: 15px;
             border-radius: 5px;
             margin-bottom: 20px;
+            font-size: 0.95em;
+            line-height: 1.5;
         }
         .info-box strong { color: #1976d2; }
 
+        .info-box--green {
+            background: #f1f8e9;
+            border-left-color: #66bb6a;
+        }
+        .info-box--green strong { color: #2e7d32; }
+
+        .info-box--orange {
+            background: #fff3e0;
+            border-left-color: #ff9800;
+        }
+        .info-box--orange strong { color: #e65100; }
+
+        .info-box code {
+            background: rgba(0,0,0,0.08);
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.92em;
+        }
+
+        /* ── Partbook type badge ────────────────────────────────────────── */
+        .partbook-badge {
+            display: inline-block;
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+        .badge-engine        { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+        .badge-transmission  { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+        .badge-cabin_chassis { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+
+        /* ── Credentials collapsible ────────────────────────────────────── */
         .credentials-toggle {
             background: #f5f5f5;
             padding: 15px;
@@ -225,11 +257,7 @@
             user-select: none;
         }
         .credentials-toggle summary:hover { color: #764ba2; }
-        .credentials-content {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e0e0e0;
-        }
+        .credentials-content { margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0; }
 
         .sso-info {
             background: #e8f5e9;
@@ -240,6 +268,7 @@
         }
         .sso-info strong { color: #2e7d32; }
 
+        /* ── Submission result summary ──────────────────────────────────── */
         .submission-summary {
             background: #f6ffed;
             border: 1px solid #b7eb8f;
@@ -258,86 +287,99 @@
         .summary-row .value { font-weight: 600; }
         .summary-row .value.skipped { color: #d46b08; }
         .summary-row .value.created { color: #389e0d; }
-        .summary-row .value.error { color: #cf1322; }
+        .summary-row .value.error   { color: #cf1322; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🚚 Motorsights EPC 🚚</h1>
-            <p class="subtitle">Electronic Product Catalog - PDF Automation</p>
-            <div class="badge">🔐 SSO Authentication Enabled</div>
-            <div class="nav">
-                <a href="/">Upload</a>
-                <a href="/history">History</a>
+<div class="container">
+
+    <!-- Header -->
+    <div class="header">
+        <h1>🚚 Motorsights EPC 🚚</h1>
+        <p class="subtitle">Electronic Product Catalog — PDF Automation</p>
+        <div class="badge">🔐 SSO Authentication Enabled</div>
+        <div class="nav">
+            <a href="/">Upload</a>
+            <a href="/history">History</a>
+        </div>
+    </div>
+
+    <!-- Upload Card -->
+    <div class="card">
+        <h2>📤 Upload &amp; Extract</h2>
+
+        <div id="alertContainer"></div>
+
+        <div class="info-box">
+            <strong>ℹ️ Workflow:</strong>
+            Upload PDF → AI Extraction → Manual Review &amp; Edit → Approve → Submit to Database
+        </div>
+
+        <div class="sso-info">
+            <strong>🔐 SSO Authentication:</strong> Bearer tokens are generated dynamically via
+            SSO login. Configure credentials in <code>.env</code> or enter them below.
+        </div>
+
+        <!-- Credentials (collapsible) -->
+        <details class="credentials-toggle">
+            <summary>🔑 API Credentials (optional — configure in .env)</summary>
+            <div class="credentials-content">
+                <div class="form-group">
+                    <label>Sumopod API Key</label>
+                    <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
+                    <small>Only needed if not set in .env file</small>
+                </div>
+
+                <h3 style="margin: 20px 0 10px; color: #333;">SSO Credentials</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>SSO Email *</label>
+                        <input type="email" id="ssoEmail"
+                               placeholder="your-email@motorsights.net (or use .env)">
+                        <small>Required for bearer token generation</small>
+                    </div>
+                    <div class="form-group">
+                        <label>SSO Password *</label>
+                        <input type="password" id="ssoPassword"
+                               placeholder="Leave empty to use .env">
+                        <small>Required for bearer token generation</small>
+                    </div>
+                </div>
+            </div>
+        </details>
+
+        <!-- Main Configuration -->
+        <div class="form-row">
+            <div class="form-group">
+                <label>Master Category *</label>
+                <select id="masterCategory" onchange="onMasterCategoryChange()" required>
+                    <option value="">Select Master Category...</option>
+                </select>
+                <small>Choose the master category for this catalog</small>
+            </div>
+
+            <div class="form-group">
+                <label>AI Model *</label>
+                <select id="aiModel" required>
+                    <option value="gpt-4o">GPT-4o (Recommended — Best Quality)</option>
+                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (High Quality)</option>
+                    <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
+                </select>
+                <small>Select AI model for extraction</small>
             </div>
         </div>
 
-        <div class="card">
-            <h2>📤 Upload & Extract</h2>
+        <!-- Partbook Type Badge (auto-populated on category select) -->
+        <div class="form-group" id="partbookTypeBadgeGroup" style="display:none;">
+            <label>Extraction Strategy</label><br>
+            <span class="partbook-badge" id="partbookTypeBadge"></span>
+        </div>
 
-            <div id="alertContainer"></div>
-
-            <div class="info-box">
-                <strong>ℹ️ Workflow:</strong> Upload PDF → AI Extraction → Manual Review & Edit → Approve → Submit to Database
-            </div>
-
-            <div class="sso-info">
-                <strong>🔐 SSO Authentication:</strong> Bearer tokens are generated dynamically via SSO login. Configure credentials in <code>.env</code> or enter them below.
-            </div>
-
-            <!-- API Credentials (collapsible) -->
-            <details class="credentials-toggle">
-                <summary>🔑 API Credentials (optional — configure in .env)</summary>
-                <div class="credentials-content">
-                    <div class="form-group">
-                        <label>Sumopod API Key</label>
-                        <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
-                        <small>Only needed if not set in .env file</small>
-                    </div>
-
-                    <h3 style="margin: 20px 0 10px 0; color: #333;">SSO Credentials</h3>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>SSO Email *</label>
-                            <input type="email" id="ssoEmail" placeholder="your-email@motorsights.net (or use .env)">
-                            <small>Required for bearer token generation</small>
-                        </div>
-                        <div class="form-group">
-                            <label>SSO Password *</label>
-                            <input type="password" id="ssoPassword" placeholder="Leave empty to use .env">
-                            <small>Required for bearer token generation</small>
-                        </div>
-                    </div>
-                </div>
-            </details>
-
-            <!-- Main Configuration -->
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Master Category *</label>
-                    <select id="masterCategory" required>
-                        <option value="">Select Master Category...</option>
-                    </select>
-                    <small>Choose the master category for this catalog</small>
-                </div>
-
-                <div class="form-group">
-                    <label>AI Model *</label>
-                    <select id="aiModel" required>
-                        <option value="gpt-4o">GPT-4o (Recommended - Best Quality)</option>
-                        <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (High Quality)</option>
-                        <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
-                        <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
-                    </select>
-                    <small>Select AI model for extraction</small>
-                </div>
-            </div>
-
-            <!-- Extraction Prompt -->
-            <div class="form-group">
-                <label>Extraction Prompt (editable) — ✅ Corrected Format</label>
-                <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
+        <!-- Cabin & Chassis: show editable extraction prompt -->
+        <div class="form-group" id="promptGroup">
+            <label>Extraction Prompt (editable) — ✅ Corrected Format</label>
+            <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
 **CRITICAL: Extract data in the EXACT format shown below - NO codes required!**
 
@@ -379,355 +421,489 @@ Rules:
 }
 
 IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
-                <small>✅ Prompt corrected to match actual API format (no codes required)</small>
-            </div>
+            <small>✅ Prompt corrected to match actual API format (no codes required)</small>
+        </div>
 
-            <!-- Upload Area -->
-            <div class="upload-area" id="uploadArea">
-                <div class="upload-icon">📁</div>
-                <div class="upload-text">Drag & Drop your PDF catalog here</div>
-                <div class="upload-subtext">or click to browse</div>
-                <input type="file" id="fileInput" accept=".pdf">
+        <!-- Engine: zero-AI-token top-right-crop info -->
+        <div class="form-group" id="engineNoteGroup" style="display:none;">
+            <div class="info-box info-box--green">
+                ✂️ <strong>Engine mode:</strong> The system crops only the
+                <em>top-right corner</em> of each page to read the bilingual category
+                label (e.g. <code>缸体管路PLUMBING,CYLINDER BLOCK</code>).
+                This uses <strong>zero AI tokens</strong> — extraction is done entirely
+                via PDF geometry. Duplicates are skipped automatically.
+                No custom prompt is needed.
             </div>
         </div>
 
-        <!-- Processing Status & Review Section -->
-        <div class="card hidden" id="statusCard">
-            <h2>📊 Processing Status</h2>
-
-            <div class="status-card">
-                <h3>Current Status</h3>
-                <div class="status-item">
-                    <span class="status-label">File:</span>
-                    <span class="status-value" id="statusFilename">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Status:</span>
-                    <span class="status-value" id="statusBadge">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Stage:</span>
-                    <span class="status-value" id="statusStage">-</span>
-                </div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
-                </div>
+        <!-- Transmission: Chinese-only ToC translation info -->
+        <div class="form-group" id="transmissionNoteGroup" style="display:none;">
+            <div class="info-box info-box--orange">
+                📋 <strong>Transmission mode:</strong> The system extracts the
+                <em>Chinese-only Table of Contents</em> from the first pages of the
+                PDF and translates all category names into English automatically
+                via a single AI call. Both English and Chinese names are stored.
+                No custom prompt is needed.
             </div>
+        </div>
 
-            <!-- Review & Edit Section -->
-            <div class="editor-section hidden" id="reviewSection">
-                <h3>📝 Review & Edit Extracted Data</h3>
-                <p style="color: #666; margin-bottom: 15px;">
-                    Edit the JSON directly below before submitting.
-                    Duplicate categories (already in DB) are automatically skipped — no need to remove them.
-                </p>
+        <!-- Upload Area -->
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">Drag &amp; Drop your PDF catalog here</div>
+            <div class="upload-subtext">or click to browse</div>
+            <input type="file" id="fileInput" accept=".pdf">
+        </div>
+    </div>
 
-                <!-- ── FIX: proper textarea instead of contenteditable div ── -->
-                <textarea class="json-editor" id="jsonEditor" spellcheck="false"></textarea>
+    <!-- Processing Status & Review Card -->
+    <div class="card hidden" id="statusCard">
+        <h2>📊 Processing Status</h2>
 
-                <div class="button-group">
-                    <button class="btn" id="downloadBtn">💾 Download JSON</button>
-                    <button class="btn btn-warning" id="reExtractBtn">🔄 Re-Extract with New Prompt</button>
-                    <button class="btn btn-success" id="approveBtn">✅ Approve & Submit to EPC</button>
-                </div>
+        <div class="status-card">
+            <h3>Current Status</h3>
+            <div class="status-item">
+                <span class="status-label">File:</span>
+                <span class="status-value" id="statusFilename">-</span>
             </div>
+            <div class="status-item">
+                <span class="status-label">Type:</span>
+                <span class="status-value" id="statusPartbookType">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Status:</span>
+                <span class="status-value" id="statusBadge">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Stage:</span>
+                <span class="status-value" id="statusStage">-</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+        </div>
 
-            <!-- Submission Result -->
-            <div class="hidden" id="submissionResult"></div>
+        <!-- Review & Edit Section -->
+        <div class="editor-section hidden" id="reviewSection">
+            <h3>📝 Review &amp; Edit Extracted Data</h3>
+            <p style="color:#666; margin-bottom:15px;">
+                Edit the JSON directly below before submitting.
+                Duplicate categories (already in DB) are automatically skipped —
+                no need to remove them.
+            </p>
 
-            <!-- Re-prompt Section -->
-            <div class="editor-section hidden" id="rePromptSection">
-                <h3>🔄 Re-Extract with Modified Prompt</h3>
-                <div class="form-group">
-                    <label>Modified Extraction Prompt</label>
-                    <textarea id="rePromptText" style="min-height: 200px;"></textarea>
-                </div>
-                <div class="button-group">
-                    <button class="btn" id="cancelRePrompt">❌ Cancel</button>
-                    <button class="btn btn-warning" id="confirmRePrompt">✅ Start Re-Extraction</button>
-                </div>
+            <textarea class="json-editor" id="jsonEditor" spellcheck="false"></textarea>
+
+            <div class="button-group">
+                <button class="btn" id="downloadBtn">💾 Download JSON</button>
+                <button class="btn btn-warning" id="reExtractBtn">🔄 Re-Extract with New Prompt</button>
+                <button class="btn btn-success" id="approveBtn">✅ Approve &amp; Submit to EPC</button>
+            </div>
+        </div>
+
+        <!-- Submission Result -->
+        <div class="hidden" id="submissionResult"></div>
+
+        <!-- Re-prompt Section -->
+        <div class="editor-section hidden" id="rePromptSection">
+            <h3>🔄 Re-Extract with Modified Prompt</h3>
+            <div class="form-group">
+                <label>Modified Extraction Prompt</label>
+                <textarea id="rePromptText" style="min-height:200px;"></textarea>
+            </div>
+            <div class="button-group">
+                <button class="btn" id="cancelRePrompt">❌ Cancel</button>
+                <button class="btn btn-warning" id="confirmRePrompt">✅ Start Re-Extraction</button>
             </div>
         </div>
     </div>
 
-    <script>
-        const uploadArea    = document.getElementById('uploadArea');
-        const fileInput     = document.getElementById('fileInput');
-        const statusCard    = document.getElementById('statusCard');
-        const alertContainer = document.getElementById('alertContainer');
-        const reviewSection = document.getElementById('reviewSection');
-        const rePromptSection = document.getElementById('rePromptSection');
-        const jsonEditor    = document.getElementById('jsonEditor');  // now a textarea
+</div><!-- /container -->
 
-        let currentJobId = null;
-        let statusInterval = null;
-        let editorPopulated = false;  // prevent polling from overwriting user edits
+<script>
+    // ── DOM refs ─────────────────────────────────────────────────────────────
+    const uploadArea      = document.getElementById('uploadArea');
+    const fileInput       = document.getElementById('fileInput');
+    const statusCard      = document.getElementById('statusCard');
+    const alertContainer  = document.getElementById('alertContainer');
+    const reviewSection   = document.getElementById('reviewSection');
+    const rePromptSection = document.getElementById('rePromptSection');
+    const jsonEditor      = document.getElementById('jsonEditor');
 
-        // ── Load master categories ──────────────────────────────────────────
-        async function loadMasterCategories() {
-            try {
-                const response = await fetch('/api/master-categories');
-                const categories = await response.json();
+    let currentJobId     = null;
+    let statusInterval   = null;
+    let editorPopulated  = false;  // prevent polling from overwriting user edits
 
-                const select = document.getElementById('masterCategory');
-                select.innerHTML = '<option value="">Select Master Category...</option>';
+    // ── Partbook type metadata ────────────────────────────────────────────────
+    const PARTBOOK_META = {
+        engine: {
+            label: '⚙️ Engine — Top-Right Crop (0 AI tokens)',
+            cls:   'badge-engine'
+        },
+        transmission: {
+            label: '🔧 Transmission — ToC Translation (1 AI call)',
+            cls:   'badge-transmission'
+        },
+        cabin_chassis: {
+            label: '🚛 Cabin & Chassis — Full Markdown Extraction',
+            cls:   'badge-cabin_chassis'
+        }
+    };
 
-                categories.forEach(cat => {
-                    const option = document.createElement('option');
-                    option.value = cat.id;
-                    option.textContent = cat.display;
-                    select.appendChild(option);
-                });
+    // ── Load master categories ────────────────────────────────────────────────
+    async function loadMasterCategories() {
+        try {
+            const response   = await fetch('/api/master-categories');
+            const data       = await response.json();
+            const categories = data.categories || data;   // handle both shapes
+            const select     = document.getElementById('masterCategory');
 
-                if (categories.length === 0) {
-                    showAlert('⚠️ No master categories configured! Please set UUIDs in .env file.', 'warning');
-                }
-            } catch (error) {
-                showAlert('Failed to load master categories: ' + error.message, 'error');
+            select.innerHTML = '<option value="">Select Master Category...</option>';
+
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value                  = cat.id;
+                option.textContent            = cat.display || `${cat.name_en} / ${cat.name_cn}`;
+                option.dataset.partbookType   = cat.partbook_type || 'cabin_chassis';
+                select.appendChild(option);
+            });
+
+            if (categories.length === 0) {
+                showAlert('⚠️ No master categories configured! Please set UUIDs in .env file.', 'warning');
             }
+        } catch (error) {
+            showAlert('Failed to load master categories: ' + error.message, 'error');
+        }
+    }
+
+    // ── React to Master Category selection ───────────────────────────────────
+    function onMasterCategoryChange() {
+        const sel   = document.getElementById('masterCategory');
+        const opt   = sel.options[sel.selectedIndex];
+        const ptype = opt.dataset.partbookType || '';
+
+        // Badge
+        const badgeGroup = document.getElementById('partbookTypeBadgeGroup');
+        const badge      = document.getElementById('partbookTypeBadge');
+
+        if (ptype && PARTBOOK_META[ptype]) {
+            const meta      = PARTBOOK_META[ptype];
+            badge.textContent = meta.label;
+            badge.className   = 'partbook-badge ' + meta.cls;
+            badgeGroup.style.display = '';
+        } else {
+            badgeGroup.style.display = 'none';
         }
 
-        // ── Upload handlers ─────────────────────────────────────────────────
-        uploadArea.addEventListener('click', () => fileInput.click());
-        uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
-        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
-        });
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files.length > 0) handleFile(e.target.files[0]);
-        });
+        // Show/hide contextual panels
+        document.getElementById('promptGroup').style.display          =
+            (ptype === 'cabin_chassis' || ptype === '') ? '' : 'none';
+        document.getElementById('engineNoteGroup').style.display       =
+            ptype === 'engine'       ? '' : 'none';
+        document.getElementById('transmissionNoteGroup').style.display =
+            ptype === 'transmission' ? '' : 'none';
+    }
 
-        async function handleFile(file) {
-            if (!file.name.toLowerCase().endsWith('.pdf')) {
-                showAlert('Please select a PDF file', 'error');
-                return;
-            }
-            const masterCategory = document.getElementById('masterCategory').value;
-            const aiModel = document.getElementById('aiModel').value;
-            const extractionPrompt = document.getElementById('extractionPrompt').value;
-            if (!masterCategory) { showAlert('Please select a Master Category', 'error'); return; }
-            uploadFile(file, masterCategory, aiModel, extractionPrompt);
+    // ── Upload handlers ───────────────────────────────────────────────────────
+    uploadArea.addEventListener('click',    () => fileInput.click());
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+            showAlert('Please select a PDF file', 'error');
+            return;
         }
-
-        async function uploadFile(file, masterCategoryId, aiModel, prompt) {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('master_category_id', masterCategoryId);
-            formData.append('ai_model', aiModel);
-            formData.append('custom_prompt', prompt);
-
-            const sumopodKey  = document.getElementById('sumopodApiKey').value.trim();
-            const ssoEmail    = document.getElementById('ssoEmail').value.trim();
-            const ssoPassword = document.getElementById('ssoPassword').value.trim();
-            if (sumopodKey)  formData.append('sumopod_api_key', sumopodKey);
-            if (ssoEmail)    formData.append('sso_email', ssoEmail);
-            if (ssoPassword) formData.append('sso_password', ssoPassword);
-
-            try {
-                const response = await fetch('/api/upload', { method: 'POST', body: formData });
-                const data = await response.json();
-
-                if (response.ok) {
-                    currentJobId = data.job_id;
-                    editorPopulated = false;  // reset for new job
-                    showAlert('✅ File uploaded! Extraction started...', 'success');
-                    statusCard.classList.remove('hidden');
-                    reviewSection.classList.add('hidden');
-                    rePromptSection.classList.add('hidden');
-                    document.getElementById('submissionResult').classList.add('hidden');
-                    startStatusPolling();
-                } else {
-                    showAlert('❌ ' + (data.error || 'Upload failed'), 'error');
-                }
-            } catch (error) {
-                showAlert('Network error: ' + error.message, 'error');
-            }
+        const masterCategory = document.getElementById('masterCategory').value;
+        if (!masterCategory) {
+            showAlert('Please select a Master Category first', 'error');
+            return;
         }
+        const aiModel         = document.getElementById('aiModel').value;
+        const extractionPrompt = document.getElementById('extractionPrompt').value;
+        uploadFile(file, masterCategory, aiModel, extractionPrompt);
+    }
 
-        // ── Status polling ──────────────────────────────────────────────────
-        function startStatusPolling() {
-            if (statusInterval) clearInterval(statusInterval);
-            statusInterval = setInterval(async () => {
-                if (!currentJobId) return;
-                try {
-                    const response = await fetch('/api/status/' + currentJobId);
-                    const data = await response.json();
-                    updateStatus(data);
-                    if (data.status === 'completed' || data.status === 'failed' || data.status === 'error') {
-                        clearInterval(statusInterval);
-                    }
-                } catch (error) {
-                    console.error('Status polling error:', error);
-                }
-            }, 2000);
-        }
+    async function uploadFile(file, masterCategoryId, aiModel, prompt) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('master_category_id', masterCategoryId);
+        formData.append('ai_model', aiModel);
+        formData.append('custom_prompt', prompt);
 
-        function updateStatus(data) {
-            document.getElementById('statusFilename').textContent = data.filename || '-';
-            document.getElementById('statusStage').textContent   = data.stage || '-';
+        const sumopodKey  = document.getElementById('sumopodApiKey').value.trim();
+        const ssoEmail    = document.getElementById('ssoEmail').value.trim();
+        const ssoPassword = document.getElementById('ssoPassword').value.trim();
+        if (sumopodKey)  formData.append('sumopod_api_key', sumopodKey);
+        if (ssoEmail)    formData.append('sso_email', ssoEmail);
+        if (ssoPassword) formData.append('sso_password', ssoPassword);
 
-            const badge = document.getElementById('statusBadge');
-            badge.className = 'status-badge status-' + data.status;
-            badge.textContent = data.status.toUpperCase().replace(/_/g, ' ');
+        try {
+            const response = await fetch('/api/upload', { method: 'POST', body: formData });
+            const data     = await response.json();
 
-            const progressFill = document.getElementById('progressFill');
-            const progressMap = { processing: '50%', pending_review: '75%', submitting: '90%', completed: '100%' };
-            progressFill.style.width = progressMap[data.status] || progressFill.style.width;
-
-            if (data.status === 'pending_review' && data.extracted_data && !editorPopulated) {
-                showReviewSection(data.extracted_data);
-                editorPopulated = true;  // lock — don't overwrite user edits on next poll
-            }
-            if (data.status === 'error' || data.status === 'failed') {
-                const errorMsg = data.error || (data.result && data.result.error) || 'Processing failed';
-                showAlert('❌ Error: ' + errorMsg, 'error');
-            }
-        }
-
-        function showReviewSection(extractedData) {
-            reviewSection.classList.remove('hidden');
-            rePromptSection.classList.add('hidden');
-            // ── FIX: use .value for textarea ──
-            jsonEditor.value = JSON.stringify(extractedData, null, 2);
-            showAlert('⚠️ REVIEW REQUIRED: Edit the data if needed, then click Approve & Submit.', 'warning');
-        }
-
-        // ── Download ────────────────────────────────────────────────────────
-        document.getElementById('downloadBtn').addEventListener('click', () => {
-            if (currentJobId) window.location.href = '/api/download/' + currentJobId;
-        });
-
-        // ── Re-extract ──────────────────────────────────────────────────────
-        document.getElementById('reExtractBtn').addEventListener('click', () => {
-            reviewSection.classList.add('hidden');
-            rePromptSection.classList.remove('hidden');
-            document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
-        });
-
-        document.getElementById('cancelRePrompt').addEventListener('click', () => {
-            rePromptSection.classList.add('hidden');
-            reviewSection.classList.remove('hidden');
-        });
-
-        document.getElementById('confirmRePrompt').addEventListener('click', async () => {
-            const newPrompt = document.getElementById('rePromptText').value;
-            if (!confirm('Start re-extraction with modified prompt?')) return;
-
-            try {
-                const response = await fetch('/api/re-extract/' + currentJobId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: newPrompt })
-                });
-
-                if (response.ok) {
-                    editorPopulated = false;  // reset so editor gets refreshed with new data
-                    showAlert('🔄 Re-extraction started...', 'success');
-                    rePromptSection.classList.add('hidden');
-                    reviewSection.classList.add('hidden');
-                    startStatusPolling();
-                } else {
-                    const data = await response.json();
-                    showAlert('❌ ' + (data.error || 'Re-extraction failed'), 'error');
-                }
-            } catch (error) {
-                showAlert('Network error: ' + error.message, 'error');
-            }
-        });
-
-        // ── Approve & Submit ────────────────────────────────────────────────
-        document.getElementById('approveBtn').addEventListener('click', async () => {
-            if (!confirm('⚠️ Submit to EPC database?\n\nThis will create categories in the system.\nDuplicate categories will be skipped automatically.')) return;
-
-            let editedData;
-            try {
-                // ── FIX: read from textarea .value ──
-                editedData = JSON.parse(jsonEditor.value);
-            } catch (e) {
-                showAlert('❌ Invalid JSON in editor. Please fix syntax errors before submitting.', 'error');
-                return;
-            }
-
-            // Disable button to prevent double-submit
-            const approveBtn = document.getElementById('approveBtn');
-            approveBtn.disabled = true;
-            approveBtn.textContent = '⏳ Submitting...';
-
-            try {
-                const response = await fetch('/api/approve/' + currentJobId, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ data: editedData })
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.success) {
-                    const results = data.results || {};
-                    showSubmissionSummary(results);
-                    startStatusPolling();
-                } else {
-                    showAlert('❌ Submission failed: ' + (data.error || 'Unknown error'), 'error');
-                }
-            } catch (error) {
-                showAlert('Network error: ' + error.message, 'error');
-            } finally {
-                approveBtn.disabled = false;
-                approveBtn.textContent = '✅ Approve & Submit to EPC';
-            }
-        });
-
-        function showSubmissionSummary(results) {
-            const created  = (results.categories_created  || []).length;
-            const skipped  = (results.categories_skipped  || []).length;
-            const typeCats = (results.type_categories_created || []).length;
-            const errors   = (results.errors || []).length;
-
-            const container = document.getElementById('submissionResult');
-            container.classList.remove('hidden');
-            container.innerHTML = `
-                <div class="submission-summary">
-                    <h4>📊 Submission Summary</h4>
-                    <div class="summary-row">
-                        <span class="label">Categories created:</span>
-                        <span class="value created">${created}</span>
-                    </div>
-                    <div class="summary-row">
-                        <span class="label">Skipped (already exist):</span>
-                        <span class="value skipped">${skipped}</span>
-                    </div>
-                    <div class="summary-row">
-                        <span class="label">Type categories created:</span>
-                        <span class="value created">${typeCats}</span>
-                    </div>
-                    ${errors > 0 ? `<div class="summary-row">
-                        <span class="label">Errors:</span>
-                        <span class="value error">${errors}</span>
-                    </div>` : ''}
-                </div>
-            `;
-
-            if (errors === 0) {
-                showAlert(`✅ Done! ${created} new, ${skipped} skipped (duplicates), ${typeCats} type categories.`, 'success');
+            if (response.ok) {
+                currentJobId    = data.job_id;
+                editorPopulated = false;
+                showAlert('✅ File uploaded! Processing started...', 'success');
+                statusCard.classList.remove('hidden');
+                reviewSection.classList.add('hidden');
+                rePromptSection.classList.add('hidden');
+                document.getElementById('submissionResult').classList.add('hidden');
+                startStatusPolling();
             } else {
-                showAlert(`⚠️ Completed with ${errors} error(s). Check summary below.`, 'warning');
+                showAlert('❌ Upload failed: ' + (data.error || 'Unknown error'), 'error');
             }
+        } catch (error) {
+            showAlert('Network error: ' + error.message, 'error');
+        }
+    }
+
+    // ── Status polling ────────────────────────────────────────────────────────
+    function startStatusPolling() {
+        if (statusInterval) clearInterval(statusInterval);
+        statusInterval = setInterval(checkStatus, 2000);
+        checkStatus();
+    }
+
+    function stopStatusPolling() {
+        if (statusInterval) {
+            clearInterval(statusInterval);
+            statusInterval = null;
+        }
+    }
+
+    async function checkStatus() {
+        if (!currentJobId) return;
+
+        try {
+            const response = await fetch('/api/status/' + currentJobId);
+            if (!response.ok) return;
+            const job = await response.json();
+            updateStatusUI(job);
+
+            // Stop polling on terminal states
+            if (['completed', 'error', 'failed'].includes(job.status)) {
+                stopStatusPolling();
+            }
+            // Switch to review mode
+            if (job.status === 'pending_review' && !editorPopulated) {
+                showReviewSection(job);
+            }
+        } catch (error) {
+            console.error('Status check error:', error);
+        }
+    }
+
+    function updateStatusUI(job) {
+        document.getElementById('statusFilename').textContent =
+            job.filename || '-';
+        document.getElementById('statusPartbookType').textContent =
+            job.partbook_type
+                ? (PARTBOOK_META[job.partbook_type]?.label || job.partbook_type)
+                : '-';
+        document.getElementById('statusStage').textContent =
+            job.stage || '-';
+
+        // Status badge
+        const statusEl = document.getElementById('statusBadge');
+        statusEl.innerHTML =
+            `<span class="status-badge status-${job.status}">${job.status}</span>`;
+
+        // Progress bar
+        const progress = {
+            queued:         5,
+            processing:     30,
+            extracting:     60,
+            pending_review: 90,
+            submitting:     95,
+            completed:      100,
+            error:          100,
+            failed:         100
+        };
+        document.getElementById('progressFill').style.width =
+            (progress[job.status] || 0) + '%';
+
+        if (job.status === 'error' || job.status === 'failed') {
+            showAlert('❌ Error: ' + (job.error || 'Unknown error'), 'error');
+            stopStatusPolling();
+        }
+    }
+
+    function showReviewSection(job) {
+        if (!job.extracted_data) return;
+
+        editorPopulated = true;
+        stopStatusPolling();
+
+        jsonEditor.value = JSON.stringify(job.extracted_data, null, 2);
+        reviewSection.classList.remove('hidden');
+        document.getElementById('rePromptText').value =
+            document.getElementById('extractionPrompt').value;
+
+        showAlert('✅ Extraction complete! Review the data below, then approve to submit.', 'success');
+    }
+
+    // ── Download JSON ─────────────────────────────────────────────────────────
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+        try {
+            const data = JSON.parse(jsonEditor.value);
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
+            a.download = `extracted_${currentJobId}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            showAlert('❌ Invalid JSON — fix syntax errors before downloading.', 'error');
+        }
+    });
+
+    // ── Re-Extract ────────────────────────────────────────────────────────────
+    document.getElementById('reExtractBtn').addEventListener('click', () => {
+        rePromptSection.classList.remove('hidden');
+    });
+
+    document.getElementById('cancelRePrompt').addEventListener('click', () => {
+        rePromptSection.classList.add('hidden');
+    });
+
+    document.getElementById('confirmRePrompt').addEventListener('click', async () => {
+        const newPrompt = document.getElementById('rePromptText').value.trim();
+        if (!newPrompt) {
+            showAlert('Please enter a prompt before re-extracting.', 'error');
+            return;
         }
 
-        // ── Utilities ───────────────────────────────────────────────────────
-        function showAlert(message, type) {
-            const alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-' + type;
-            alertDiv.textContent = message;
-            alertContainer.innerHTML = '';
-            alertContainer.appendChild(alertDiv);
-            setTimeout(() => alertDiv.remove(), 10000);
+        try {
+            const response = await fetch('/api/re-extract/' + currentJobId, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ prompt: newPrompt })
+            });
+
+            if (response.ok) {
+                editorPopulated = false;
+                showAlert('🔄 Re-extraction started...', 'success');
+                rePromptSection.classList.add('hidden');
+                reviewSection.classList.add('hidden');
+                startStatusPolling();
+            } else {
+                const data = await response.json();
+                showAlert('❌ ' + (data.error || 'Re-extraction failed'), 'error');
+            }
+        } catch (error) {
+            showAlert('Network error: ' + error.message, 'error');
+        }
+    });
+
+    // ── Approve & Submit ──────────────────────────────────────────────────────
+    document.getElementById('approveBtn').addEventListener('click', async () => {
+        if (!confirm(
+            '⚠️ Submit to EPC database?\n\n' +
+            'This will create categories in the system.\n' +
+            'Duplicate categories will be skipped automatically.'
+        )) return;
+
+        let editedData;
+        try {
+            editedData = JSON.parse(jsonEditor.value);
+        } catch (e) {
+            showAlert('❌ Invalid JSON in editor. Please fix syntax errors before submitting.', 'error');
+            return;
         }
 
-        window.addEventListener('load', loadMasterCategories);
-    </script>
+        showAlert('⏳ Submitting to EPC...', 'info');
+
+        try {
+            const response = await fetch('/api/approve/' + currentJobId, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ data: editedData })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                showSubmissionResult(result.epc_results);
+            } else {
+                showAlert(
+                    '❌ Submission failed: ' + (result.error || 'Unknown error'),
+                    'error'
+                );
+            }
+        } catch (error) {
+            showAlert('Network error: ' + error.message, 'error');
+        }
+    });
+
+    function showSubmissionResult(epcResults) {
+        const created  = epcResults.categories_created?.length  || 0;
+        const skipped  = epcResults.categories_skipped?.length  || 0;
+        const typeCats = epcResults.type_categories_created?.length || 0;
+        const errors   = epcResults.errors?.length || 0;
+
+        const resultDiv = document.getElementById('submissionResult');
+        resultDiv.classList.remove('hidden');
+        resultDiv.innerHTML = `
+            <div class="submission-summary">
+                <h4>✅ Submission Complete</h4>
+                <div class="summary-row">
+                    <span class="label">Categories Created:</span>
+                    <span class="value created">${created}</span>
+                </div>
+                <div class="summary-row">
+                    <span class="label">Categories Skipped (duplicates):</span>
+                    <span class="value skipped">${skipped}</span>
+                </div>
+                ${typeCats > 0 ? `
+                <div class="summary-row">
+                    <span class="label">Type Categories Created:</span>
+                    <span class="value created">${typeCats}</span>
+                </div>` : ''}
+                ${errors > 0 ? `
+                <div class="summary-row">
+                    <span class="label">Errors:</span>
+                    <span class="value error">${errors}</span>
+                </div>` : ''}
+            </div>
+        `;
+
+        if (errors === 0) {
+            showAlert(
+                `✅ Done! ${created} new, ${skipped} skipped (duplicates)` +
+                (typeCats > 0 ? `, ${typeCats} type categories.` : '.'),
+                'success'
+            );
+        } else {
+            showAlert(`⚠️ Completed with ${errors} error(s). Check summary below.`, 'warning');
+        }
+    }
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
+    function showAlert(message, type) {
+        const alertDiv       = document.createElement('div');
+        alertDiv.className   = 'alert alert-' + type;
+        alertDiv.textContent = message;
+        alertContainer.innerHTML = '';
+        alertContainer.appendChild(alertDiv);
+        setTimeout(() => alertDiv.remove(), 10000);
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    window.addEventListener('load', loadMasterCategories);
+</script>
 </body>
 </html>
