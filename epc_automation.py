@@ -88,7 +88,7 @@ class EPCAutomationConfig:
         self.master_category_name_en = master_category_name_en
 
         # Validate partbook_type
-        valid_types = {"cabin_chassis", "engine", "transmission"}
+        valid_types = {"cabin_chassis", "engine", "transmission", "axle_drive"}
         self.partbook_type = partbook_type.lower().strip()
         if self.partbook_type not in valid_types:
             raise ValueError(
