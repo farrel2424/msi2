@@ -23,6 +23,7 @@ from sumopod_client import SumopodClient
 from motorsights_epc_client import MotorsightsEPCClient
 from motorsights_auth_client import MotorsightsAuthClient
 from engine_transmission_extractor import extract_engine_or_transmission
+from axle_drive_extractor import extract_axle_drive_categories
 
 
 class EPCAutomationConfig:
@@ -54,7 +55,7 @@ class EPCAutomationConfig:
         master_category_name_en: Optional[str] = None,
 
         # NEW: Partbook type — controls extraction strategy
-        partbook_type: str = "cabin_chassis",   # "cabin_chassis" | "engine" | "transmission"
+        partbook_type: str = "cabin_chassis",   # "cabin_chassis" | "engine" | "transmission" | "axle_drive"
 
         # Logging
         processed_log_file: str = "epc_processed_files.json"
@@ -214,6 +215,7 @@ class EPCPDFAutomation:
         cabin_chassis → original pymupdf4llm → Sumopod markdown extraction
         engine        → PyMuPDF top-right crop → regex split (0 AI tokens)
         transmission  → PyMuPDF ToC pages → Sumopod translation (1 small AI call)
+        axle_drive    → ZIP-of-JPEGs → Sumopod vision per table page (1 call/page)
         """
         ptype = self.config.partbook_type
 
@@ -235,6 +237,16 @@ class EPCPDFAutomation:
             return extract_engine_or_transmission(
                 pdf_path=str(pdf_path),
                 partbook_type=ptype,
+                sumopod_client=self.sumopod
+            )
+
+        elif ptype == "axle_drive":
+            self.logger.info(
+                "Strategy: Axle Drive — ZIP/JPEG vision extraction "
+                "(1 vision call per table page + 1 translation call)"
+            )
+            return extract_axle_drive_categories(
+                pdf_path=str(pdf_path),
                 sumopod_client=self.sumopod
             )
 
@@ -354,7 +366,8 @@ class EPCPDFAutomation:
                 master_category_name_en=master_category_name_en
             )
         else:
-            # Full structure — categories + type_categories (cabin_chassis)
+            # Full structure — categories + type_categories
+            # (cabin_chassis AND axle_drive both use this path)
             return self.epc_client.batch_create_type_categories_and_categories(
                 catalog_data=extracted_data,
                 master_category_id=master_category_id,

@@ -447,6 +447,21 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
             </div>
         </div>
 
+        <!-- Axle Drive: ZIP-of-JPEGs vision extraction info -->
+    <div class="form-group" id="axleDriveNoteGroup" style="display:none;">
+        <div class="info-box info-box--purple">
+            🔍 <strong>Axle Drive mode:</strong> The partbook PDF is a
+            <em>ZIP archive of JPEG images</em>. The system identifies table pages
+            (via manifest.json), then uses <strong>AI vision</strong> to read the
+            table title from each page — extracting unique subtype categories.
+            <br><br>
+            <strong>Strategy:</strong> 1 vision call per table page + 1 translation call.
+            <br>
+            <strong>Output:</strong> 1 Category (e.g. "Drive Axle") with N Type Categories
+            (one per unique table header title).
+        </div>
+    </div>
+
         <!-- Upload Area -->
         <div class="upload-area" id="uploadArea">
             <div class="upload-icon">📁</div>
@@ -547,6 +562,10 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
         cabin_chassis: {
             label: '🚛 Cabin & Chassis — Full Markdown Extraction',
             cls:   'badge-cabin_chassis'
+        },
+        axle_drive: {
+            label: '🛞 Axle & Drive — ZIP/JPEG vision extraction — reads table headers via AI vision (1 call per table page)',
+            cls:   'badge-axle_drive'
         }
     };
 
@@ -600,6 +619,8 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
             (ptype === 'cabin_chassis' || ptype === '') ? '' : 'none';
         document.getElementById('engineNoteGroup').style.display       =
             ptype === 'engine'       ? '' : 'none';
+        document.getElementById('axleDriveNoteGroup').style.display =
+            ptype === 'axle_drive' ? '' : 'none';
         document.getElementById('transmissionNoteGroup').style.display =
             ptype === 'transmission' ? '' : 'none';
     }

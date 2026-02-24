@@ -46,7 +46,7 @@ MASTER_CATEGORIES = {
         'id': os.getenv('MASTER_CATEGORY_AXLE_ID', ''),
         'name_en': 'Axle',
         'name_cn': '车轴',
-        'partbook_type': 'cabin_chassis'  # Axle uses same strategy as Cabin & Chassis
+        'partbook_type': 'axle_drive'  # Axle uses same strategy as Cabin & Chassis
     }
 }
 
