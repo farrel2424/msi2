@@ -3,382 +3,428 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Motorsights EPC - PDF Automation</title>
+    <title>Motorsights EPC — PDF Automation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg:         #f0f2f5;
+            --surface:    #ffffff;
+            --border:     #e2e5eb;
+            --border-mid: #d0d5df;
+            --text-1:     #0f1420;
+            --text-2:     #4a5568;
+            --text-3:     #8a94a6;
+            --primary:    #2563eb;
+            --primary-dk: #1d4ed8;
+            --primary-lt: #eff6ff;
+            --success:    #16a34a;
+            --success-lt: #f0fdf4;
+            --warning:    #d97706;
+            --warning-lt: #fffbeb;
+            --danger:     #dc2626;
+            --danger-lt:  #fef2f2;
+            --info:       #0284c7;
+            --info-lt:    #f0f9ff;
+            --accent:     #7c3aed;
+            --radius:     10px;
+            --radius-sm:  6px;
+            --shadow:     0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06);
+            --shadow-sm:  0 1px 2px rgba(0,0,0,0.06);
+            --mono:       'DM Mono', 'Consolas', monospace;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0b36f3 0%, #d30606 100%);
+            font-family: 'DM Sans', system-ui, sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            background: var(--bg);
+            color: var(--text-1);
             min-height: 100vh;
-            padding: 20px;
         }
 
-        .container { max-width: 1200px; margin: 0 auto; }
+        /* ── Layout ──────────────────────────────────────────────────── */
+        .page { max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }
 
-        .header {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-            text-align: center;
+        /* ── Header ──────────────────────────────────────────────────── */
+        .site-header {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 28px 36px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 16px;
         }
-        .header h1 { color: #667eea; font-size: 2.5em; margin-bottom: 10px; }
-        .header .subtitle { color: #666; font-size: 1.1em; }
-        .badge {
-            display: inline-block;
-            background: #4caf50;
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            font-weight: 600;
-            margin-top: 10px;
+
+        .site-header__brand { display: flex; align-items: center; gap: 14px; }
+        .site-header__icon {
+            width: 44px; height: 44px;
+            background: var(--primary);
+            border-radius: 10px;
+            display: grid; place-items: center;
+            font-size: 22px;
+            flex-shrink: 0;
         }
-        .nav { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
-        .nav a {
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
+        .site-header__title {
+            font-size: 20px; font-weight: 600; letter-spacing: -0.3px; color: var(--text-1);
+        }
+        .site-header__sub { font-size: 13px; color: var(--text-3); margin-top: 1px; }
+
+        .site-header__right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+        .badge-sso {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: var(--success-lt); color: var(--success);
+            border: 1px solid #bbf7d0;
+            padding: 5px 12px; border-radius: 20px;
+            font-size: 12px; font-weight: 500;
+        }
+
+        nav { display: flex; gap: 4px; }
+        nav a {
+            padding: 7px 16px;
+            border-radius: var(--radius-sm);
+            font-size: 14px; font-weight: 500;
+            color: var(--text-2);
             text-decoration: none;
-            border-radius: 8px;
-            transition: background 0.3s;
+            border: 1px solid transparent;
+            transition: all 0.15s;
         }
-        .nav a:hover { background: #764ba2; }
+        nav a:hover { background: var(--primary-lt); color: var(--primary); border-color: #bfdbfe; }
+        nav a.active { background: var(--primary); color: #fff; }
 
+        /* ── Cards ───────────────────────────────────────────────────── */
         .card {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }
-        .card h2 {
-            color: #333;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 28px 32px;
             margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #f0f0f0;
         }
 
-        .upload-area {
-            border: 3px dashed #667eea;
-            border-radius: 15px;
-            padding: 60px 20px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            background: #f8f9ff;
-            margin-top: 20px;
+        .card__header {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 16px; font-weight: 600; color: var(--text-1);
+            padding-bottom: 18px; margin-bottom: 20px;
+            border-bottom: 1px solid var(--border);
         }
-        .upload-area:hover { border-color: #764ba2; background: #f0f2ff; }
-        .upload-area.dragover { border-color: #764ba2; background: #e8ebff; transform: scale(1.02); }
-        .upload-icon { font-size: 4em; margin-bottom: 20px; }
-        .upload-text { font-size: 1.2em; color: #333; margin-bottom: 10px; }
-        .upload-subtext { color: #666; font-size: 0.9em; }
-        #fileInput { display: none; }
+        .card__header-icon { font-size: 18px; }
 
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; margin-bottom: 8px; color: #333; font-weight: 600; }
-        .form-group select,
+        /* ── Info boxes ──────────────────────────────────────────────── */
+        .info-box {
+            display: flex; gap: 12px;
+            padding: 14px 16px; border-radius: var(--radius-sm);
+            font-size: 13.5px; line-height: 1.5;
+            margin-bottom: 18px;
+            border: 1px solid;
+        }
+        .info-box__icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+        .info-box--blue   { background: var(--info-lt);    border-color: #bae6fd; color: #0369a1; }
+        .info-box--green  { background: var(--success-lt); border-color: #bbf7d0; color: #15803d; }
+        .info-box--orange { background: var(--warning-lt); border-color: #fde68a; color: #92400e; }
+        .info-box--purple { background: #faf5ff;           border-color: #e9d5ff; color: #6b21a8; }
+        .info-box code {
+            font-family: var(--mono); font-size: 12px;
+            background: rgba(0,0,0,0.07); padding: 1px 5px; border-radius: 3px;
+        }
+
+        /* ── Forms ───────────────────────────────────────────────────── */
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block; margin-bottom: 6px;
+            font-size: 13.5px; font-weight: 500; color: var(--text-2);
+        }
         .form-group input,
+        .form-group select,
         .form-group textarea {
             width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 1em;
-            font-family: inherit;
-            transition: border-color 0.3s;
+            padding: 10px 12px;
+            border: 1px solid var(--border-mid);
+            border-radius: var(--radius-sm);
+            font-size: 14px; font-family: inherit;
+            background: var(--surface);
+            color: var(--text-1);
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
-        .form-group textarea { min-height: 150px; font-family: 'Courier New', monospace; resize: vertical; }
-        .form-group select:focus,
         .form-group input:focus,
-        .form-group textarea:focus { outline: none; border-color: #667eea; }
-        .form-group small { display: block; margin-top: 5px; color: #666; font-size: 0.85em; }
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+        }
+        .form-group textarea { font-family: var(--mono); font-size: 13px; min-height: 160px; resize: vertical; }
+        .form-group small { display: block; margin-top: 5px; font-size: 12px; color: var(--text-3); }
 
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-
-        .btn {
-            padding: 12px 30px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
+        /* ── Credentials collapsible ─────────────────────────────────── */
+        .credentials-details {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 18px;
+            overflow: hidden;
+        }
+        .credentials-details summary {
+            padding: 12px 16px;
             cursor: pointer;
-            transition: background 0.3s;
-            font-weight: 600;
-            margin-right: 10px;
+            font-size: 13.5px; font-weight: 500; color: var(--text-2);
+            background: #fafbfc;
+            user-select: none;
+            list-style: none;
+            display: flex; align-items: center; gap: 8px;
         }
-        .btn:hover { background: #764ba2; }
-        .btn:disabled { background: #ccc; cursor: not-allowed; }
-        .btn-success { background: #52c41a; }
-        .btn-success:hover { background: #389e0d; }
-        .btn-warning { background: #ff9800; }
-        .btn-warning:hover { background: #f57c00; }
+        .credentials-details summary::-webkit-details-marker { display: none; }
+        .credentials-details summary::before { content: '›'; font-size: 18px; transition: transform 0.2s; }
+        .credentials-details[open] summary::before { transform: rotate(90deg); }
+        .credentials-details summary:hover { background: var(--primary-lt); color: var(--primary); }
+        .credentials-content { padding: 18px 16px; border-top: 1px solid var(--border); }
+        .credentials-content h4 { font-size: 13px; font-weight: 500; color: var(--text-3); margin: 12px 0 10px; text-transform: uppercase; letter-spacing: 0.5px; }
 
-        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        .alert-error   { background: #fff2f0; border: 1px solid #ffccc7; color: #cf1322; }
-        .alert-success { background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; }
-        .alert-warning { background: #fffbe6; border: 1px solid #ffe58f; color: #d46b08; }
-        .alert-info    { background: #e6f7ff; border: 1px solid #91d5ff; color: #096dd9; }
+        /* ── Partbook type badge ─────────────────────────────────────── */
+        .partbook-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 14px; border-radius: 20px;
+            font-size: 13px; font-weight: 500;
+            border: 1px solid;
+        }
+        .badge-engine        { background: var(--success-lt); color: var(--success);  border-color: #bbf7d0; }
+        .badge-transmission  { background: var(--primary-lt); color: var(--primary);  border-color: #bfdbfe; }
+        .badge-cabin_chassis { background: var(--warning-lt); color: var(--warning);  border-color: #fde68a; }
+        .badge-axle_drive    { background: #faf5ff;           color: var(--accent);   border-color: #e9d5ff; }
 
-        .hidden { display: none; }
+        /* ── Upload area ─────────────────────────────────────────────── */
+        .upload-area {
+            border: 2px dashed var(--border-mid);
+            border-radius: var(--radius);
+            padding: 52px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: #fafbfc;
+            margin-top: 18px;
+        }
+        .upload-area:hover { border-color: var(--primary); background: var(--primary-lt); }
+        .upload-area.dragover { border-color: var(--primary); background: var(--primary-lt); transform: scale(1.01); }
+        .upload-area__icon { font-size: 40px; margin-bottom: 14px; }
+        .upload-area__text { font-size: 15px; font-weight: 500; color: var(--text-1); margin-bottom: 4px; }
+        .upload-area__sub  { font-size: 13px; color: var(--text-3); }
+        #fileInput { display: none; }
 
-        .status-card {
-            background: #f8f9ff;
+        /* ── Buttons ─────────────────────────────────────────────────── */
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 9px 18px;
+            border: 1px solid transparent;
+            border-radius: var(--radius-sm);
+            font-size: 14px; font-weight: 500; font-family: inherit;
+            cursor: pointer; text-decoration: none;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .btn--primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .btn--primary:hover { background: var(--primary-dk); border-color: var(--primary-dk); }
+        .btn--success { background: var(--success); color: #fff; border-color: var(--success); }
+        .btn--success:hover { background: #15803d; }
+        .btn--warning { background: var(--warning); color: #fff; border-color: var(--warning); }
+        .btn--warning:hover { background: #b45309; }
+        .btn--ghost { background: transparent; color: var(--text-2); border-color: var(--border-mid); }
+        .btn--ghost:hover { background: var(--bg); }
+        .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+        /* ── Status panel ────────────────────────────────────────────── */
+        .status-panel {
+            background: #fafbfc;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
             padding: 20px;
-            border-radius: 10px;
-            margin-top: 20px;
-            border-left: 4px solid #667eea;
+            margin-top: 18px;
         }
-        .status-card h3 { color: #667eea; margin-bottom: 15px; }
-        .status-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid #e0e0e0;
+        .status-panel__title { font-size: 14px; font-weight: 600; color: var(--text-2); margin-bottom: 14px; }
+
+        .status-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 9px 0; border-bottom: 1px solid var(--border);
+            font-size: 13.5px;
         }
-        .status-item:last-child { border-bottom: none; }
-        .status-label { color: #666; font-weight: 600; }
-        .status-value { color: #333; }
+        .status-row:last-of-type { border-bottom: none; }
+        .status-row__label { color: var(--text-3); font-weight: 500; }
 
         .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            font-weight: 600;
+            display: inline-flex; align-items: center;
+            padding: 3px 10px; border-radius: 20px;
+            font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
         }
-        .status-queued       { background: #ffd700; color: #333; }
-        .status-processing   { background: #4a90e2; color: white; }
-        .status-pending_review { background: #ff9800; color: white; }
-        .status-submitting   { background: #9c27b0; color: white; }
-        .status-completed    { background: #52c41a; color: white; }
-        .status-failed       { background: #ff4d4f; color: white; }
-        .status-error        { background: #ff4d4f; color: white; }
+        .status-queued       { background: #fef9c3; color: #713f12; }
+        .status-processing   { background: var(--primary-lt); color: var(--primary); }
+        .status-pending_review { background: var(--warning-lt); color: var(--warning); }
+        .status-submitting   { background: #faf5ff; color: var(--accent); }
+        .status-completed    { background: var(--success-lt); color: var(--success); }
+        .status-failed,
+        .status-error        { background: var(--danger-lt); color: var(--danger); }
 
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: #e0e0e0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            transition: width 0.3s;
+        /* ── Progress bar ────────────────────────────────────────────── */
+        .progress { height: 5px; background: var(--border); border-radius: 3px; margin-top: 14px; overflow: hidden; }
+        .progress__fill {
+            height: 100%; background: var(--primary);
+            border-radius: 3px; transition: width 0.4s ease;
         }
 
-        .editor-section { margin-top: 20px; }
-
+        /* ── JSON editor ─────────────────────────────────────────────── */
         .json-editor {
-            width: 100%;
-            min-height: 400px;
-            max-height: 600px;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 20px;
-            border-radius: 8px;
-            font-family: 'Courier New', 'Consolas', monospace;
-            font-size: 0.9em;
-            line-height: 1.5;
-            border: 2px solid #e0e0e0;
-            resize: vertical;
-            tab-size: 2;
-            white-space: pre;
-            overflow: auto;
-            display: block;
+            width: 100%; min-height: 380px; max-height: 560px;
+            background: #0f1420; color: #e2e8f0;
+            padding: 18px; border-radius: var(--radius-sm);
+            font-family: var(--mono); font-size: 13px; line-height: 1.6;
+            border: 1px solid var(--border);
+            resize: vertical; tab-size: 2; white-space: pre;
+            overflow: auto; display: block;
         }
-        .json-editor:focus { outline: none; border-color: #667eea; }
+        .json-editor:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
 
-        .button-group { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
-
-        /* ── Info boxes ─────────────────────────────────────────────────── */
-        .info-box {
-            background: #e3f2fd;
-            border-left: 4px solid #2196f3;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-            font-size: 0.95em;
-            line-height: 1.5;
-        }
-        .info-box strong { color: #1976d2; }
-
-        .info-box--green {
-            background: #f1f8e9;
-            border-left-color: #66bb6a;
-        }
-        .info-box--green strong { color: #2e7d32; }
-
-        .info-box--orange {
-            background: #fff3e0;
-            border-left-color: #ff9800;
-        }
-        .info-box--orange strong { color: #e65100; }
-
-        .info-box code {
-            background: rgba(0,0,0,0.08);
-            padding: 1px 6px;
-            border-radius: 3px;
-            font-family: monospace;
-            font-size: 0.92em;
+        /* ── Section heading ─────────────────────────────────────────── */
+        .section-title {
+            font-size: 15px; font-weight: 600; color: var(--text-1);
+            margin: 22px 0 14px;
+            display: flex; align-items: center; gap: 8px;
         }
 
-        /* ── Partbook type badge ────────────────────────────────────────── */
-        .partbook-badge {
-            display: inline-block;
-            padding: 7px 16px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: 600;
-            margin-top: 4px;
+        /* ── Alerts ──────────────────────────────────────────────────── */
+        .alert {
+            display: flex; gap: 10px; align-items: flex-start;
+            padding: 12px 16px; border-radius: var(--radius-sm);
+            font-size: 13.5px; margin-bottom: 16px; border: 1px solid;
         }
-        .badge-engine        { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
-        .badge-transmission  { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
-        .badge-cabin_chassis { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+        .alert--success { background: var(--success-lt); border-color: #bbf7d0; color: #15803d; }
+        .alert--error   { background: var(--danger-lt);  border-color: #fecaca; color: var(--danger); }
+        .alert--warning { background: var(--warning-lt); border-color: #fde68a; color: #92400e; }
+        .alert--info    { background: var(--info-lt);    border-color: #bae6fd; color: var(--info); }
 
-        /* ── Credentials collapsible ────────────────────────────────────── */
-        .credentials-toggle {
-            background: #f5f5f5;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border: 1px solid #e0e0e0;
-        }
-        .credentials-toggle summary {
-            cursor: pointer;
-            font-weight: 600;
-            color: #667eea;
-            user-select: none;
-        }
-        .credentials-toggle summary:hover { color: #764ba2; }
-        .credentials-content { margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0; }
-
-        .sso-info {
-            background: #e8f5e9;
-            border-left: 4px solid #4caf50;
-            padding: 15px;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        .sso-info strong { color: #2e7d32; }
-
-        /* ── Submission result summary ──────────────────────────────────── */
+        /* ── Submission summary ──────────────────────────────────────── */
         .submission-summary {
-            background: #f6ffed;
-            border: 1px solid #b7eb8f;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 10px;
+            background: var(--success-lt); border: 1px solid #bbf7d0;
+            border-radius: var(--radius-sm); padding: 16px; margin-top: 12px;
         }
-        .submission-summary h4 { color: #389e0d; margin-bottom: 8px; }
-        .submission-summary .summary-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 4px 0;
-            font-size: 0.95em;
+        .submission-summary__title { font-weight: 600; color: var(--success); margin-bottom: 10px; font-size: 14px; }
+        .summary-row {
+            display: flex; justify-content: space-between;
+            padding: 5px 0; font-size: 13.5px; border-bottom: 1px solid #d1fae5;
         }
-        .summary-row .label { color: #555; }
-        .summary-row .value { font-weight: 600; }
-        .summary-row .value.skipped { color: #d46b08; }
-        .summary-row .value.created { color: #389e0d; }
-        .summary-row .value.error   { color: #cf1322; }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-row__label { color: var(--text-2); }
+        .summary-row__value { font-weight: 600; }
+        .summary-row__value--created { color: var(--success); }
+        .summary-row__value--skipped { color: var(--warning); }
+        .summary-row__value--error   { color: var(--danger); }
+
+        /* ── Utility ─────────────────────────────────────────────────── */
+        .hidden { display: none !important; }
+        .mt-4 { margin-top: 16px; }
+        .text-sm { font-size: 13px; color: var(--text-3); }
     </style>
 </head>
 <body>
-<div class="container">
+<div class="page">
 
     <!-- Header -->
-    <div class="header">
-        <h1>🚚 Motorsights EPC 🚚</h1>
-        <p class="subtitle">Electronic Product Catalog — PDF Automation</p>
-        <div class="badge">🔐 SSO Authentication Enabled</div>
-        <div class="nav">
-            <a href="/">Upload</a>
-            <a href="/history">History</a>
+    <header class="site-header">
+        <div class="site-header__brand">
+            <div class="site-header__icon">🚚</div>
+            <div>
+                <div class="site-header__title">Motorsights EPC</div>
+                <div class="site-header__sub">Electronic Product Catalog — PDF Automation</div>
+            </div>
         </div>
-    </div>
+        <div class="site-header__right">
+            <span class="badge-sso">🔐 SSO Active</span>
+            <nav>
+                <a href="/" class="active">Upload</a>
+                <a href="/history">History</a>
+            </nav>
+        </div>
+    </header>
 
-    <!-- Upload Card -->
+    <!-- Upload & Extract Card -->
     <div class="card">
-        <h2>📤 Upload &amp; Extract</h2>
+        <div class="card__header">
+            <span class="card__header-icon">📤</span>
+            Upload &amp; Extract
+        </div>
 
         <div id="alertContainer"></div>
 
-        <div class="info-box">
-            <strong>ℹ️ Workflow:</strong>
-            Upload PDF → AI Extraction → Manual Review &amp; Edit → Approve → Submit to Database
+        <div class="info-box info-box--blue">
+            <span class="info-box__icon">ℹ️</span>
+            <div><strong>Workflow:</strong> Upload PDF → AI Extraction → Review &amp; Edit → Approve → Submit to Database</div>
         </div>
 
-        <div class="sso-info">
-            <strong>🔐 SSO Authentication:</strong> Bearer tokens are generated dynamically via
-            SSO login. Configure credentials in <code>.env</code> or enter them below.
-        </div>
-
-        <!-- Credentials (collapsible) -->
-        <details class="credentials-toggle">
-            <summary>🔑 API Credentials (optional — configure in .env)</summary>
+        <!-- Credentials -->
+        <details class="credentials-details">
+            <summary>🔑 API Credentials (optional — defaults to .env)</summary>
             <div class="credentials-content">
                 <div class="form-group">
                     <label>Sumopod API Key</label>
                     <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
-                    <small>Only needed if not set in .env file</small>
+                    <small>Only required if not set in .env</small>
                 </div>
-
-                <h3 style="margin: 20px 0 10px; color: #333;">SSO Credentials</h3>
+                <h4>SSO Credentials</h4>
                 <div class="form-row">
                     <div class="form-group">
-                        <label>SSO Email *</label>
-                        <input type="email" id="ssoEmail"
-                               placeholder="your-email@motorsights.net (or use .env)">
+                        <label>Email</label>
+                        <input type="email" id="ssoEmail" placeholder="user@motorsights.net">
                         <small>Required for bearer token generation</small>
                     </div>
                     <div class="form-group">
-                        <label>SSO Password *</label>
-                        <input type="password" id="ssoPassword"
-                               placeholder="Leave empty to use .env">
-                        <small>Required for bearer token generation</small>
+                        <label>Password</label>
+                        <input type="password" id="ssoPassword" placeholder="Leave empty to use .env">
                     </div>
                 </div>
             </div>
         </details>
 
-        <!-- Main Configuration -->
+        <!-- Main config -->
         <div class="form-row">
             <div class="form-group">
-                <label>Master Category *</label>
+                <label>Master Category <span style="color:var(--danger)">*</span></label>
                 <select id="masterCategory" onchange="onMasterCategoryChange()" required>
-                    <option value="">Select Master Category...</option>
+                    <option value="">Select Master Category…</option>
                 </select>
-                <small>Choose the master category for this catalog</small>
+                <small>Determines extraction strategy</small>
             </div>
-
             <div class="form-group">
-                <label>AI Model *</label>
+                <label>AI Model <span style="color:var(--danger)">*</span></label>
                 <select id="aiModel" required>
-                    <option value="gpt-4o">GPT-4o (Recommended — Best Quality)</option>
-                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet (High Quality)</option>
-                    <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
-                    <option value="gpt-4-turbo">GPT-4 Turbo (Legacy)</option>
+                    <option value="gpt-4o">GPT-4o — Best Quality</option>
+                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet — High Quality</option>
+                    <option value="claude-3-5-haiku">Claude 3.5 Haiku — Fast</option>
+                    <option value="gpt-4-turbo">GPT-4 Turbo — Legacy</option>
                 </select>
-                <small>Select AI model for extraction</small>
             </div>
         </div>
 
-        <!-- Partbook Type Badge (auto-populated on category select) -->
-        <div class="form-group" id="partbookTypeBadgeGroup" style="display:none;">
-            <label>Extraction Strategy</label><br>
-            <span class="partbook-badge" id="partbookTypeBadge"></span>
+        <!-- Partbook strategy badge -->
+        <div class="form-group hidden" id="partbookBadgeGroup">
+            <label>Extraction Strategy</label>
+            <div class="mt-4">
+                <span class="partbook-badge" id="partbookBadge"></span>
+            </div>
         </div>
 
-        <!-- Cabin & Chassis: show editable extraction prompt -->
+        <!-- Cabin & Chassis prompt -->
         <div class="form-group" id="promptGroup">
-            <label>Extraction Prompt (editable) — ✅ Corrected Format</label>
+            <label>Extraction Prompt</label>
             <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
 **CRITICAL: Extract data in the EXACT format shown below - NO codes required!**
@@ -391,19 +437,11 @@ D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     .
 ```
 
 Rules:
-1. **Section headers** (number + bold text) = Category
-   - Format: `<number> <English Name> <Chinese Name>`
-   - Example: `10 Frame System 车架系统` → Category: "Frame System" / "车架系统"
-
-2. **Part entries** (after header) = Type Categories (subcategories)
-   - Format: `<PartCode> <EnglishName> <ChineseName>...`
-   - Example: `D C97259880020 Front Accessories 中保险杠...`
-   - Extract: name_en="DC97259800020 Front Accessories Of Frame", name_cn="车架前端附件"
-   - IMPORTANT: INCLUDE the part code at the beginning of the English name!
-
+1. Section headers (number + bold text) = Category
+2. Part entries (after header) = Type Categories — include the part code in the English name
 3. Return ONLY valid JSON, no markdown, no explanations
 
-**EXACT OUTPUT FORMAT:**
+OUTPUT FORMAT:
 {
   "categories": [
     {
@@ -413,130 +451,114 @@ Rules:
         {
           "type_category_name_en": "string",
           "type_category_name_cn": "string",
-          "type_category_description": "string (optional)"
+          "type_category_description": "string"
         }
       ]
     }
   ]
 }
 
-IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
-            <small>✅ Prompt corrected to match actual API format (no codes required)</small>
+Do NOT include type_category_code or categories_code.</textarea>
+            <small>Applies only to Cabin &amp; Chassis extractions</small>
         </div>
 
-        <!-- Engine: zero-AI-token top-right-crop info -->
-        <div class="form-group" id="engineNoteGroup" style="display:none;">
+        <!-- Engine note -->
+        <div class="form-group hidden" id="engineNoteGroup">
             <div class="info-box info-box--green">
-                ✂️ <strong>Engine mode:</strong> The system crops only the
-                <em>top-right corner</em> of each page to read the bilingual category
-                label (e.g. <code>缸体管路PLUMBING,CYLINDER BLOCK</code>).
-                This uses <strong>zero AI tokens</strong> — extraction is done entirely
-                via PDF geometry. Duplicates are skipped automatically.
-                No custom prompt is needed.
+                <span class="info-box__icon">✂️</span>
+                <div><strong>Engine mode:</strong> Crops the top-right corner of each page to read the bilingual category label (e.g. <code>缸体管路PLUMBING,CYLINDER BLOCK</code>). Uses zero AI tokens. Duplicates are skipped automatically.</div>
             </div>
         </div>
 
-        <!-- Transmission: Chinese-only ToC translation info -->
-        <div class="form-group" id="transmissionNoteGroup" style="display:none;">
+        <!-- Transmission note -->
+        <div class="form-group hidden" id="transmissionNoteGroup">
             <div class="info-box info-box--orange">
-                📋 <strong>Transmission mode:</strong> The system extracts the
-                <em>Chinese-only Table of Contents</em> from the first pages of the
-                PDF and translates all category names into English automatically
-                via a single AI call. Both English and Chinese names are stored.
-                No custom prompt is needed.
+                <span class="info-box__icon">📋</span>
+                <div><strong>Transmission mode:</strong> Extracts the Chinese-only Table of Contents from the first pages and translates all category names to English in a single AI call.</div>
             </div>
         </div>
 
-        <!-- Axle Drive: ZIP-of-JPEGs vision extraction info -->
-    <div class="form-group" id="axleDriveNoteGroup" style="display:none;">
-        <div class="info-box info-box--purple">
-            🔍 <strong>Axle Drive mode:</strong> The partbook PDF is a
-            <em>ZIP archive of JPEG images</em>. The system identifies table pages
-            (via manifest.json), then uses <strong>AI vision</strong> to read the
-            table title from each page — extracting unique subtype categories.
-            <br><br>
-            <strong>Strategy:</strong> 1 vision call per table page + 1 translation call.
-            <br>
-            <strong>Output:</strong> 1 Category (e.g. "Drive Axle") with N Type Categories
-            (one per unique table header title).
+        <!-- Axle Drive note -->
+        <div class="form-group hidden" id="axleDriveNoteGroup">
+            <div class="info-box info-box--purple">
+                <span class="info-box__icon">🔍</span>
+                <div><strong>Axle Drive mode:</strong> Identifies table pages via manifest.json, then uses AI vision to read each table title. Produces one Category with N Type Categories.<br><small style="opacity:.8">1 vision call per table page + 1 translation call</small></div>
+            </div>
         </div>
-    </div>
 
-        <!-- Upload Area -->
+        <!-- Upload dropzone -->
         <div class="upload-area" id="uploadArea">
-            <div class="upload-icon">📁</div>
-            <div class="upload-text">Drag &amp; Drop your PDF catalog here</div>
-            <div class="upload-subtext">or click to browse</div>
+            <div class="upload-area__icon">📁</div>
+            <div class="upload-area__text">Drag &amp; drop your PDF catalog here</div>
+            <div class="upload-area__sub">or click to browse files</div>
             <input type="file" id="fileInput" accept=".pdf">
         </div>
-    </div>
+    </div><!-- /card -->
 
-    <!-- Processing Status & Review Card -->
+    <!-- Status & Review Card -->
     <div class="card hidden" id="statusCard">
-        <h2>📊 Processing Status</h2>
+        <div class="card__header">
+            <span class="card__header-icon">📊</span>
+            Processing Status
+        </div>
 
-        <div class="status-card">
-            <h3>Current Status</h3>
-            <div class="status-item">
-                <span class="status-label">File:</span>
-                <span class="status-value" id="statusFilename">-</span>
+        <div class="status-panel">
+            <div class="status-panel__title">Current Job</div>
+            <div class="status-row">
+                <span class="status-row__label">File</span>
+                <span id="statusFilename">—</span>
             </div>
-            <div class="status-item">
-                <span class="status-label">Type:</span>
-                <span class="status-value" id="statusPartbookType">-</span>
+            <div class="status-row">
+                <span class="status-row__label">Type</span>
+                <span id="statusPartbookType">—</span>
             </div>
-            <div class="status-item">
-                <span class="status-label">Status:</span>
-                <span class="status-value" id="statusBadge">-</span>
+            <div class="status-row">
+                <span class="status-row__label">Status</span>
+                <span id="statusBadge">—</span>
             </div>
-            <div class="status-item">
-                <span class="status-label">Stage:</span>
-                <span class="status-value" id="statusStage">-</span>
+            <div class="status-row">
+                <span class="status-row__label">Stage</span>
+                <span id="statusStage">—</span>
             </div>
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            <div class="progress">
+                <div class="progress__fill" id="progressFill" style="width:0%"></div>
             </div>
         </div>
 
-        <!-- Review & Edit Section -->
-        <div class="editor-section hidden" id="reviewSection">
-            <h3>📝 Review &amp; Edit Extracted Data</h3>
-            <p style="color:#666; margin-bottom:15px;">
-                Edit the JSON directly below before submitting.
-                Duplicate categories (already in DB) are automatically skipped —
-                no need to remove them.
-            </p>
+        <!-- Review & Edit -->
+        <div class="hidden" id="reviewSection">
+            <div class="section-title">📝 Review &amp; Edit Extracted Data</div>
+            <p class="text-sm" style="margin-bottom:14px;">Edit the JSON below before submitting. Duplicate categories are automatically skipped — no need to remove them.</p>
 
             <textarea class="json-editor" id="jsonEditor" spellcheck="false"></textarea>
 
-            <div class="button-group">
-                <button class="btn" id="downloadBtn">💾 Download JSON</button>
-                <button class="btn btn-warning" id="reExtractBtn">🔄 Re-Extract with New Prompt</button>
-                <button class="btn btn-success" id="approveBtn">✅ Approve &amp; Submit to EPC</button>
+            <div class="btn-group">
+                <button class="btn btn--ghost" id="downloadBtn">💾 Download JSON</button>
+                <button class="btn btn--warning" id="reExtractBtn">🔄 Re-Extract</button>
+                <button class="btn btn--success" id="approveBtn">✅ Approve &amp; Submit</button>
             </div>
         </div>
 
-        <!-- Submission Result -->
+        <!-- Submission result -->
         <div class="hidden" id="submissionResult"></div>
 
-        <!-- Re-prompt Section -->
-        <div class="editor-section hidden" id="rePromptSection">
-            <h3>🔄 Re-Extract with Modified Prompt</h3>
+        <!-- Re-prompt -->
+        <div class="hidden" id="rePromptSection">
+            <div class="section-title">🔄 Re-Extract with Modified Prompt</div>
             <div class="form-group">
                 <label>Modified Extraction Prompt</label>
-                <textarea id="rePromptText" style="min-height:200px;"></textarea>
+                <textarea id="rePromptText" style="min-height:180px;font-family:var(--mono);font-size:13px;"></textarea>
             </div>
-            <div class="button-group">
-                <button class="btn" id="cancelRePrompt">❌ Cancel</button>
-                <button class="btn btn-warning" id="confirmRePrompt">✅ Start Re-Extraction</button>
+            <div class="btn-group">
+                <button class="btn btn--ghost" id="cancelRePrompt">Cancel</button>
+                <button class="btn btn--warning" id="confirmRePrompt">Start Re-Extraction</button>
             </div>
         </div>
-    </div>
+    </div><!-- /statusCard -->
 
-</div><!-- /container -->
+</div><!-- /page -->
 
 <script>
-    // ── DOM refs ─────────────────────────────────────────────────────────────
     const uploadArea      = document.getElementById('uploadArea');
     const fileInput       = document.getElementById('fileInput');
     const statusCard      = document.getElementById('statusCard');
@@ -545,385 +567,256 @@ IMPORTANT: Do NOT include type_category_code or categories_code!</textarea>
     const rePromptSection = document.getElementById('rePromptSection');
     const jsonEditor      = document.getElementById('jsonEditor');
 
-    let currentJobId     = null;
-    let statusInterval   = null;
-    let editorPopulated  = false;  // prevent polling from overwriting user edits
+    let currentJobId    = null;
+    let statusInterval  = null;
+    let editorPopulated = false;
 
-    // ── Partbook type metadata ────────────────────────────────────────────────
-    const PARTBOOK_META = {
-        engine: {
-            label: '⚙️ Engine — Top-Right Crop (0 AI tokens)',
-            cls:   'badge-engine'
-        },
-        transmission: {
-            label: '🔧 Transmission — ToC Translation (1 AI call)',
-            cls:   'badge-transmission'
-        },
-        cabin_chassis: {
-            label: '🚛 Cabin & Chassis — Full Markdown Extraction',
-            cls:   'badge-cabin_chassis'
-        },
-        axle_drive: {
-            label: '🛞 Axle & Drive — ZIP/JPEG vision extraction — reads table headers via AI vision (1 call per table page)',
-            cls:   'badge-axle_drive'
-        }
+    const PROGRESS_MAP = {
+        queued: 5, processing: 25, extracting: 60,
+        pending_review: 90, submitting: 95,
+        completed: 100, error: 100, failed: 100
     };
 
-    // ── Load master categories ────────────────────────────────────────────────
+    const PARTBOOK_META = {
+        engine:       { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)', cls: 'badge-engine' },
+        transmission: { label: '🔧 Transmission — ToC Translation (1 AI call)', cls: 'badge-transmission' },
+        cabin_chassis:{ label: '🚛 Cabin & Chassis — Full Markdown Extraction', cls: 'badge-cabin_chassis' },
+        axle_drive:   { label: '🛞 Axle Drive — Vision Extraction (1 call/page)', cls: 'badge-axle_drive' }
+    };
+
+    // ── Master categories ──────────────────────────────────────────────────
     async function loadMasterCategories() {
         try {
-            const response   = await fetch('/api/master-categories');
-            const data       = await response.json();
-            const categories = data.categories || data;   // handle both shapes
-            const select     = document.getElementById('masterCategory');
-
-            select.innerHTML = '<option value="">Select Master Category...</option>';
-
+            const { categories } = await fetch('/api/master-categories').then(r => r.json());
+            const select = document.getElementById('masterCategory');
+            select.innerHTML = '<option value="">Select Master Category…</option>';
             categories.forEach(cat => {
-                const option = document.createElement('option');
-                option.value                  = cat.id;
-                option.textContent            = cat.display || `${cat.name_en} / ${cat.name_cn}`;
-                option.dataset.partbookType   = cat.partbook_type || 'cabin_chassis';
-                select.appendChild(option);
+                const opt = new Option(`${cat.name_en} / ${cat.name_cn}`, cat.id);
+                opt.dataset.partbookType = cat.partbook_type || 'cabin_chassis';
+                select.add(opt);
             });
-
-            if (categories.length === 0) {
-                showAlert('⚠️ No master categories configured! Please set UUIDs in .env file.', 'warning');
-            }
-        } catch (error) {
-            showAlert('Failed to load master categories: ' + error.message, 'error');
+            if (!categories.length) showAlert('No master categories configured. Set UUIDs in .env.', 'warning');
+        } catch (err) {
+            showAlert('Failed to load master categories: ' + err.message, 'error');
         }
     }
 
-    // ── React to Master Category selection ───────────────────────────────────
     function onMasterCategoryChange() {
         const sel   = document.getElementById('masterCategory');
-        const opt   = sel.options[sel.selectedIndex];
-        const ptype = opt.dataset.partbookType || '';
+        const ptype = sel.options[sel.selectedIndex]?.dataset.partbookType || '';
+        const meta  = PARTBOOK_META[ptype];
 
-        // Badge
-        const badgeGroup = document.getElementById('partbookTypeBadgeGroup');
-        const badge      = document.getElementById('partbookTypeBadge');
-
-        if (ptype && PARTBOOK_META[ptype]) {
-            const meta      = PARTBOOK_META[ptype];
+        const badgeGroup = document.getElementById('partbookBadgeGroup');
+        const badge      = document.getElementById('partbookBadge');
+        if (meta) {
             badge.textContent = meta.label;
             badge.className   = 'partbook-badge ' + meta.cls;
-            badgeGroup.style.display = '';
+            badgeGroup.classList.remove('hidden');
         } else {
-            badgeGroup.style.display = 'none';
+            badgeGroup.classList.add('hidden');
         }
 
-        // Show/hide contextual panels
-        document.getElementById('promptGroup').style.display          =
-            (ptype === 'cabin_chassis' || ptype === '') ? '' : 'none';
-        document.getElementById('engineNoteGroup').style.display       =
-            ptype === 'engine'       ? '' : 'none';
-        document.getElementById('axleDriveNoteGroup').style.display =
-            ptype === 'axle_drive' ? '' : 'none';
-        document.getElementById('transmissionNoteGroup').style.display =
-            ptype === 'transmission' ? '' : 'none';
+        document.getElementById('promptGroup').classList.toggle('hidden', ptype !== 'cabin_chassis' && ptype !== '');
+        document.getElementById('engineNoteGroup').classList.toggle('hidden', ptype !== 'engine');
+        document.getElementById('transmissionNoteGroup').classList.toggle('hidden', ptype !== 'transmission');
+        document.getElementById('axleDriveNoteGroup').classList.toggle('hidden', ptype !== 'axle_drive');
     }
 
-    // ── Upload handlers ───────────────────────────────────────────────────────
-    uploadArea.addEventListener('click',    () => fileInput.click());
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
+    // ── Upload ─────────────────────────────────────────────────────────────
+    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
     uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-    uploadArea.addEventListener('drop', (e) => {
+    uploadArea.addEventListener('drop', e => {
         e.preventDefault();
         uploadArea.classList.remove('dragover');
-        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
     });
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) handleFile(e.target.files[0]);
-    });
+    fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
     function handleFile(file) {
-        if (!file.name.toLowerCase().endsWith('.pdf')) {
-            showAlert('Please select a PDF file', 'error');
-            return;
-        }
-        const masterCategory = document.getElementById('masterCategory').value;
-        if (!masterCategory) {
-            showAlert('Please select a Master Category first', 'error');
-            return;
-        }
-        const aiModel         = document.getElementById('aiModel').value;
-        const extractionPrompt = document.getElementById('extractionPrompt').value;
-        uploadFile(file, masterCategory, aiModel, extractionPrompt);
+        if (!file.name.toLowerCase().endsWith('.pdf')) { showAlert('Please select a PDF file.', 'error'); return; }
+        const mc = document.getElementById('masterCategory').value;
+        if (!mc) { showAlert('Please select a Master Category first.', 'error'); return; }
+        uploadFile(file, mc, document.getElementById('aiModel').value, document.getElementById('extractionPrompt').value);
     }
 
     async function uploadFile(file, masterCategoryId, aiModel, prompt) {
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('master_category_id', masterCategoryId);
-        formData.append('ai_model', aiModel);
-        formData.append('custom_prompt', prompt);
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('master_category_id', masterCategoryId);
+        fd.append('ai_model', aiModel);
+        fd.append('custom_prompt', prompt);
 
-        const sumopodKey  = document.getElementById('sumopodApiKey').value.trim();
-        const ssoEmail    = document.getElementById('ssoEmail').value.trim();
-        const ssoPassword = document.getElementById('ssoPassword').value.trim();
-        if (sumopodKey)  formData.append('sumopod_api_key', sumopodKey);
-        if (ssoEmail)    formData.append('sso_email', ssoEmail);
-        if (ssoPassword) formData.append('sso_password', ssoPassword);
+        const key = document.getElementById('sumopodApiKey').value.trim();
+        const em  = document.getElementById('ssoEmail').value.trim();
+        const pw  = document.getElementById('ssoPassword').value.trim();
+        if (key) fd.append('sumopod_api_key', key);
+        if (em)  fd.append('sso_email', em);
+        if (pw)  fd.append('sso_password', pw);
 
         try {
-            const response = await fetch('/api/upload', { method: 'POST', body: formData });
-            const data     = await response.json();
-
-            if (response.ok) {
+            const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+            const data = await resp.json();
+            if (resp.ok) {
                 currentJobId    = data.job_id;
                 editorPopulated = false;
-                showAlert('✅ File uploaded! Processing started...', 'success');
+                showAlert('File uploaded. Processing started…', 'success');
                 statusCard.classList.remove('hidden');
                 reviewSection.classList.add('hidden');
                 rePromptSection.classList.add('hidden');
                 document.getElementById('submissionResult').classList.add('hidden');
-                startStatusPolling();
+                startPolling();
             } else {
-                showAlert('❌ Upload failed: ' + (data.error || 'Unknown error'), 'error');
+                showAlert('Upload failed: ' + (data.error || 'Unknown error'), 'error');
             }
-        } catch (error) {
-            showAlert('Network error: ' + error.message, 'error');
+        } catch (err) {
+            showAlert('Network error: ' + err.message, 'error');
         }
     }
 
-    // ── Status polling ────────────────────────────────────────────────────────
-    function startStatusPolling() {
+    // ── Status polling ─────────────────────────────────────────────────────
+    function startPolling() {
         if (statusInterval) clearInterval(statusInterval);
         statusInterval = setInterval(checkStatus, 2000);
         checkStatus();
     }
 
-    function stopStatusPolling() {
-        if (statusInterval) {
-            clearInterval(statusInterval);
-            statusInterval = null;
-        }
+    function stopPolling() {
+        clearInterval(statusInterval);
+        statusInterval = null;
     }
 
     async function checkStatus() {
         if (!currentJobId) return;
-
         try {
-            const response = await fetch('/api/status/' + currentJobId);
-            if (!response.ok) return;
-            const job = await response.json();
-            updateStatusUI(job);
-
-            // Stop polling on terminal states
-            if (['completed', 'error', 'failed'].includes(job.status)) {
-                stopStatusPolling();
-            }
-            // Switch to review mode
-            if (job.status === 'pending_review' && !editorPopulated) {
-                showReviewSection(job);
-            }
-        } catch (error) {
-            console.error('Status check error:', error);
+            const resp = await fetch('/api/status/' + currentJobId);
+            if (!resp.ok) return;
+            const job = await resp.json();
+            renderStatus(job);
+            if (['completed', 'error', 'failed'].includes(job.status)) stopPolling();
+            if (job.status === 'pending_review' && !editorPopulated) openReview(job);
+        } catch (err) {
+            console.error('Status check error:', err);
         }
     }
 
-    function updateStatusUI(job) {
-        document.getElementById('statusFilename').textContent =
-            job.filename || '-';
+    function renderStatus(job) {
+        document.getElementById('statusFilename').textContent = job.filename || '—';
         document.getElementById('statusPartbookType').textContent =
-            job.partbook_type
-                ? (PARTBOOK_META[job.partbook_type]?.label || job.partbook_type)
-                : '-';
-        document.getElementById('statusStage').textContent =
-            job.stage || '-';
-
-        // Status badge
-        const statusEl = document.getElementById('statusBadge');
-        statusEl.innerHTML =
-            `<span class="status-badge status-${job.status}">${job.status}</span>`;
-
-        // Progress bar
-        const progress = {
-            queued:         5,
-            processing:     30,
-            extracting:     60,
-            pending_review: 90,
-            submitting:     95,
-            completed:      100,
-            error:          100,
-            failed:         100
-        };
-        document.getElementById('progressFill').style.width =
-            (progress[job.status] || 0) + '%';
-
+            job.partbook_type ? (PARTBOOK_META[job.partbook_type]?.label || job.partbook_type) : '—';
+        document.getElementById('statusStage').textContent = job.stage || '—';
+        document.getElementById('statusBadge').innerHTML =
+            `<span class="status-badge status-${job.status}">${job.status.replace('_', ' ').toUpperCase()}</span>`;
+        document.getElementById('progressFill').style.width = (PROGRESS_MAP[job.status] || 0) + '%';
         if (job.status === 'error' || job.status === 'failed') {
-            showAlert('❌ Error: ' + (job.error || 'Unknown error'), 'error');
-            stopStatusPolling();
+            showAlert('Error: ' + (job.error || 'Unknown error'), 'error');
+            stopPolling();
         }
     }
 
-    function showReviewSection(job) {
+    function openReview(job) {
         if (!job.extracted_data) return;
-
         editorPopulated = true;
-        stopStatusPolling();
-
+        stopPolling();
         jsonEditor.value = JSON.stringify(job.extracted_data, null, 2);
         reviewSection.classList.remove('hidden');
-        document.getElementById('rePromptText').value =
-            document.getElementById('extractionPrompt').value;
-
-        showAlert('✅ Extraction complete! Review the data below, then approve to submit.', 'success');
+        document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
+        showAlert('Extraction complete. Review the data below, then approve to submit.', 'success');
     }
 
-    // ── Download JSON ─────────────────────────────────────────────────────────
+    // ── Download JSON ──────────────────────────────────────────────────────
     document.getElementById('downloadBtn').addEventListener('click', () => {
         try {
             const data = JSON.parse(jsonEditor.value);
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url  = URL.createObjectURL(blob);
-            const a    = document.createElement('a');
-            a.href     = url;
-            a.download = `extracted_${currentJobId}.json`;
-            a.click();
+            const url  = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+            Object.assign(document.createElement('a'), { href: url, download: `extracted_${currentJobId}.json` }).click();
             URL.revokeObjectURL(url);
-        } catch (e) {
-            showAlert('❌ Invalid JSON — fix syntax errors before downloading.', 'error');
-        }
+        } catch { showAlert('Invalid JSON — fix syntax errors before downloading.', 'error'); }
     });
 
-    // ── Re-Extract ────────────────────────────────────────────────────────────
-    document.getElementById('reExtractBtn').addEventListener('click', () => {
-        rePromptSection.classList.remove('hidden');
-    });
-
-    document.getElementById('cancelRePrompt').addEventListener('click', () => {
-        rePromptSection.classList.add('hidden');
-    });
+    // ── Re-Extract ─────────────────────────────────────────────────────────
+    document.getElementById('reExtractBtn').addEventListener('click', () => rePromptSection.classList.remove('hidden'));
+    document.getElementById('cancelRePrompt').addEventListener('click', () => rePromptSection.classList.add('hidden'));
 
     document.getElementById('confirmRePrompt').addEventListener('click', async () => {
         const newPrompt = document.getElementById('rePromptText').value.trim();
-        if (!newPrompt) {
-            showAlert('Please enter a prompt before re-extracting.', 'error');
-            return;
-        }
+        if (!newPrompt) { showAlert('Please enter a prompt first.', 'error'); return; }
 
         try {
-            const response = await fetch('/api/re-extract/' + currentJobId, {
-                method:  'POST',
+            const resp = await fetch('/api/re-extract/' + currentJobId, {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({ prompt: newPrompt })
+                body: JSON.stringify({ prompt: newPrompt })
             });
-
-            if (response.ok) {
+            if (resp.ok) {
                 editorPopulated = false;
-                showAlert('🔄 Re-extraction started...', 'success');
+                showAlert('Re-extraction started…', 'info');
                 rePromptSection.classList.add('hidden');
                 reviewSection.classList.add('hidden');
-                startStatusPolling();
+                startPolling();
             } else {
-                const data = await response.json();
-                showAlert('❌ ' + (data.error || 'Re-extraction failed'), 'error');
+                const d = await resp.json();
+                showAlert((d.error || 'Re-extraction failed'), 'error');
             }
-        } catch (error) {
-            showAlert('Network error: ' + error.message, 'error');
-        }
+        } catch (err) { showAlert('Network error: ' + err.message, 'error'); }
     });
 
-    // ── Approve & Submit ──────────────────────────────────────────────────────
+    // ── Approve & Submit ───────────────────────────────────────────────────
     document.getElementById('approveBtn').addEventListener('click', async () => {
-        if (!confirm(
-            '⚠️ Submit to EPC database?\n\n' +
-            'This will create categories in the system.\n' +
-            'Duplicate categories will be skipped automatically.'
-        )) return;
+        if (!confirm('Submit to EPC database?\n\nDuplicate categories will be skipped automatically.')) return;
 
         let editedData;
-        try {
-            editedData = JSON.parse(jsonEditor.value);
-        } catch (e) {
-            showAlert('❌ Invalid JSON in editor. Please fix syntax errors before submitting.', 'error');
-            return;
-        }
+        try { editedData = JSON.parse(jsonEditor.value); }
+        catch { showAlert('Invalid JSON — fix syntax errors before submitting.', 'error'); return; }
 
-        showAlert('⏳ Submitting to EPC...', 'info');
+        showAlert('Submitting to EPC…', 'info');
 
         try {
-            const response = await fetch('/api/approve/' + currentJobId, {
-                method:  'POST',
+            const resp   = await fetch('/api/approve/' + currentJobId, {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({ data: editedData })
+                body: JSON.stringify({ data: editedData })
             });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                showSubmissionResult(result.epc_results);
-            } else {
-                showAlert(
-                    '❌ Submission failed: ' + (result.error || 'Unknown error'),
-                    'error'
-                );
-            }
-        } catch (error) {
-            showAlert('Network error: ' + error.message, 'error');
-        }
+            const result = await resp.json();
+            if (resp.ok && result.success) renderSubmissionResult(result.epc_results);
+            else showAlert('Submission failed: ' + (result.error || 'Unknown error'), 'error');
+        } catch (err) { showAlert('Network error: ' + err.message, 'error'); }
     });
 
-    function showSubmissionResult(epcResults) {
-        const created  = epcResults.categories_created?.length  || 0;
-        const skipped  = epcResults.categories_skipped?.length  || 0;
-        const typeCats = epcResults.type_categories_created?.length || 0;
-        const errors   = epcResults.errors?.length || 0;
+    function renderSubmissionResult(r) {
+        const created  = r.categories_created?.length  || 0;
+        const skipped  = r.categories_skipped?.length  || 0;
+        const typeCats = r.type_categories_created?.length || 0;
+        const errors   = r.errors?.length || 0;
 
-        const resultDiv = document.getElementById('submissionResult');
-        resultDiv.classList.remove('hidden');
-        resultDiv.innerHTML = `
+        const el = document.getElementById('submissionResult');
+        el.classList.remove('hidden');
+        el.innerHTML = `
             <div class="submission-summary">
-                <h4>✅ Submission Complete</h4>
-                <div class="summary-row">
-                    <span class="label">Categories Created:</span>
-                    <span class="value created">${created}</span>
-                </div>
-                <div class="summary-row">
-                    <span class="label">Categories Skipped (duplicates):</span>
-                    <span class="value skipped">${skipped}</span>
-                </div>
-                ${typeCats > 0 ? `
-                <div class="summary-row">
-                    <span class="label">Type Categories Created:</span>
-                    <span class="value created">${typeCats}</span>
-                </div>` : ''}
-                ${errors > 0 ? `
-                <div class="summary-row">
-                    <span class="label">Errors:</span>
-                    <span class="value error">${errors}</span>
-                </div>` : ''}
-            </div>
-        `;
+                <div class="submission-summary__title">✅ Submission Complete</div>
+                <div class="summary-row"><span class="summary-row__label">Categories Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
+                <div class="summary-row"><span class="summary-row__label">Skipped (duplicates)</span><span class="summary-row__value summary-row__value--skipped">${skipped}</span></div>
+                ${typeCats ? `<div class="summary-row"><span class="summary-row__label">Type Categories Created</span><span class="summary-row__value summary-row__value--created">${typeCats}</span></div>` : ''}
+                ${errors   ? `<div class="summary-row"><span class="summary-row__label">Errors</span><span class="summary-row__value summary-row__value--error">${errors}</span></div>` : ''}
+            </div>`;
 
-        if (errors === 0) {
-            showAlert(
-                `✅ Done! ${created} new, ${skipped} skipped (duplicates)` +
-                (typeCats > 0 ? `, ${typeCats} type categories.` : '.'),
-                'success'
-            );
-        } else {
-            showAlert(`⚠️ Completed with ${errors} error(s). Check summary below.`, 'warning');
-        }
+        showAlert(
+            errors ? `Completed with ${errors} error(s). Check summary.` :
+                     `Done! ${created} new, ${skipped} skipped${typeCats ? `, ${typeCats} type categories` : ''}.`,
+            errors ? 'warning' : 'success'
+        );
     }
 
-    // ── Utilities ─────────────────────────────────────────────────────────────
-    function showAlert(message, type) {
-        const alertDiv       = document.createElement('div');
-        alertDiv.className   = 'alert alert-' + type;
-        alertDiv.textContent = message;
+    // ── Alert utility ──────────────────────────────────────────────────────
+    function showAlert(message, type = 'info') {
+        const div = document.createElement('div');
+        div.className = `alert alert--${type}`;
+        div.textContent = message;
         alertContainer.innerHTML = '';
-        alertContainer.appendChild(alertDiv);
-        setTimeout(() => alertDiv.remove(), 10000);
+        alertContainer.appendChild(div);
+        setTimeout(() => div.remove(), 10000);
     }
 
-    // ── Init ──────────────────────────────────────────────────────────────────
     window.addEventListener('load', loadMasterCategories);
 </script>
 </body>

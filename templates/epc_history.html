@@ -3,436 +3,359 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>History - Motorsights EPC</title>
+    <title>Motorsights EPC — History</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg:         #f0f2f5;
+            --surface:    #ffffff;
+            --border:     #e2e5eb;
+            --border-mid: #d0d5df;
+            --text-1:     #0f1420;
+            --text-2:     #4a5568;
+            --text-3:     #8a94a6;
+            --primary:    #2563eb;
+            --primary-dk: #1d4ed8;
+            --primary-lt: #eff6ff;
+            --success:    #16a34a;
+            --success-lt: #f0fdf4;
+            --warning:    #d97706;
+            --warning-lt: #fffbeb;
+            --danger:     #dc2626;
+            --danger-lt:  #fef2f2;
+            --accent:     #7c3aed;
+            --radius:     10px;
+            --radius-sm:  6px;
+            --shadow:     0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06);
+            --mono:       'DM Mono', 'Consolas', monospace;
         }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'DM Sans', system-ui, sans-serif;
+            font-size: 15px; line-height: 1.6;
+            background: var(--bg); color: var(--text-1);
             min-height: 100vh;
-            padding: 20px;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+        .page { max-width: 1100px; margin: 0 auto; padding: 32px 20px 60px; }
 
-        .header {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-            text-align: center;
+        /* ── Header ──────────────────────────────────────────────────── */
+        .site-header {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 28px 36px;
+            margin-bottom: 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; gap: 16px;
         }
-
-        .header h1 {
-            color: #667eea;
-            font-size: 2.5em;
-            margin-bottom: 10px;
+        .site-header__brand { display: flex; align-items: center; gap: 14px; }
+        .site-header__icon {
+            width: 44px; height: 44px; background: var(--primary);
+            border-radius: 10px; display: grid; place-items: center;
+            font-size: 22px; flex-shrink: 0;
         }
+        .site-header__title { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
+        .site-header__sub { font-size: 13px; color: var(--text-3); margin-top: 1px; }
 
-        .nav {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            margin-top: 20px;
+        nav { display: flex; gap: 4px; }
+        nav a {
+            padding: 7px 16px; border-radius: var(--radius-sm);
+            font-size: 14px; font-weight: 500; color: var(--text-2);
+            text-decoration: none; border: 1px solid transparent; transition: all 0.15s;
         }
+        nav a:hover { background: var(--primary-lt); color: var(--primary); border-color: #bfdbfe; }
+        nav a.active { background: var(--primary); color: #fff; }
 
-        .nav a {
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-            transition: background 0.3s;
-        }
-
-        .nav a:hover {
-            background: #764ba2;
-        }
-
+        /* ── Cards ───────────────────────────────────────────────────── */
         .card {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--radius); box-shadow: var(--shadow);
+            padding: 28px 32px; margin-bottom: 20px;
         }
-
-        .actions {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
+        .card__header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding-bottom: 18px; margin-bottom: 20px; border-bottom: 1px solid var(--border);
+            flex-wrap: wrap; gap: 12px;
         }
+        .card__title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
 
-        .btn {
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: background 0.3s;
-            font-size: 1em;
+        /* ── Stats grid ──────────────────────────────────────────────── */
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 14px; margin-bottom: 22px;
         }
-
-        .btn:hover {
-            background: #764ba2;
-        }
-
-        .btn-danger {
-            background: #ff4d4f;
-        }
-
-        .btn-danger:hover {
-            background: #d32029;
-        }
-
-        .jobs-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .jobs-table th,
-        .jobs-table td {
-            padding: 15px;
-            text-align: left;
-            border-bottom: 1px solid #e0e0e0;
-        }
-
-        .jobs-table th {
-            background: #f8f9ff;
-            color: #667eea;
-            font-weight: 600;
-        }
-
-        .jobs-table tr:hover {
-            background: #f8f9ff;
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            font-weight: 600;
-        }
-
-        .status-queued { background: #ffd700; color: #333; }
-        .status-processing { background: #4a90e2; color: white; }
-        .status-pending_review { background: #ff9800; color: white; }
-        .status-submitting { background: #9c27b0; color: white; }
-        .status-completed { background: #52c41a; color: white; }
-        .status-failed { background: #ff4d4f; color: white; }
-        .status-error { background: #ff4d4f; color: white; }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #666;
-        }
-
-        .empty-state-icon {
-            font-size: 4em;
-            margin-bottom: 20px;
-        }
-
-        .empty-state h3 {
-            color: #333;
-            margin-bottom: 10px;
-        }
-
-        .job-actions {
-            display: flex;
-            gap: 5px;
-        }
-
-        .btn-small {
-            padding: 5px 12px;
-            font-size: 0.85em;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            background: #667eea;
-            color: white;
-            transition: background 0.3s;
-        }
-
-        .btn-small:hover {
-            background: #764ba2;
-        }
-
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
+        @media (max-width: 640px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
 
         .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
+            background: var(--bg); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); padding: 18px 20px;
             text-align: center;
         }
+        .stat-card__value { font-size: 30px; font-weight: 700; line-height: 1; margin-bottom: 6px; color: var(--primary); }
+        .stat-card__label { font-size: 12.5px; font-weight: 500; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.4px; }
+        .stat-card--success .stat-card__value { color: var(--success); }
+        .stat-card--warning .stat-card__value { color: var(--warning); }
+        .stat-card--danger  .stat-card__value { color: var(--danger); }
 
-        .stat-value {
-            font-size: 2.5em;
-            font-weight: bold;
-            margin-bottom: 5px;
+        /* ── Action bar ──────────────────────────────────────────────── */
+        .action-bar { display: flex; gap: 8px; align-items: center; }
+
+        /* ── Buttons ─────────────────────────────────────────────────── */
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 16px; border: 1px solid transparent;
+            border-radius: var(--radius-sm); font-size: 13.5px; font-weight: 500;
+            font-family: inherit; cursor: pointer; text-decoration: none; transition: all 0.15s;
         }
+        .btn--primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        .btn--primary:hover { background: var(--primary-dk); }
+        .btn--danger  { background: var(--danger);  color: #fff; border-color: var(--danger); }
+        .btn--danger:hover  { background: #b91c1c; }
+        .btn--ghost   { background: transparent; color: var(--text-2); border-color: var(--border-mid); }
+        .btn--ghost:hover   { background: var(--bg); }
+        .btn--xs { padding: 4px 10px; font-size: 12.5px; border-radius: 4px; }
 
-        .stat-label {
-            font-size: 0.9em;
-            opacity: 0.9;
+        /* ── Table ───────────────────────────────────────────────────── */
+        .table-wrapper { overflow-x: auto; }
+
+        .data-table { width: 100%; border-collapse: collapse; }
+        .data-table th {
+            padding: 10px 14px; text-align: left;
+            font-size: 12px; font-weight: 600; color: var(--text-3);
+            text-transform: uppercase; letter-spacing: 0.5px;
+            background: #fafbfc; border-bottom: 1px solid var(--border);
         }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #666;
+        .data-table td {
+            padding: 12px 14px; font-size: 13.5px;
+            border-bottom: 1px solid var(--border); color: var(--text-1);
         }
+        .data-table tbody tr:last-child td { border-bottom: none; }
+        .data-table tbody tr:hover td { background: var(--primary-lt); }
 
+        .filename { font-family: var(--mono); font-size: 12.5px; color: var(--text-2); }
+
+        .td-actions { display: flex; gap: 6px; }
+
+        /* ── Status badges ───────────────────────────────────────────── */
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 3px 9px; border-radius: 20px;
+            font-size: 11.5px; font-weight: 600; letter-spacing: 0.2px;
+        }
+        .status-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .status-queued         { background: #fef9c3; color: #713f12; }
+        .status-processing     { background: var(--primary-lt); color: var(--primary); }
+        .status-pending_review { background: var(--warning-lt); color: var(--warning); }
+        .status-submitting     { background: #faf5ff; color: var(--accent); }
+        .status-completed      { background: var(--success-lt); color: var(--success); }
+        .status-failed,
+        .status-error          { background: var(--danger-lt); color: var(--danger); }
+
+        /* ── Empty state ─────────────────────────────────────────────── */
+        .empty-state {
+            text-align: center; padding: 64px 24px;
+        }
+        .empty-state__icon { font-size: 48px; margin-bottom: 16px; }
+        .empty-state__title { font-size: 17px; font-weight: 600; color: var(--text-1); margin-bottom: 6px; }
+        .empty-state__sub { font-size: 14px; color: var(--text-3); }
+
+        /* ── Loading ─────────────────────────────────────────────────── */
+        .loading { text-align: center; padding: 52px 24px; color: var(--text-3); }
         .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
+            width: 36px; height: 36px; margin: 0 auto 14px;
+            border: 3px solid var(--border);
+            border-top-color: var(--primary);
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+            animation: spin 0.8s linear infinite;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>📊 Processing History</h1>
-            <div class="nav">
-                <a href="/">Upload</a>
-                <a href="/history">History</a>
+<div class="page">
+
+    <!-- Header -->
+    <header class="site-header">
+        <div class="site-header__brand">
+            <div class="site-header__icon">🚚</div>
+            <div>
+                <div class="site-header__title">Motorsights EPC</div>
+                <div class="site-header__sub">Electronic Product Catalog — PDF Automation</div>
+            </div>
+        </div>
+        <nav>
+            <a href="/">Upload</a>
+            <a href="/history" class="active">History</a>
+        </nav>
+    </header>
+
+    <!-- History Card -->
+    <div class="card">
+        <div class="card__header">
+            <div class="card__title">📊 Processing History</div>
+            <div class="action-bar">
+                <button class="btn btn--ghost" onclick="refreshHistory()">🔄 Refresh</button>
+                <button class="btn btn--danger" onclick="clearHistory()">🗑️ Clear</button>
             </div>
         </div>
 
-        <div class="card">
-            <div class="stats" id="statsContainer">
-                <div class="stat-card">
-                    <div class="stat-value" id="totalJobs">0</div>
-                    <div class="stat-label">Total Jobs</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="completedJobs">0</div>
-                    <div class="stat-label">Completed</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="processingJobs">0</div>
-                    <div class="stat-label">Processing</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="failedJobs">0</div>
-                    <div class="stat-label">Failed</div>
-                </div>
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-card__value" id="totalJobs">0</div>
+                <div class="stat-card__label">Total</div>
             </div>
+            <div class="stat-card stat-card--success">
+                <div class="stat-card__value" id="completedJobs">0</div>
+                <div class="stat-card__label">Completed</div>
+            </div>
+            <div class="stat-card stat-card--warning">
+                <div class="stat-card__value" id="processingJobs">0</div>
+                <div class="stat-card__label">Active</div>
+            </div>
+            <div class="stat-card stat-card--danger">
+                <div class="stat-card__value" id="failedJobs">0</div>
+                <div class="stat-card__label">Failed</div>
+            </div>
+        </div>
 
-            <div class="actions">
-                <button class="btn" onclick="refreshHistory()">🔄 Refresh</button>
-                <button class="btn btn-danger" onclick="clearHistory()">🗑️ Clear History</button>
-            </div>
+        <!-- Loading -->
+        <div id="loadingContainer" class="loading">
+            <div class="spinner"></div>
+            <p>Loading jobs…</p>
+        </div>
 
-            <div id="loadingContainer" class="loading">
-                <div class="spinner"></div>
-                <p>Loading jobs...</p>
-            </div>
+        <!-- Empty state -->
+        <div id="emptyContainer" class="empty-state hidden">
+            <div class="empty-state__icon">📭</div>
+            <div class="empty-state__title">No jobs yet</div>
+            <div class="empty-state__sub">Upload a PDF to get started</div>
+        </div>
 
-            <div id="emptyContainer" class="empty-state" style="display: none;">
-                <div class="empty-state-icon">📭</div>
-                <h3>No jobs yet</h3>
-                <p>Upload a PDF to get started</p>
-            </div>
-
-            <div id="tableContainer" style="display: none;">
-                <table class="jobs-table">
-                    <thead>
-                        <tr>
-                            <th>Filename</th>
-                            <th>Status</th>
-                            <th>Stage</th>
-                            <th>Uploaded</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="jobsTableBody">
-                    </tbody>
-                </table>
-            </div>
+        <!-- Table -->
+        <div id="tableContainer" class="table-wrapper hidden">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Status</th>
+                        <th>Stage</th>
+                        <th>Uploaded</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="jobsTableBody"></tbody>
+            </table>
         </div>
     </div>
 
-    <script>
-        let autoRefreshInterval = null;
+</div><!-- /page -->
 
-        async function loadJobs() {
-            try {
-                const response = await fetch('/api/jobs');
-                const jobs = await response.json();
+<script>
+    const ACTIVE_STATUSES = new Set(['queued', 'processing', 'pending_review', 'submitting']);
+    let autoRefreshInterval = null;
 
-                updateStats(jobs);
-                updateTable(jobs);
+    async function loadJobs() {
+        try {
+            const jobs = await fetch('/api/jobs').then(r => r.json());
 
-                document.getElementById('loadingContainer').style.display = 'none';
-                
-                if (jobs.length === 0) {
-                    document.getElementById('emptyContainer').style.display = 'block';
-                    document.getElementById('tableContainer').style.display = 'none';
-                } else {
-                    document.getElementById('emptyContainer').style.display = 'none';
-                    document.getElementById('tableContainer').style.display = 'block';
-                }
+            updateStats(jobs);
+            renderTable(jobs);
 
-                const hasProcessing = jobs.some(j => 
-                    j.status === 'processing' || 
-                    j.status === 'queued' || 
-                    j.status === 'pending_review' ||
-                    j.status === 'submitting'
-                );
-                
-                if (hasProcessing && !autoRefreshInterval) {
-                    startAutoRefresh();
-                } else if (!hasProcessing && autoRefreshInterval) {
-                    stopAutoRefresh();
-                }
+            document.getElementById('loadingContainer').classList.add('hidden');
 
-            } catch (error) {
-                console.error('Error loading jobs:', error);
-                document.getElementById('loadingContainer').innerHTML = 
-                    '<p style="color: #ff4d4f;">Error loading jobs. Please refresh the page.</p>';
-            }
+            const isEmpty = !jobs.length;
+            document.getElementById('emptyContainer').classList.toggle('hidden', !isEmpty);
+            document.getElementById('tableContainer').classList.toggle('hidden', isEmpty);
+
+            const hasActive = jobs.some(j => ACTIVE_STATUSES.has(j.status));
+            if (hasActive && !autoRefreshInterval)       startAutoRefresh();
+            else if (!hasActive && autoRefreshInterval)  stopAutoRefresh();
+
+        } catch (err) {
+            console.error('Error loading jobs:', err);
+            document.getElementById('loadingContainer').innerHTML = '<p style="color:var(--danger)">Failed to load jobs. Refresh the page.</p>';
         }
+    }
 
-        function updateStats(jobs) {
-            const total = jobs.length;
-            const completed = jobs.filter(j => j.status === 'completed').length;
-            const processing = jobs.filter(j => 
-                j.status === 'processing' || 
-                j.status === 'queued' || 
-                j.status === 'pending_review' ||
-                j.status === 'submitting'
-            ).length;
-            const failed = jobs.filter(j => j.status === 'failed' || j.status === 'error').length;
+    function updateStats(jobs) {
+        document.getElementById('totalJobs').textContent     = jobs.length;
+        document.getElementById('completedJobs').textContent = jobs.filter(j => j.status === 'completed').length;
+        document.getElementById('processingJobs').textContent = jobs.filter(j => ACTIVE_STATUSES.has(j.status)).length;
+        document.getElementById('failedJobs').textContent    = jobs.filter(j => j.status === 'failed' || j.status === 'error').length;
+    }
 
-            document.getElementById('totalJobs').textContent = total;
-            document.getElementById('completedJobs').textContent = completed;
-            document.getElementById('processingJobs').textContent = processing;
-            document.getElementById('failedJobs').textContent = failed;
-        }
+    function renderTable(jobs) {
+        const tbody = document.getElementById('jobsTableBody');
+        tbody.innerHTML = '';
 
-        function updateTable(jobs) {
-            const tbody = document.getElementById('jobsTableBody');
-            tbody.innerHTML = '';
+        jobs.forEach(job => {
+            const tr = document.createElement('tr');
+            const canDownload = job.status === 'completed' || job.status === 'pending_review';
+            const hasError    = job.status === 'failed' || job.status === 'error';
 
-            jobs.forEach(job => {
-                const tr = document.createElement('tr');
-                const uploadedTime = new Date(job.uploaded_at).toLocaleString();
-                
-                tr.innerHTML = `
-                    <td>${job.filename}</td>
-                    <td><span class="status-badge status-${job.status}">${job.status.toUpperCase().replace('_', ' ')}</span></td>
-                    <td>${job.stage || '-'}</td>
-                    <td>${uploadedTime}</td>
-                    <td>
-                        <div class="job-actions">
-                            ${job.status === 'completed' || job.status === 'pending_review' ? 
-                                `<button class="btn-small" onclick="downloadResult('${job.id}')">💾 Download</button>` :
-                                ''
-                            }
-                            ${job.status === 'failed' || job.status === 'error' ? 
-                                `<button class="btn-small" onclick="showError('${job.id}')">⚠️ Details</button>` :
-                                ''
-                            }
-                        </div>
-                    </td>
-                `;
-                
-                tbody.appendChild(tr);
-            });
-        }
-
-        function downloadResult(jobId) {
-            window.location.href = `/api/download/${jobId}`;
-        }
-
-        function showError(jobId) {
-            fetch(`/api/status/${jobId}`)
-                .then(res => res.json())
-                .then(job => {
-                    const errorMsg = job.error || job.result?.error || 'Unknown error';
-                    alert(`Error Details:\n\n${errorMsg}`);
-                })
-                .catch(err => {
-                    alert('Could not load error details');
-                });
-        }
-
-        async function clearHistory() {
-            if (!confirm('Are you sure you want to clear all history? This cannot be undone.')) {
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/clear-history', {
-                    method: 'POST'
-                });
-
-                if (response.ok) {
-                    alert('History cleared successfully');
-                    loadJobs();
-                } else {
-                    alert('Failed to clear history');
-                }
-            } catch (error) {
-                alert('Error: ' + error.message);
-            }
-        }
-
-        function refreshHistory() {
-            document.getElementById('loadingContainer').style.display = 'block';
-            document.getElementById('tableContainer').style.display = 'none';
-            document.getElementById('emptyContainer').style.display = 'none';
-            loadJobs();
-        }
-
-        function startAutoRefresh() {
-            if (autoRefreshInterval) return;
-            autoRefreshInterval = setInterval(loadJobs, 3000);
-        }
-
-        function stopAutoRefresh() {
-            if (autoRefreshInterval) {
-                clearInterval(autoRefreshInterval);
-                autoRefreshInterval = null;
-            }
-        }
-
-        window.addEventListener('load', loadJobs);
-
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                stopAutoRefresh();
-            }
+            tr.innerHTML = `
+                <td><span class="filename">${escapeHtml(job.filename)}</span></td>
+                <td><span class="status-badge status-${job.status}">${job.status.replace(/_/g, ' ')}</span></td>
+                <td style="color:var(--text-3);font-size:13px">${job.stage || '—'}</td>
+                <td style="color:var(--text-3);font-size:13px">${new Date(job.uploaded_at).toLocaleString()}</td>
+                <td>
+                    <div class="td-actions">
+                        ${canDownload ? `<button class="btn btn--ghost btn--xs" onclick="downloadResult('${job.id}')">💾 Download</button>` : ''}
+                        ${hasError    ? `<button class="btn btn--ghost btn--xs" onclick="showError('${job.id}')">⚠️ Details</button>`  : ''}
+                    </div>
+                </td>`;
+            tbody.appendChild(tr);
         });
-    </script>
+    }
+
+    function downloadResult(jobId) { window.location.href = `/api/download/${jobId}`; }
+
+    function showError(jobId) {
+        fetch(`/api/status/${jobId}`)
+            .then(r => r.json())
+            .then(j => alert(`Error Details:\n\n${j.error || j.result?.error || 'Unknown error'}`))
+            .catch(() => alert('Could not load error details.'));
+    }
+
+    async function clearHistory() {
+        if (!confirm('Clear all history? This cannot be undone.')) return;
+        try {
+            const resp = await fetch('/api/clear-history', { method: 'POST' });
+            if (resp.ok) { alert('History cleared.'); loadJobs(); }
+            else alert('Failed to clear history.');
+        } catch (err) { alert('Error: ' + err.message); }
+    }
+
+    function refreshHistory() {
+        document.getElementById('loadingContainer').classList.remove('hidden');
+        document.getElementById('tableContainer').classList.add('hidden');
+        document.getElementById('emptyContainer').classList.add('hidden');
+        loadJobs();
+    }
+
+    function startAutoRefresh() {
+        if (!autoRefreshInterval) autoRefreshInterval = setInterval(loadJobs, 3000);
+    }
+    function stopAutoRefresh() {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    window.addEventListener('load', loadJobs);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopAutoRefresh(); });
+</script>
 </body>
 </html>
