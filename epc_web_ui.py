@@ -2,7 +2,6 @@
 Web UI for Motorsights EPC PDF Automation
 Flask application: upload → extract → review → submit.
 """
-
 import json
 import os
 import threading
@@ -102,7 +101,7 @@ def _build_config(config_params: dict) -> EPCAutomationConfig:
         master_category_id=config_params.get("master_category_id"),
         master_category_name_en=config_params.get("master_category_name_en", ""),
         partbook_type=config_params.get("partbook_type", "cabin_chassis"),
-        max_retries=3,
+        max_retries=3,              
         enable_review_mode=True,
     )
 
