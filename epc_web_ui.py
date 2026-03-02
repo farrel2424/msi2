@@ -1,7 +1,20 @@
 """
-Web UI for Motorsights EPC PDF Automation
-Flask application: upload → extract → review → submit.
+epc_web_ui.py
+─────────────────────────────────────────────────────────────────────────────
+Web UI for Motorsights EPC PDF Automation.
+
+Supports four partbook types: cabin_chassis, engine, transmission, axle_drive.
+
+WORKFLOW (Cabin & Chassis — 3-level hierarchy)
+───────────────────────────────────────────────
+  1. Upload partbook PDF (ZIP-of-JPEGs format)
+  2. Stage 1 — Extract category/type-category structure → review → submit
+  3. Stage 2 — Extract parts rows per subtype          → review → submit
+     (Parts Management: POST /item_category/create with data_items)
 """
+
+from __future__ import annotations
+
 import json
 import os
 import threading
@@ -12,158 +25,133 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
-from epc_automation import EPCAutomationConfig, EPCPDFAutomation
-
-# ---------------------------------------------------------------------------
-# App setup
-# ---------------------------------------------------------------------------
+from epc_automation import EPCPDFAutomation, EPCAutomationConfig
 
 app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = "uploads"
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
-app.config["ALLOWED_EXTENSIONS"] = {"pdf"}
+app.config["UPLOAD_FOLDER"]        = "uploads"
+app.config["MAX_CONTENT_LENGTH"]   = 16 * 1024 * 1024  # 16 MB
+app.config["ALLOWED_EXTENSIONS"]   = {"pdf"}
 
 Path(app.config["UPLOAD_FOLDER"]).mkdir(exist_ok=True)
 Path("outputs").mkdir(exist_ok=True)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-_DEFAULT_SSO_GATEWAY = "https://dev-gateway.motorsights.com"
-_DEFAULT_EPC_BASE_URL = "https://dev-gateway.motorsights.com/api/epc"
-_DEFAULT_SUMOPOD_URL = "https://ai.sumopod.com/v1"
-
+# ─────────────────────────────────────────────────────────────────────────────
+# Master category registry
+# ─────────────────────────────────────────────────────────────────────────────
 MASTER_CATEGORIES = {
     "transmission": {
-        "id": os.getenv("MASTER_CATEGORY_TRANSMISSION_ID", ""),
-        "name_en": "Transmission",
-        "name_cn": "变速器",
+        "id":           os.getenv("MASTER_CATEGORY_TRANSMISSION_ID", ""),
+        "name_en":      "Transmission",
+        "name_cn":      "变速器",
         "partbook_type": "transmission",
     },
     "cabin_chassis": {
-        "id": os.getenv("MASTER_CATEGORY_CABIN_CHASSIS_ID", ""),
-        "name_en": "Cabin & Chassis",
-        "name_cn": "驾驶室和底盘",
+        "id":           os.getenv("MASTER_CATEGORY_CABIN_CHASSIS_ID", ""),
+        "name_en":      "Cabin & Chassis",
+        "name_cn":      "驾驶室和底盘",
         "partbook_type": "cabin_chassis",
     },
     "engine": {
-        "id": os.getenv("MASTER_CATEGORY_ENGINE_ID", ""),
-        "name_en": "Engine",
-        "name_cn": "发动机",
+        "id":           os.getenv("MASTER_CATEGORY_ENGINE_ID", ""),
+        "name_en":      "Engine",
+        "name_cn":      "发动机",
         "partbook_type": "engine",
     },
     "axle": {
-        "id": os.getenv("MASTER_CATEGORY_AXLE_ID", ""),
-        "name_en": "Axle",
-        "name_cn": "车轴",
+        "id":           os.getenv("MASTER_CATEGORY_AXLE_ID", ""),
+        "name_en":      "Axle",
+        "name_cn":      "车轴",
         "partbook_type": "axle_drive",
     },
 }
 
-# ---------------------------------------------------------------------------
-# In-memory job store
-# ---------------------------------------------------------------------------
-
-job_status: dict = {}
-job_lock = threading.Lock()
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def allowed_file(filename: str) -> bool:
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
-
 
 def _get_master_category_info(master_category_id: str) -> dict:
-    """Return category metadata for the given UUID, or sensible defaults."""
-    for value in MASTER_CATEGORIES.values():
-        if value["id"] and value["id"] == master_category_id:
-            return value
+    for v in MASTER_CATEGORIES.values():
+        if v["id"] and v["id"] == master_category_id:
+            return v
     return {"name_en": "", "partbook_type": "cabin_chassis"}
 
 
-def _build_config(config_params: dict) -> EPCAutomationConfig:
-    """Construct an EPCAutomationConfig from a flat config_params dict."""
-    return EPCAutomationConfig(
-        sumopod_base_url=config_params.get("sumopod_base_url", _DEFAULT_SUMOPOD_URL),
-        sumopod_api_key=config_params.get("sumopod_api_key"),
-        sumopod_model=config_params.get("sumopod_model", "gpt4o"),
-        sumopod_temperature=float(config_params.get("sumopod_temperature", 0.7)),
-        sumopod_max_tokens=int(config_params.get("sumopod_max_tokens", 2000)),
-        sumopod_custom_prompt=config_params.get("custom_prompt") or None,
-        sso_gateway_url=config_params.get("sso_gateway_url", _DEFAULT_SSO_GATEWAY),
-        sso_email=config_params.get("sso_email"),
-        sso_password=config_params.get("sso_password"),
-        epc_base_url=config_params.get("epc_base_url", _DEFAULT_EPC_BASE_URL),
-        master_category_id=config_params.get("master_category_id"),
-        master_category_name_en=config_params.get("master_category_name_en", ""),
-        partbook_type=config_params.get("partbook_type", "cabin_chassis"),
-        dokumen_name=config_params.get("dokumen_name"),
-        max_retries=3,
-        enable_review_mode=True,
+# ─────────────────────────────────────────────────────────────────────────────
+# In-memory job store
+# ─────────────────────────────────────────────────────────────────────────────
+job_status: dict = {}
+job_lock = threading.Lock()
+
+
+def allowed_file(filename: str) -> bool:
+    return (
+        "." in filename
+        and filename.rsplit(".", 1)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
     )
 
-# ---------------------------------------------------------------------------
-# Background processing
-# ---------------------------------------------------------------------------
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Background workers
+# ─────────────────────────────────────────────────────────────────────────────
 
-def _process_pdf_async(job_id: str, pdf_path: str, config_params: dict) -> None:
-    """Extract PDF data in a background thread. Submission requires manual approval."""
+def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
+    """Background thread: Stage 1 — category/type-category extraction."""
+    with job_lock:
+        job_status[job_id]["status"]  = "processing"
+        job_status[job_id]["message"] = "Extracting category structure …"
+
     try:
-        with job_lock:
-            job_status[job_id].update(status="processing", stage="initializing")
-
-        config = _build_config(config_params)
-
-        with job_lock:
-            job_status[job_id]["stage"] = "extracting"
-
-        result = EPCPDFAutomation(config).process_pdf(Path(pdf_path), auto_submit=False)
-
-        parts_data = result.get("parts_data")
-        parts_status = "ready" if parts_data and parts_data.get("subtypes") else "pending"
+        config = EPCAutomationConfig(**config_params)
+        automation = EPCPDFAutomation(config)
+        result = automation.process_pdf(
+            pdf_path   = Path(pdf_path),
+            auto_submit = False,   # always pause for review
+        )
 
         with job_lock:
-            job_status[job_id].update(
-                status="pending_review",
-                extracted_data=result["extracted_data"],
-                parts_data=parts_data,
-                parts_status=parts_status,
-                result=result,
-                completed_at=datetime.now().isoformat(),
-            )
-            if result.get("extracted_data"):
-                output_file = f"outputs/{job_id}_extracted.json"
-                Path(output_file).write_text(
-                    json.dumps(result["extracted_data"], indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                job_status[job_id]["output_file"] = output_file
-
-            if parts_data and parts_data.get("subtypes"):
-                parts_file = f"outputs/{job_id}_parts.json"
-                Path(parts_file).write_text(
-                    json.dumps(parts_data, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                job_status[job_id]["parts_file"] = parts_file
+            job_status[job_id]["status"]         = "review"
+            job_status[job_id]["message"]        = "Structure extracted — awaiting review"
+            job_status[job_id]["extracted_data"] = result.get("extracted_data", {})
+            job_status[job_id]["stage"]          = "structure"
 
     except Exception as e:
         with job_lock:
-            job_status[job_id].update(
-                status="error",
-                error=str(e),
-                completed_at=datetime.now().isoformat(),
-            )
+            job_status[job_id]["status"]  = "error"
+            job_status[job_id]["message"] = str(e)
 
-# ---------------------------------------------------------------------------
-# Routes — pages
-# ---------------------------------------------------------------------------
 
+def _run_stage2(job_id: str, pdf_path: str, config_params: dict,
+                master_category_id: str, dokumen_name: str,
+                subtype_id_map: dict, target_id_start: int):
+    """Background thread: Stage 2 — parts extraction."""
+    with job_lock:
+        job_status[job_id]["status"]  = "processing_parts"
+        job_status[job_id]["message"] = "Extracting parts rows from tables …"
+
+    try:
+        config = EPCAutomationConfig(**config_params)
+        automation = EPCPDFAutomation(config)
+        result = automation.process_parts(
+            pdf_path           = Path(pdf_path),
+            master_category_id = master_category_id,
+            dokumen_name       = dokumen_name,
+            subtype_id_map     = subtype_id_map or {},
+            target_id_start    = target_id_start,
+            auto_submit        = False,   # pause for review
+        )
+
+        with job_lock:
+            job_status[job_id]["status"]     = "parts_review"
+            job_status[job_id]["message"]    = "Parts extracted — awaiting review"
+            job_status[job_id]["parts_data"] = result.get("parts_data", [])
+            job_status[job_id]["stage"]      = "parts"
+
+    except Exception as e:
+        with job_lock:
+            job_status[job_id]["status"]  = "error"
+            job_status[job_id]["message"] = str(e)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Routes — UI
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -171,290 +159,268 @@ def index():
 
 
 @app.route("/history")
-def history_page():
+def history():
     return render_template("epc_history.html")
 
-# ---------------------------------------------------------------------------
-# Routes — API
-# ---------------------------------------------------------------------------
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Routes — API
+# ─────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/master-categories")
-def get_master_categories():
-    """Return configured master categories with partbook_type metadata."""
-    categories = [
-        {
-            "key": key,
-            "id": value["id"],
-            "name_en": value["name_en"],
-            "name_cn": value["name_cn"],
-            "partbook_type": value["partbook_type"],
-        }
-        for key, value in MASTER_CATEGORIES.items()
-        if value["id"]
-    ]
-    return jsonify({"categories": categories})
+def api_master_categories():
+    cats = []
+    for key, info in MASTER_CATEGORIES.items():
+        if info["id"]:
+            cats.append({
+                "id":           info["id"],
+                "name_en":      info["name_en"],
+                "name_cn":      info["name_cn"],
+                "partbook_type": info["partbook_type"],
+                "display":      f"{info['name_en']} / {info['name_cn']}",
+            })
+    return jsonify({"categories": cats})
 
 
 @app.route("/api/upload", methods=["POST"])
-def upload_file():
-    """Handle PDF upload and start background extraction."""
+def api_upload():
+    """Upload partbook PDF and start Stage 1 extraction."""
     if "file" not in request.files:
-        return jsonify({"error": "No file provided."}), 400
+        return jsonify({"error": "No file provided"}), 400
 
-    file = request.files["file"]
-    if not file or not allowed_file(file.filename):
-        return jsonify({"error": "Invalid file type — only PDF allowed."}), 400
+    f = request.files["file"]
+    if not f or not allowed_file(f.filename):
+        return jsonify({"error": "Invalid file type. Only PDF files are accepted."}), 400
 
-    master_category_id = request.form.get("master_category_id", "").strip()
+    master_category_id = request.form.get("master_category_id", "")
     if not master_category_id:
-        return jsonify({"error": "master_category_id is required."}), 400
+        return jsonify({"error": "master_category_id is required"}), 400
 
-    cat_info = _get_master_category_info(master_category_id)
+    cat_info       = _get_master_category_info(master_category_id)
+    partbook_type  = cat_info.get("partbook_type", "cabin_chassis")
+
+    filename   = secure_filename(f.filename)
+    job_id     = str(uuid.uuid4())
+    pdf_path   = Path(app.config["UPLOAD_FOLDER"]) / f"{job_id}_{filename}"
+    f.save(str(pdf_path))
 
     config_params = {
-        "sumopod_base_url": _DEFAULT_SUMOPOD_URL,
-        "sumopod_api_key": request.form.get("sumopod_api_key", "").strip() or os.getenv("SUMOPOD_API_KEY", ""),
-        "sumopod_model": request.form.get("ai_model", "gpt4o"),
-        "sumopod_temperature": 0.7,
-        "sumopod_max_tokens": 2000,
-        "custom_prompt": request.form.get("custom_prompt", ""),
-        "sso_gateway_url": _DEFAULT_SSO_GATEWAY,
-        "sso_email": request.form.get("sso_email", "").strip() or os.getenv("SSO_EMAIL", ""),
-        "sso_password": request.form.get("sso_password", "").strip() or os.getenv("SSO_PASSWORD", ""),
-        "epc_base_url": _DEFAULT_EPC_BASE_URL,
-        "master_category_id": master_category_id,
+        "sumopod_base_url":      os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1"),
+        "sumopod_api_key":       os.getenv("SUMOPOD_API_KEY", ""),
+        "sumopod_model":         request.form.get("model", os.getenv("SUMOPOD_MODEL", "gpt4o")),
+        "sso_email":             os.getenv("SSO_EMAIL", ""),
+        "sso_password":          os.getenv("SSO_PASSWORD", ""),
+        "sso_gateway_url":       os.getenv("SSO_GATEWAY_URL", "https://dev-gateway.motorsights.com"),
+        "epc_base_url":          os.getenv("EPC_API_BASE_URL", "https://dev-gateway.motorsights.com/api/epc"),
+        "master_category_id":    master_category_id,
         "master_category_name_en": cat_info.get("name_en", ""),
-        "partbook_type": cat_info.get("partbook_type", "cabin_chassis"),
-        "dokumen_name": request.form.get("dokumen_name", "").strip()
-                        or os.getenv("CABIN_CHASSIS_DOKUMEN_NAME", "Cabin & Chassis Manual"),
+        "partbook_type":         partbook_type,
+        "enable_review_mode":    True,
     }
-
-    filename = secure_filename(file.filename)
-    job_id = str(uuid.uuid4())
-    upload_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{job_id}_{filename}")
-    file.save(upload_path)
 
     with job_lock:
         job_status[job_id] = {
-            "id": job_id,
-            "filename": filename,
-            "partbook_type": config_params["partbook_type"],
-            "master_category_name_en": config_params["master_category_name_en"],
-            "status": "queued",
-            "stage": "uploaded",
-            "uploaded_at": datetime.now().isoformat(),
-            "result": None,
-            "error": None,
-            "config": config_params,
-            "upload_path": upload_path,
-            "parts_data": None,
-            "parts_status": "pending",
+            "status":           "queued",
+            "message":          "Job queued",
+            "filename":         filename,
+            "pdf_path":         str(pdf_path),
+            "master_category_id": master_category_id,
+            "partbook_type":    partbook_type,
+            "config_params":    config_params,
+            "stage":            "structure",
+            "created_at":       datetime.now().isoformat(),
         }
 
-    thread = threading.Thread(target=_process_pdf_async, args=(job_id, upload_path, config_params))
-    thread.daemon = True
-    thread.start()
+    threading.Thread(
+        target=_run_stage1,
+        args=(job_id, str(pdf_path), config_params),
+        daemon=True
+    ).start()
 
-    return jsonify({
-        "job_id": job_id,
-        "filename": filename,
-        "partbook_type": config_params["partbook_type"],
-        "message": "File uploaded successfully. Processing started.",
-    })
+    return jsonify({"job_id": job_id})
 
 
 @app.route("/api/status/<job_id>")
-def get_status(job_id: str):
+def api_status(job_id: str):
     with job_lock:
-        if job_id not in job_status:
-            return jsonify({"error": "Job not found."}), 404
-        return jsonify(job_status[job_id])
+        job = job_status.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify({
+        "status":         job.get("status"),
+        "message":        job.get("message"),
+        "stage":          job.get("stage"),
+        "partbook_type":  job.get("partbook_type"),
+        "extracted_data": job.get("extracted_data"),
+        "parts_data":     job.get("parts_data"),
+        "submission_result": job.get("submission_result"),
+    })
 
 
-@app.route("/api/approve/<job_id>", methods=["POST"])
-def approve_submission(job_id: str):
-    """Approve the reviewed categories data and submit it to the EPC API."""
+@app.route("/api/approve-structure/<job_id>", methods=["POST"])
+def api_approve_structure(job_id: str):
+    """
+    User approves the category structure.  Submit Stage 1 to EPC.
+    """
     with job_lock:
-        if job_id not in job_status:
-            return jsonify({"error": "Job not found."}), 404
-        job = job_status[job_id]
-        if job["status"] != "pending_review":
-            return jsonify({"error": "Job is not pending review."}), 400
+        job = job_status.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
 
-        request_data = request.get_json()
-        extracted_data = (request_data or {}).get("data") or job.get("extracted_data")
-        if not extracted_data:
-            return jsonify({"error": "No data to submit."}), 400
+    body = request.get_json(force=True) or {}
+    edited_data = body.get("extracted_data") or job.get("extracted_data", {})
 
-        job_status[job_id].update(status="submitting", stage="epc_submission")
+    config_params = job["config_params"]
+    config = EPCAutomationConfig(**config_params)
+    automation = EPCPDFAutomation(config)
 
-    try:
-        config = _build_config(job["config"])
-        automation = EPCPDFAutomation(config)
-        success, epc_results = automation.submit_to_epc(
-            extracted_data,
-            master_category_id=job["config"].get("master_category_id"),
-            master_category_name_en=job["config"].get("master_category_name_en", ""),
+    success, epc_results = automation.submit_to_epc(
+        extracted_data=edited_data,
+        master_category_id=job["master_category_id"],
+        master_category_name_en=config_params.get("master_category_name_en", ""),
+    )
+
+    with job_lock:
+        job_status[job_id]["submission_result"] = epc_results
+        job_status[job_id]["status"] = "structure_submitted" if success else "error"
+        job_status[job_id]["message"] = (
+            "Structure submitted — ready for Parts Management"
+            if success else
+            f"Submission errors: {len(epc_results.get('errors', []))}"
         )
 
-        with job_lock:
-            job_status[job_id].update(
-                status="completed" if success else "error",
-                stage="completed" if success else "error",
-                epc_results=epc_results,
-                completed_at=datetime.now().isoformat(),
-                **({"error": f"{len(epc_results.get('errors', []))} submission error(s)."} if not success else {}),
-            )
+    return jsonify({"success": success, "epc_results": epc_results})
 
-        return jsonify({"success": success, "epc_results": epc_results})
 
-    except Exception as e:
-        with job_lock:
-            job_status[job_id].update(status="error", error=str(e))
-        return jsonify({"error": str(e)}), 500
+@app.route("/api/start-parts/<job_id>", methods=["POST"])
+def api_start_parts(job_id: str):
+    """
+    Start Stage 2: Parts extraction.
+    Called after structure submission.  Accepts optional subtype_id_map.
+    """
+    with job_lock:
+        job = job_status.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    body = request.get_json(force=True) or {}
+
+    # subtype_id_map: maps subtype_code / name → type_category_id
+    # The frontend can build this from the Stage 1 submission results.
+    subtype_id_map  = body.get("subtype_id_map", {})
+    target_id_start = int(body.get("target_id_start", 1))
+    dokumen_name    = body.get("dokumen_name", Path(job["pdf_path"]).stem)
+
+    threading.Thread(
+        target=_run_stage2,
+        args=(
+            job_id,
+            job["pdf_path"],
+            job["config_params"],
+            job["master_category_id"],
+            dokumen_name,
+            subtype_id_map,
+            target_id_start,
+        ),
+        daemon=True
+    ).start()
+
+    return jsonify({"status": "parts_extraction_started"})
 
 
 @app.route("/api/approve-parts/<job_id>", methods=["POST"])
-def approve_parts_submission(job_id: str):
+def api_approve_parts(job_id: str):
     """
-    Submit the parts management data (item_category + details) for a cabin_chassis job.
-    Body: { "data": <parts_data>, "category_name_en": "Frame System" }
+    User approves the extracted parts data.  Submit Stage 2 to EPC.
     """
     with job_lock:
-        if job_id not in job_status:
-            return jsonify({"error": "Job not found."}), 404
-        job = job_status[job_id]
-        if job.get("partbook_type") != "cabin_chassis":
-            return jsonify({"error": "Parts submission is only available for Cabin & Chassis jobs."}), 400
-        if job.get("parts_status") == "submitted":
-            return jsonify({"error": "Parts already submitted for this job."}), 400
+        job = job_status.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
 
-        job_status[job_id]["parts_status"] = "submitting"
+    body       = request.get_json(force=True) or {}
+    parts_data = body.get("parts_data") or job.get("parts_data", [])
 
-    try:
-        req = request.get_json() or {}
-        parts_data       = req.get("data") or job.get("parts_data")
-        category_name_en = (req.get("category_name_en") or "").strip()
+    subtype_id_map  = body.get("subtype_id_map", {})
+    dokumen_name    = body.get("dokumen_name", Path(job["pdf_path"]).stem)
 
-        if not parts_data:
-            return jsonify({"error": "No parts data available."}), 400
-        if not category_name_en:
-            return jsonify({"error": "category_name_en is required."}), 400
+    config_params = job["config_params"]
+    config = EPCAutomationConfig(**config_params)
+    automation = EPCPDFAutomation(config)
 
-        config     = _build_config(job["config"])
-        automation = EPCPDFAutomation(config)
+    success, epc_results = automation.epc_client.batch_submit_parts(
+        parts_data         = parts_data,
+        master_category_id = job["master_category_id"],
+        dokumen_name       = dokumen_name,
+        subtype_id_map     = subtype_id_map,
+    )
 
-        success, parts_results = automation.submit_parts_to_epc(
-            parts_data=parts_data,
-            category_name_en=category_name_en,
-            master_category_id=job["config"].get("master_category_id"),
-            dokumen_name=job["config"].get("dokumen_name"),
+    with job_lock:
+        job_status[job_id]["parts_submission_result"] = epc_results
+        job_status[job_id]["status"]  = "completed" if success else "parts_error"
+        job_status[job_id]["message"] = (
+            f"✓ Parts submitted — "
+            f"{epc_results.get('total_parts_submitted', 0)} parts across "
+            f"{len(epc_results.get('item_categories_created', []))} subtypes"
+            if success else
+            f"Parts submission errors: {len(epc_results.get('errors', []))}"
         )
 
-        with job_lock:
-            job_status[job_id].update(
-                parts_status="submitted" if success else "error",
-                parts_results=parts_results,
-            )
-
-        return jsonify({"success": success, "parts_results": parts_results})
-
-    except Exception as e:
-        with job_lock:
-            job_status[job_id]["parts_status"] = "error"
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"success": success, "epc_results": epc_results})
 
 
 @app.route("/api/re-extract/<job_id>", methods=["POST"])
-def re_extract(job_id: str):
-    """Re-run extraction with a modified prompt."""
+def api_re_extract(job_id: str):
+    """Restart Stage 1 with a modified extraction prompt."""
     with job_lock:
-        if job_id not in job_status:
-            return jsonify({"error": "Job not found."}), 404
-        job = job_status[job_id]
-        upload_path = job.get("upload_path")
-        if not upload_path or not os.path.exists(upload_path):
-            return jsonify({"error": "Original PDF file not found."}), 404
+        job = job_status.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
 
-        new_prompt = (request.get_json() or {}).get("prompt", "").strip()
-        config_params = dict(job["config"])
-        if new_prompt:
-            config_params["custom_prompt"] = new_prompt
+    body       = request.get_json(force=True) or {}
+    new_prompt = body.get("prompt", "")
 
-        job_status[job_id].update(
-            status="queued",
-            stage="re-extract queued",
-            extracted_data=None,
-            parts_data=None,
-            parts_status="pending",
-            result=None,
-            error=None,
-        )
+    config_params = dict(job["config_params"])
+    config_params["sumopod_custom_prompt"] = new_prompt
 
-    thread = threading.Thread(target=_process_pdf_async, args=(job_id, upload_path, config_params))
-    thread.daemon = True
-    thread.start()
-
-    return jsonify({"success": True, "message": "Re-extraction started."})
-
-
-@app.route("/api/download/<job_id>")
-def download_json(job_id: str):
-    """Download the extracted categories JSON for a given job."""
     with job_lock:
-        if job_id not in job_status:
-            return jsonify({"error": "Job not found."}), 404
-        output_file = job_status[job_id].get("output_file")
+        job_status[job_id]["status"]         = "queued"
+        job_status[job_id]["message"]        = "Re-extraction queued"
+        job_status[job_id]["extracted_data"] = None
+        job_status[job_id]["config_params"]  = config_params
 
-    if not output_file or not os.path.exists(output_file):
-        return jsonify({"error": "Output file not found."}), 404
+    threading.Thread(
+        target=_run_stage1,
+        args=(job_id, job["pdf_path"], config_params),
+        daemon=True
+    ).start()
 
-    return send_file(output_file, as_attachment=True, download_name=f"extracted_{job_id}.json")
-
-
-@app.route("/api/download-parts/<job_id>")
-def download_parts_json(job_id: str):
-    """Download the extracted parts JSON for a given job."""
-    with job_lock:
-        if job_id not in job_status:
-            return jsonify({"error": "Job not found."}), 404
-        parts_file = job_status[job_id].get("parts_file")
-
-    if not parts_file or not os.path.exists(parts_file):
-        return jsonify({"error": "Parts file not found."}), 404
-
-    return send_file(parts_file, as_attachment=True, download_name=f"parts_{job_id}.json")
+    return jsonify({"status": "re_extraction_started"})
 
 
 @app.route("/api/jobs")
-def list_jobs():
-    """Return all jobs (for history page)."""
+def api_jobs():
     with job_lock:
-        jobs = list(job_status.values())
-    # Sort newest first; strip large blobs for the list view
-    safe = []
-    for j in jobs:
-        safe.append({k: v for k, v in j.items() if k not in ("extracted_data", "parts_data", "result", "config")})
-    safe.sort(key=lambda j: j.get("uploaded_at", ""), reverse=True)
-    return jsonify({"jobs": safe})
+        jobs = [
+            {
+                "job_id":       jid,
+                "status":       j.get("status"),
+                "filename":     j.get("filename"),
+                "partbook_type": j.get("partbook_type"),
+                "created_at":   j.get("created_at"),
+                "message":      j.get("message"),
+            }
+            for jid, j in job_status.items()
+        ]
+    return jsonify({"jobs": sorted(jobs, key=lambda x: x["created_at"], reverse=True)})
 
 
-@app.route("/api/jobs/<job_id>", methods=["DELETE"])
-def delete_job(job_id: str):
-    with job_lock:
-        if job_id not in job_status:
-            return jsonify({"error": "Job not found."}), 404
-        del job_status[job_id]
-    return jsonify({"success": True})
-
-
-@app.route("/api/jobs", methods=["DELETE"])
-def clear_jobs():
+@app.route("/api/clear-history", methods=["POST"])
+def api_clear_history():
     with job_lock:
         job_status.clear()
     return jsonify({"success": True})
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000)
