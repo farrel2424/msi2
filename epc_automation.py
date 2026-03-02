@@ -3,7 +3,7 @@ Motorsights EPC PDF Automation
 Main orchestrator: PDF extraction → optional review → EPC submission.
 
 Supported partbook types:
-  cabin_chassis — full markdown extraction (3-level hierarchy)
+  cabin_chassis — full markdown extraction (3-level hierarchy + parts management)
   engine        — top-right header vision extraction (flat, 0 AI tokens for crop)
   transmission  — ToC translation via vision/text (flat, 1 AI call)
   axle_drive    — ZIP/JPEG vision extraction per table page (3-level hierarchy)
@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Tuple
 import pymupdf4llm
 
 from axle_drive_extractor import extract_axle_drive_categories
+from cabin_chassis_parts_extractor import CabinChassisPartsExtractor
 from engine_transmission_extractor import extract_engine_or_transmission
 from motorsights_auth_client import MotorsightsAuthClient
 from motorsights_epc_client import MotorsightsEPCClient
@@ -55,6 +56,7 @@ class EPCAutomationConfig:
         master_category_id: Optional[str] = None,
         master_category_name_en: Optional[str] = None,
         partbook_type: str = "cabin_chassis",
+        dokumen_name: Optional[str] = None,
         processed_log_file: str = "epc_processed_files.json",
     ):
         self.sumopod_base_url = sumopod_base_url or os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1")
@@ -84,9 +86,16 @@ class EPCAutomationConfig:
         partbook_type = partbook_type.lower().strip()
         if partbook_type not in _VALID_PARTBOOK_TYPES:
             raise ValueError(
-                f"Invalid partbook_type '{partbook_type}'. Must be one of: {_VALID_PARTBOOK_TYPES}"
+                f"Invalid partbook_type '{partbook_type}'. "
+                f"Must be one of: {_VALID_PARTBOOK_TYPES}"
             )
         self.partbook_type = partbook_type
+
+        self.dokumen_name = (
+            dokumen_name
+            or os.getenv("CABIN_CHASSIS_DOKUMEN_NAME", "Cabin & Chassis Manual")
+        )
+
         self.processed_log_file = processed_log_file
 
         if not self.sso_email or not self.sso_password:
@@ -201,7 +210,31 @@ class EPCPDFAutomation:
             self.logger.info("Strategy: Cabin & Chassis — full markdown extraction")
             md = pymupdf4llm.to_markdown(str(pdf_path))
             self.logger.info("Converted to markdown (%d chars).", len(md))
-            return self.sumopod.extract_catalog_data(md, custom_prompt=custom_prompt)
+
+            # Stage 1 — categories + type_categories (existing behaviour)
+            category_data = self.sumopod.extract_catalog_data(md, custom_prompt=custom_prompt)
+            self.logger.info(
+                "Stage 1 complete: %d categories extracted.",
+                len(category_data.get("categories", [])),
+            )
+
+            # Stage 2 — parts tables (new)
+            self.logger.info("Stage 2: Extracting parts management data...")
+            try:
+                parts_extractor = CabinChassisPartsExtractor(sumopod_client=self.sumopod)
+                parts_data = parts_extractor.extract_from_markdown(md)
+                total_parts = sum(len(s["parts"]) for s in parts_data.get("subtypes", []))
+                self.logger.info(
+                    "Stage 2 complete: %d subtype(s), %d total part(s).",
+                    len(parts_data.get("subtypes", [])),
+                    total_parts,
+                )
+            except Exception as exc:
+                self.logger.warning("Parts extraction failed (non-fatal): %s", exc)
+                parts_data = {"subtypes": []}
+
+            # Return both stages combined
+            return {**category_data, "parts_data": parts_data}
 
         if ptype in _FLAT_PARTBOOK_TYPES:
             self.logger.info("Strategy: %s extraction", ptype.title())
@@ -246,7 +279,9 @@ class EPCPDFAutomation:
             "stage": None,
             "error": None,
             "extracted_data": None,
+            "parts_data": None,           # cabin_chassis only
             "epc_submission": None,
+            "parts_submission": None,     # cabin_chassis only
             "review_required": False,
         }
 
@@ -262,7 +297,12 @@ class EPCPDFAutomation:
 
             result["stage"] = "extraction"
             extracted_data = self._extract_data(pdf_path, custom_prompt=custom_prompt)
+
+            # Separate parts_data from the category data blob
+            parts_data = extracted_data.pop("parts_data", None)
             result["extracted_data"] = extracted_data
+            result["parts_data"] = parts_data
+
             self.logger.info("Extracted %d categories.", len(extracted_data.get("categories", [])))
 
             if not auto_submit:
@@ -270,6 +310,7 @@ class EPCPDFAutomation:
                 self.logger.info("✓ Extraction complete — awaiting manual review.")
                 return result
 
+            # Auto-submit path (review_mode=False)
             result["stage"] = "submitting"
             success, epc_results = self.submit_to_epc(
                 extracted_data,
@@ -295,14 +336,18 @@ class EPCPDFAutomation:
 
         return result
 
+    # ------------------------------------------------------------------
+    # Submission
+    # ------------------------------------------------------------------
+
     def submit_to_epc(
         self,
         extracted_data: Dict,
         master_category_id: Optional[str] = None,
         master_category_name_en: Optional[str] = None,
     ) -> Tuple[bool, Dict]:
-        """Submit reviewed extracted data to the Motorsights EPC API."""
-        self.logger.info("Submitting data to Motorsights EPC.")
+        """Submit categories (and type_categories) to the Motorsights EPC API."""
+        self.logger.info("Submitting category data to Motorsights EPC.")
         master_category_id = master_category_id or self.config.master_category_id
         master_category_name_en = master_category_name_en or self.config.master_category_name_en
 
@@ -318,6 +363,45 @@ class EPCPDFAutomation:
         if self.config.partbook_type in _FLAT_PARTBOOK_TYPES:
             return self.epc_client.batch_create_flat_categories(**kwargs)
         return self.epc_client.batch_create_type_categories_and_categories(**kwargs)
+
+    def submit_parts_to_epc(
+        self,
+        parts_data: Dict,
+        category_name_en: str,
+        master_category_id: Optional[str] = None,
+        dokumen_name: Optional[str] = None,
+    ) -> Tuple[bool, Dict]:
+        """
+        Submit parts management data for a cabin_chassis category.
+
+        Args:
+            parts_data:        {"subtypes": [{subtype_name_en, subtype_name_cn, parts}]}
+            category_name_en:  The Category these parts belong to (must exist in DB)
+            master_category_id: UUID of the Master Category
+            dokumen_name:      Document name for the item_category record
+        """
+        master_category_id = master_category_id or self.config.master_category_id
+        dokumen_name = dokumen_name or self.config.dokumen_name
+
+        if not master_category_id:
+            raise ValueError("master_category_id is required.")
+
+        self.logger.info(
+            "Submitting parts for category '%s' (%d subtypes).",
+            category_name_en,
+            len(parts_data.get("subtypes", [])),
+        )
+
+        return self.epc_client.batch_submit_parts(
+            parts_data=parts_data,
+            master_category_id=master_category_id,
+            category_name_en=category_name_en,
+            dokumen_name=dokumen_name,
+        )
+
+    # ------------------------------------------------------------------
+    # Batch directory processing
+    # ------------------------------------------------------------------
 
     def process_directory(
         self,

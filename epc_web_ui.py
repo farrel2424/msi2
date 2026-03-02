@@ -101,7 +101,8 @@ def _build_config(config_params: dict) -> EPCAutomationConfig:
         master_category_id=config_params.get("master_category_id"),
         master_category_name_en=config_params.get("master_category_name_en", ""),
         partbook_type=config_params.get("partbook_type", "cabin_chassis"),
-        max_retries=3,              
+        dokumen_name=config_params.get("dokumen_name"),
+        max_retries=3,
         enable_review_mode=True,
     )
 
@@ -123,10 +124,15 @@ def _process_pdf_async(job_id: str, pdf_path: str, config_params: dict) -> None:
 
         result = EPCPDFAutomation(config).process_pdf(Path(pdf_path), auto_submit=False)
 
+        parts_data = result.get("parts_data")
+        parts_status = "ready" if parts_data and parts_data.get("subtypes") else "pending"
+
         with job_lock:
             job_status[job_id].update(
                 status="pending_review",
                 extracted_data=result["extracted_data"],
+                parts_data=parts_data,
+                parts_status=parts_status,
                 result=result,
                 completed_at=datetime.now().isoformat(),
             )
@@ -134,9 +140,17 @@ def _process_pdf_async(job_id: str, pdf_path: str, config_params: dict) -> None:
                 output_file = f"outputs/{job_id}_extracted.json"
                 Path(output_file).write_text(
                     json.dumps(result["extracted_data"], indent=2, ensure_ascii=False),
-                    encoding="utf-8"
+                    encoding="utf-8",
                 )
                 job_status[job_id]["output_file"] = output_file
+
+            if parts_data and parts_data.get("subtypes"):
+                parts_file = f"outputs/{job_id}_parts.json"
+                Path(parts_file).write_text(
+                    json.dumps(parts_data, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                job_status[job_id]["parts_file"] = parts_file
 
     except Exception as e:
         with job_lock:
@@ -212,6 +226,8 @@ def upload_file():
         "master_category_id": master_category_id,
         "master_category_name_en": cat_info.get("name_en", ""),
         "partbook_type": cat_info.get("partbook_type", "cabin_chassis"),
+        "dokumen_name": request.form.get("dokumen_name", "").strip()
+                        or os.getenv("CABIN_CHASSIS_DOKUMEN_NAME", "Cabin & Chassis Manual"),
     }
 
     filename = secure_filename(file.filename)
@@ -232,6 +248,8 @@ def upload_file():
             "error": None,
             "config": config_params,
             "upload_path": upload_path,
+            "parts_data": None,
+            "parts_status": "pending",
         }
 
     thread = threading.Thread(target=_process_pdf_async, args=(job_id, upload_path, config_params))
@@ -256,7 +274,7 @@ def get_status(job_id: str):
 
 @app.route("/api/approve/<job_id>", methods=["POST"])
 def approve_submission(job_id: str):
-    """Approve the reviewed data and submit it to the EPC API."""
+    """Approve the reviewed categories data and submit it to the EPC API."""
     with job_lock:
         if job_id not in job_status:
             return jsonify({"error": "Job not found."}), 404
@@ -297,6 +315,57 @@ def approve_submission(job_id: str):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/approve-parts/<job_id>", methods=["POST"])
+def approve_parts_submission(job_id: str):
+    """
+    Submit the parts management data (item_category + details) for a cabin_chassis job.
+    Body: { "data": <parts_data>, "category_name_en": "Frame System" }
+    """
+    with job_lock:
+        if job_id not in job_status:
+            return jsonify({"error": "Job not found."}), 404
+        job = job_status[job_id]
+        if job.get("partbook_type") != "cabin_chassis":
+            return jsonify({"error": "Parts submission is only available for Cabin & Chassis jobs."}), 400
+        if job.get("parts_status") == "submitted":
+            return jsonify({"error": "Parts already submitted for this job."}), 400
+
+        job_status[job_id]["parts_status"] = "submitting"
+
+    try:
+        req = request.get_json() or {}
+        parts_data       = req.get("data") or job.get("parts_data")
+        category_name_en = (req.get("category_name_en") or "").strip()
+
+        if not parts_data:
+            return jsonify({"error": "No parts data available."}), 400
+        if not category_name_en:
+            return jsonify({"error": "category_name_en is required."}), 400
+
+        config     = _build_config(job["config"])
+        automation = EPCPDFAutomation(config)
+
+        success, parts_results = automation.submit_parts_to_epc(
+            parts_data=parts_data,
+            category_name_en=category_name_en,
+            master_category_id=job["config"].get("master_category_id"),
+            dokumen_name=job["config"].get("dokumen_name"),
+        )
+
+        with job_lock:
+            job_status[job_id].update(
+                parts_status="submitted" if success else "error",
+                parts_results=parts_results,
+            )
+
+        return jsonify({"success": success, "parts_results": parts_results})
+
+    except Exception as e:
+        with job_lock:
+            job_status[job_id]["parts_status"] = "error"
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/re-extract/<job_id>", methods=["POST"])
 def re_extract(job_id: str):
     """Re-run extraction with a modified prompt."""
@@ -308,31 +377,31 @@ def re_extract(job_id: str):
         if not upload_path or not os.path.exists(upload_path):
             return jsonify({"error": "Original PDF file not found."}), 404
 
-    new_prompt = (request.get_json() or {}).get("prompt", "")
-    config_params = {**job["config"], "custom_prompt": new_prompt}
+        new_prompt = (request.get_json() or {}).get("prompt", "").strip()
+        config_params = dict(job["config"])
+        if new_prompt:
+            config_params["custom_prompt"] = new_prompt
 
-    with job_lock:
         job_status[job_id].update(
-            status="queued", stage="uploaded",
-            error=None, result=None, extracted_data=None,
-            config=config_params,
+            status="queued",
+            stage="re-extract queued",
+            extracted_data=None,
+            parts_data=None,
+            parts_status="pending",
+            result=None,
+            error=None,
         )
 
     thread = threading.Thread(target=_process_pdf_async, args=(job_id, upload_path, config_params))
     thread.daemon = True
     thread.start()
 
-    return jsonify({"message": "Re-extraction started with new prompt."})
-
-
-@app.route("/api/jobs")
-def list_jobs():
-    with job_lock:
-        return jsonify(list(job_status.values()))
+    return jsonify({"success": True, "message": "Re-extraction started."})
 
 
 @app.route("/api/download/<job_id>")
-def download_output(job_id: str):
+def download_json(job_id: str):
+    """Download the extracted categories JSON for a given job."""
     with job_lock:
         if job_id not in job_status:
             return jsonify({"error": "Job not found."}), 404
@@ -340,8 +409,52 @@ def download_output(job_id: str):
 
     if not output_file or not os.path.exists(output_file):
         return jsonify({"error": "Output file not found."}), 404
-    return send_file(output_file, as_attachment=True)
+
+    return send_file(output_file, as_attachment=True, download_name=f"extracted_{job_id}.json")
+
+
+@app.route("/api/download-parts/<job_id>")
+def download_parts_json(job_id: str):
+    """Download the extracted parts JSON for a given job."""
+    with job_lock:
+        if job_id not in job_status:
+            return jsonify({"error": "Job not found."}), 404
+        parts_file = job_status[job_id].get("parts_file")
+
+    if not parts_file or not os.path.exists(parts_file):
+        return jsonify({"error": "Parts file not found."}), 404
+
+    return send_file(parts_file, as_attachment=True, download_name=f"parts_{job_id}.json")
+
+
+@app.route("/api/jobs")
+def list_jobs():
+    """Return all jobs (for history page)."""
+    with job_lock:
+        jobs = list(job_status.values())
+    # Sort newest first; strip large blobs for the list view
+    safe = []
+    for j in jobs:
+        safe.append({k: v for k, v in j.items() if k not in ("extracted_data", "parts_data", "result", "config")})
+    safe.sort(key=lambda j: j.get("uploaded_at", ""), reverse=True)
+    return jsonify({"jobs": safe})
+
+
+@app.route("/api/jobs/<job_id>", methods=["DELETE"])
+def delete_job(job_id: str):
+    with job_lock:
+        if job_id not in job_status:
+            return jsonify({"error": "Job not found."}), 404
+        del job_status[job_id]
+    return jsonify({"success": True})
+
+
+@app.route("/api/jobs", methods=["DELETE"])
+def clear_jobs():
+    with job_lock:
+        job_status.clear()
+    return jsonify({"success": True})
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5001)
+    app.run(debug=True, port=5000)

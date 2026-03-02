@@ -1,340 +1,189 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Motorsights EPC — PDF Automation</title>
-    <link rel="icon" type="image/jpeg" href="templates/msi.jpeg">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg:         #f0f2f5;
-            --surface:    #ffffff;
-            --border:     #e2e5eb;
-            --border-mid: #d0d5df;
-            --text-1:     #0f1420;
-            --text-2:     #4a5568;
-            --text-3:     #8a94a6;
-            --primary:    #2563eb;
-            --primary-dk: #1d4ed8;
-            --primary-lt: #eff6ff;
-            --success:    #16a34a;
-            --success-lt: #f0fdf4;
-            --warning:    #d97706;
-            --warning-lt: #fffbeb;
-            --danger:     #dc2626;
-            --danger-lt:  #fef2f2;
-            --info:       #0284c7;
-            --info-lt:    #f0f9ff;
-            --accent:     #7c3aed;
-            --radius:     10px;
-            --radius-sm:  6px;
-            --shadow:     0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06);
-            --shadow-sm:  0 1px 2px rgba(0,0,0,0.06);
-            --mono:       'DM Mono', 'Consolas', monospace;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motorsights EPC — PDF Automation</title>
+<style>
+    /* ── Reset & variables ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+        --primary:    #2563eb;
+        --primary-dk: #1d4ed8;
+        --primary-lt: #eff6ff;
+        --success:    #16a34a;
+        --success-lt: #f0fdf4;
+        --warning:    #d97706;
+        --warning-lt: #fffbeb;
+        --danger:     #dc2626;
+        --danger-lt:  #fef2f2;
+        --info:       #0284c7;
+        --info-lt:    #f0f9ff;
+        --accent:     #7c3aed;
+        --text-1: #0f172a;
+        --text-2: #475569;
+        --text-3: #94a3b8;
+        --bg:      #f1f5f9;
+        --surface: #ffffff;
+        --border:     #e2e8f0;
+        --border-mid: #cbd5e1;
+        --radius:    12px;
+        --radius-sm:  8px;
+        --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+        --mono: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    }
 
-        body {
-            font-family: 'DM Sans', system-ui, sans-serif;
-            font-size: 15px;
-            line-height: 1.6;
-            background: var(--bg);
-            color: var(--text-1);
-            min-height: 100vh;
-        }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: var(--bg); color: var(--text-1);
+        min-height: 100vh; line-height: 1.5;
+    }
 
-        /* ── Layout ──────────────────────────────────────────────────── */
-        .page { max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }
+    .page { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
 
-        /* ── Header ──────────────────────────────────────────────────── */
-        .site-header {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 28px 36px;
-            margin-bottom: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 16px;
-        }
+    /* ── Header ──────────────────────────────────────────────────────── */
+    .site-header {
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); padding: 16px 24px;
+        margin-bottom: 20px; box-shadow: var(--shadow);
+        display: flex; align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap; gap: 16px;
+    }
+    .site-header__brand  { display: flex; align-items: center; gap: 14px; }
+    .site-header__icon   { width: 44px; height: 44px; background: var(--primary); border-radius: 10px; display: grid; place-items: center; font-size: 22px; flex-shrink: 0; }
+    .site-header__title  { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; color: var(--text-1); }
+    .site-header__sub    { font-size: 13px; color: var(--text-3); margin-top: 1px; }
+    .site-header__right  { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .badge-sso { display: inline-flex; align-items: center; gap: 6px; background: var(--success-lt); color: var(--success); border: 1px solid #bbf7d0; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+    nav { display: flex; gap: 4px; }
+    nav a { padding: 7px 16px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; color: var(--text-2); text-decoration: none; border: 1px solid transparent; transition: all 0.15s; }
+    nav a:hover { background: var(--primary-lt); color: var(--primary); border-color: #bfdbfe; }
+    nav a.active { background: var(--primary); color: #fff; }
 
-        .site-header__brand { display: flex; align-items: center; gap: 14px; }
-        .site-header__icon {
-            width: 44px; height: 44px;
-            background: var(--primary);
-            border-radius: 10px;
-            display: grid; place-items: center;
-            font-size: 22px;
-            flex-shrink: 0;
-        }
-        .site-header__title {
-            font-size: 20px; font-weight: 600; letter-spacing: -0.3px; color: var(--text-1);
-        }
-        .site-header__sub { font-size: 13px; color: var(--text-3); margin-top: 1px; }
+    /* ── Cards ───────────────────────────────────────────────────────── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px 32px; margin-bottom: 20px; }
+    .card__header { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: var(--text-1); padding-bottom: 18px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+    .card__header-icon { font-size: 18px; }
 
-        .site-header__right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    /* ── Info boxes ──────────────────────────────────────────────────── */
+    .info-box { display: flex; gap: 12px; padding: 14px 16px; border-radius: var(--radius-sm); font-size: 13.5px; line-height: 1.5; margin-bottom: 18px; border: 1px solid; }
+    .info-box__icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .info-box--blue   { background: var(--info-lt);    border-color: #bae6fd; color: #0369a1; }
+    .info-box--green  { background: var(--success-lt); border-color: #bbf7d0; color: #15803d; }
+    .info-box--orange { background: var(--warning-lt); border-color: #fde68a; color: #92400e; }
+    .info-box--purple { background: #faf5ff;           border-color: #e9d5ff; color: #6b21a8; }
+    .info-box code { font-family: var(--mono); font-size: 12px; background: rgba(0,0,0,0.07); padding: 1px 5px; border-radius: 3px; }
 
-        .badge-sso {
-            display: inline-flex; align-items: center; gap: 6px;
-            background: var(--success-lt); color: var(--success);
-            border: 1px solid #bbf7d0;
-            padding: 5px 12px; border-radius: 20px;
-            font-size: 12px; font-weight: 500;
-        }
+    /* ── Forms ───────────────────────────────────────────────────────── */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 6px; font-size: 13.5px; font-weight: 500; color: var(--text-2); }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-mid); border-radius: var(--radius-sm); font-size: 14px; font-family: inherit; background: var(--surface); color: var(--text-1); transition: border-color 0.15s, box-shadow 0.15s; }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+    .form-group textarea { font-family: var(--mono); font-size: 13px; min-height: 160px; resize: vertical; }
+    .form-group small { display: block; margin-top: 5px; font-size: 12px; color: var(--text-3); }
 
-        nav { display: flex; gap: 4px; }
-        nav a {
-            padding: 7px 16px;
-            border-radius: var(--radius-sm);
-            font-size: 14px; font-weight: 500;
-            color: var(--text-2);
-            text-decoration: none;
-            border: 1px solid transparent;
-            transition: all 0.15s;
-        }
-        nav a:hover { background: var(--primary-lt); color: var(--primary); border-color: #bfdbfe; }
-        nav a.active { background: var(--primary); color: #fff; }
+    /* ── Credentials collapsible ─────────────────────────────────────── */
+    .credentials-details { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 18px; overflow: hidden; }
+    .credentials-details summary { padding: 12px 16px; cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--text-2); background: #fafbfc; user-select: none; list-style: none; display: flex; align-items: center; gap: 8px; }
+    .credentials-details summary::-webkit-details-marker { display: none; }
+    .credentials-details summary::before { content: '›'; font-size: 18px; transition: transform 0.2s; }
+    .credentials-details[open] summary::before { transform: rotate(90deg); }
+    .credentials-details summary:hover { background: var(--primary-lt); color: var(--primary); }
+    .credentials-content { padding: 18px 16px; border-top: 1px solid var(--border); }
+    .credentials-content h4 { font-size: 13px; font-weight: 500; color: var(--text-3); margin: 12px 0 10px; text-transform: uppercase; letter-spacing: 0.5px; }
 
-        /* ── Cards ───────────────────────────────────────────────────── */
-        .card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 28px 32px;
-            margin-bottom: 20px;
-        }
+    /* ── Partbook type badge ─────────────────────────────────────────── */
+    .partbook-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; border: 1px solid; }
+    .badge-engine        { background: var(--success-lt); color: var(--success);  border-color: #bbf7d0; }
+    .badge-transmission  { background: var(--primary-lt); color: var(--primary);  border-color: #bfdbfe; }
+    .badge-cabin_chassis { background: var(--warning-lt); color: var(--warning);  border-color: #fde68a; }
+    .badge-axle_drive    { background: #faf5ff;           color: var(--accent);   border-color: #e9d5ff; }
 
-        .card__header {
-            display: flex; align-items: center; gap: 10px;
-            font-size: 16px; font-weight: 600; color: var(--text-1);
-            padding-bottom: 18px; margin-bottom: 20px;
-            border-bottom: 1px solid var(--border);
-        }
-        .card__header-icon { font-size: 18px; }
+    /* ── Upload area ─────────────────────────────────────────────────── */
+    .upload-area { border: 2px dashed var(--border-mid); border-radius: var(--radius); padding: 52px 24px; text-align: center; cursor: pointer; transition: all 0.2s; background: #fafbfc; margin-top: 18px; }
+    .upload-area:hover { border-color: var(--primary); background: var(--primary-lt); }
+    .upload-area.dragover { border-color: var(--primary); background: var(--primary-lt); transform: scale(1.01); }
+    .upload-area__icon { font-size: 40px; margin-bottom: 14px; }
+    .upload-area__text { font-size: 15px; font-weight: 500; color: var(--text-1); margin-bottom: 4px; }
+    .upload-area__sub  { font-size: 13px; color: var(--text-3); }
+    #fileInput { display: none; }
 
-        /* ── Info boxes ──────────────────────────────────────────────── */
-        .info-box {
-            display: flex; gap: 12px;
-            padding: 14px 16px; border-radius: var(--radius-sm);
-            font-size: 13.5px; line-height: 1.5;
-            margin-bottom: 18px;
-            border: 1px solid;
-        }
-        .info-box__icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
-        .info-box--blue   { background: var(--info-lt);    border-color: #bae6fd; color: #0369a1; }
-        .info-box--green  { background: var(--success-lt); border-color: #bbf7d0; color: #15803d; }
-        .info-box--orange { background: var(--warning-lt); border-color: #fde68a; color: #92400e; }
-        .info-box--purple { background: #faf5ff;           border-color: #e9d5ff; color: #6b21a8; }
-        .info-box code {
-            font-family: var(--mono); font-size: 12px;
-            background: rgba(0,0,0,0.07); padding: 1px 5px; border-radius: 3px;
-        }
+    /* ── Buttons ─────────────────────────────────────────────────────── */
+    .btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px; border: 1px solid transparent; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; font-family: inherit; cursor: pointer; text-decoration: none; transition: all 0.15s; white-space: nowrap; }
+    .btn--primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn--primary:hover { background: var(--primary-dk); border-color: var(--primary-dk); }
+    .btn--success { background: var(--success); color: #fff; border-color: var(--success); }
+    .btn--success:hover { background: #15803d; }
+    .btn--warning { background: var(--warning); color: #fff; border-color: var(--warning); }
+    .btn--warning:hover { background: #b45309; }
+    .btn--ghost { background: transparent; color: var(--text-2); border-color: var(--border-mid); }
+    .btn--ghost:hover { background: var(--bg); }
+    .btn--sm { padding: 5px 12px; font-size: 13px; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 
-        /* ── Forms ───────────────────────────────────────────────────── */
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+    /* ── Status panel ────────────────────────────────────────────────── */
+    .status-panel { background: #fafbfc; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 20px; margin-top: 18px; }
+    .status-panel__title { font-size: 14px; font-weight: 600; color: var(--text-2); margin-bottom: 14px; }
+    .status-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+    .status-row:last-of-type { border-bottom: none; }
+    .status-row__label { color: var(--text-3); font-weight: 500; }
+    .status-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.2px; }
+    .status-queued         { background: #fef9c3; color: #713f12; }
+    .status-processing     { background: var(--primary-lt); color: var(--primary); }
+    .status-pending_review { background: var(--warning-lt); color: var(--warning); }
+    .status-submitting     { background: #faf5ff; color: var(--accent); }
+    .status-completed      { background: var(--success-lt); color: var(--success); }
+    .status-failed,
+    .status-error          { background: var(--danger-lt); color: var(--danger); }
 
-        .form-group { margin-bottom: 16px; }
-        .form-group label {
-            display: block; margin-bottom: 6px;
-            font-size: 13.5px; font-weight: 500; color: var(--text-2);
-        }
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 10px 12px;
-            border: 1px solid var(--border-mid);
-            border-radius: var(--radius-sm);
-            font-size: 14px; font-family: inherit;
-            background: var(--surface);
-            color: var(--text-1);
-            transition: border-color 0.15s, box-shadow 0.15s;
-        }
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
-        }
-        .form-group textarea { font-family: var(--mono); font-size: 13px; min-height: 160px; resize: vertical; }
-        .form-group small { display: block; margin-top: 5px; font-size: 12px; color: var(--text-3); }
+    /* ── Progress bar ────────────────────────────────────────────────── */
+    .progress { height: 5px; background: var(--border); border-radius: 3px; margin-top: 14px; overflow: hidden; }
+    .progress__fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.4s ease; }
 
-        /* ── Credentials collapsible ─────────────────────────────────── */
-        .credentials-details {
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            margin-bottom: 18px;
-            overflow: hidden;
-        }
-        .credentials-details summary {
-            padding: 12px 16px;
-            cursor: pointer;
-            font-size: 13.5px; font-weight: 500; color: var(--text-2);
-            background: #fafbfc;
-            user-select: none;
-            list-style: none;
-            display: flex; align-items: center; gap: 8px;
-        }
-        .credentials-details summary::-webkit-details-marker { display: none; }
-        .credentials-details summary::before { content: '›'; font-size: 18px; transition: transform 0.2s; }
-        .credentials-details[open] summary::before { transform: rotate(90deg); }
-        .credentials-details summary:hover { background: var(--primary-lt); color: var(--primary); }
-        .credentials-content { padding: 18px 16px; border-top: 1px solid var(--border); }
-        .credentials-content h4 { font-size: 13px; font-weight: 500; color: var(--text-3); margin: 12px 0 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+    /* ── JSON editor ─────────────────────────────────────────────────── */
+    .json-editor { width: 100%; min-height: 380px; max-height: 560px; background: #0f1420; color: #e2e8f0; padding: 18px; border-radius: var(--radius-sm); font-family: var(--mono); font-size: 13px; line-height: 1.6; border: 1px solid var(--border); resize: vertical; tab-size: 2; white-space: pre; overflow: auto; display: block; }
+    .json-editor:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
 
-        /* ── Partbook type badge ─────────────────────────────────────── */
-        .partbook-badge {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 6px 14px; border-radius: 20px;
-            font-size: 13px; font-weight: 500;
-            border: 1px solid;
-        }
-        .badge-engine        { background: var(--success-lt); color: var(--success);  border-color: #bbf7d0; }
-        .badge-transmission  { background: var(--primary-lt); color: var(--primary);  border-color: #bfdbfe; }
-        .badge-cabin_chassis { background: var(--warning-lt); color: var(--warning);  border-color: #fde68a; }
-        .badge-axle_drive    { background: #faf5ff;           color: var(--accent);   border-color: #e9d5ff; }
+    /* ── Section heading ─────────────────────────────────────────────── */
+    .section-title { font-size: 15px; font-weight: 600; color: var(--text-1); margin: 22px 0 14px; display: flex; align-items: center; gap: 8px; }
 
-        /* ── Upload area ─────────────────────────────────────────────── */
-        .upload-area {
-            border: 2px dashed var(--border-mid);
-            border-radius: var(--radius);
-            padding: 52px 24px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            background: #fafbfc;
-            margin-top: 18px;
-        }
-        .upload-area:hover { border-color: var(--primary); background: var(--primary-lt); }
-        .upload-area.dragover { border-color: var(--primary); background: var(--primary-lt); transform: scale(1.01); }
-        .upload-area__icon { font-size: 40px; margin-bottom: 14px; }
-        .upload-area__text { font-size: 15px; font-weight: 500; color: var(--text-1); margin-bottom: 4px; }
-        .upload-area__sub  { font-size: 13px; color: var(--text-3); }
-        #fileInput { display: none; }
+    /* ── Alerts ──────────────────────────────────────────────────────── */
+    .alert { display: flex; gap: 10px; align-items: flex-start; padding: 12px 16px; border-radius: var(--radius-sm); font-size: 13.5px; margin-bottom: 16px; border: 1px solid; }
+    .alert--success { background: var(--success-lt); border-color: #bbf7d0; color: #15803d; }
+    .alert--error   { background: var(--danger-lt);  border-color: #fecaca; color: var(--danger); }
+    .alert--warning { background: var(--warning-lt); border-color: #fde68a; color: #92400e; }
+    .alert--info    { background: var(--info-lt);    border-color: #bae6fd; color: var(--info); }
 
-        /* ── Buttons ─────────────────────────────────────────────────── */
-        .btn {
-            display: inline-flex; align-items: center; gap: 7px;
-            padding: 9px 18px;
-            border: 1px solid transparent;
-            border-radius: var(--radius-sm);
-            font-size: 14px; font-weight: 500; font-family: inherit;
-            cursor: pointer; text-decoration: none;
-            transition: all 0.15s;
-            white-space: nowrap;
-        }
-        .btn--primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-        .btn--primary:hover { background: var(--primary-dk); border-color: var(--primary-dk); }
-        .btn--success { background: var(--success); color: #fff; border-color: var(--success); }
-        .btn--success:hover { background: #15803d; }
-        .btn--warning { background: var(--warning); color: #fff; border-color: var(--warning); }
-        .btn--warning:hover { background: #b45309; }
-        .btn--ghost { background: transparent; color: var(--text-2); border-color: var(--border-mid); }
-        .btn--ghost:hover { background: var(--bg); }
-        .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    /* ── Submission summary ──────────────────────────────────────────── */
+    .submission-summary { background: var(--success-lt); border: 1px solid #bbf7d0; border-radius: var(--radius-sm); padding: 16px; margin-top: 12px; }
+    .submission-summary__title { font-weight: 600; color: var(--success); margin-bottom: 10px; font-size: 14px; }
+    .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13.5px; border-bottom: 1px solid #d1fae5; }
+    .summary-row:last-child { border-bottom: none; }
+    .summary-row__label { color: var(--text-2); }
+    .summary-row__value { font-weight: 600; }
+    .summary-row__value--created { color: var(--success); }
+    .summary-row__value--skipped { color: var(--warning); }
+    .summary-row__value--error   { color: var(--danger); }
 
-        .btn-group { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+    /* ── Parts table ─────────────────────────────────────────────────── */
+    .parts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .parts-table th { background: #f1f5f9; padding: 8px 12px; text-align: left; font-weight: 600; border-bottom: 2px solid var(--border-mid); white-space: nowrap; }
+    .parts-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .parts-table tr:hover td { background: #f8fafc; }
+    .parts-expand-btn { background: none; border: 1px solid var(--border-mid); border-radius: 4px; padding: 2px 8px; font-size: 12px; cursor: pointer; color: var(--primary); }
+    .parts-expand-btn:hover { background: var(--info-lt); }
+    .parts-count-badge { display: inline-block; background: var(--primary); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
 
-        /* ── Status panel ────────────────────────────────────────────── */
-        .status-panel {
-            background: #fafbfc;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 20px;
-            margin-top: 18px;
-        }
-        .status-panel__title { font-size: 14px; font-weight: 600; color: var(--text-2); margin-bottom: 14px; }
-
-        .status-row {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 9px 0; border-bottom: 1px solid var(--border);
-            font-size: 13.5px;
-        }
-        .status-row:last-of-type { border-bottom: none; }
-        .status-row__label { color: var(--text-3); font-weight: 500; }
-
-        .status-badge {
-            display: inline-flex; align-items: center;
-            padding: 3px 10px; border-radius: 20px;
-            font-size: 12px; font-weight: 600; letter-spacing: 0.2px;
-        }
-        .status-queued       { background: #fef9c3; color: #713f12; }
-        .status-processing   { background: var(--primary-lt); color: var(--primary); }
-        .status-pending_review { background: var(--warning-lt); color: var(--warning); }
-        .status-submitting   { background: #faf5ff; color: var(--accent); }
-        .status-completed    { background: var(--success-lt); color: var(--success); }
-        .status-failed,
-        .status-error        { background: var(--danger-lt); color: var(--danger); }
-
-        /* ── Progress bar ────────────────────────────────────────────── */
-        .progress { height: 5px; background: var(--border); border-radius: 3px; margin-top: 14px; overflow: hidden; }
-        .progress__fill {
-            height: 100%; background: var(--primary);
-            border-radius: 3px; transition: width 0.4s ease;
-        }
-
-        /* ── JSON editor ─────────────────────────────────────────────── */
-        .json-editor {
-            width: 100%; min-height: 380px; max-height: 560px;
-            background: #0f1420; color: #e2e8f0;
-            padding: 18px; border-radius: var(--radius-sm);
-            font-family: var(--mono); font-size: 13px; line-height: 1.6;
-            border: 1px solid var(--border);
-            resize: vertical; tab-size: 2; white-space: pre;
-            overflow: auto; display: block;
-        }
-        .json-editor:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
-
-        /* ── Section heading ─────────────────────────────────────────── */
-        .section-title {
-            font-size: 15px; font-weight: 600; color: var(--text-1);
-            margin: 22px 0 14px;
-            display: flex; align-items: center; gap: 8px;
-        }
-
-        /* ── Alerts ──────────────────────────────────────────────────── */
-        .alert {
-            display: flex; gap: 10px; align-items: flex-start;
-            padding: 12px 16px; border-radius: var(--radius-sm);
-            font-size: 13.5px; margin-bottom: 16px; border: 1px solid;
-        }
-        .alert--success { background: var(--success-lt); border-color: #bbf7d0; color: #15803d; }
-        .alert--error   { background: var(--danger-lt);  border-color: #fecaca; color: var(--danger); }
-        .alert--warning { background: var(--warning-lt); border-color: #fde68a; color: #92400e; }
-        .alert--info    { background: var(--info-lt);    border-color: #bae6fd; color: var(--info); }
-
-        /* ── Submission summary ──────────────────────────────────────── */
-        .submission-summary {
-            background: var(--success-lt); border: 1px solid #bbf7d0;
-            border-radius: var(--radius-sm); padding: 16px; margin-top: 12px;
-        }
-        .submission-summary__title { font-weight: 600; color: var(--success); margin-bottom: 10px; font-size: 14px; }
-        .summary-row {
-            display: flex; justify-content: space-between;
-            padding: 5px 0; font-size: 13.5px; border-bottom: 1px solid #d1fae5;
-        }
-        .summary-row:last-child { border-bottom: none; }
-        .summary-row__label { color: var(--text-2); }
-        .summary-row__value { font-weight: 600; }
-        .summary-row__value--created { color: var(--success); }
-        .summary-row__value--skipped { color: var(--warning); }
-        .summary-row__value--error   { color: var(--danger); }
-
-        /* ── Utility ─────────────────────────────────────────────────── */
-        .hidden { display: none !important; }
-        .mt-4 { margin-top: 16px; }
-        .text-sm { font-size: 13px; color: var(--text-3); }
-    </style>
+    /* ── Utility ─────────────────────────────────────────────────────── */
+    .hidden { display: none !important; }
+    .mt-4 { margin-top: 16px; }
+    .text-sm { font-size: 13px; color: var(--text-3); }
+</style>
 </head>
 <body>
 <div class="page">
@@ -423,7 +272,7 @@
             </div>
         </div>
 
-        <!-- Cabin & Chassis prompt -->
+        <!-- Extraction Prompt -->
         <div class="form-group" id="promptGroup">
             <label>Extraction Prompt</label>
             <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
@@ -440,50 +289,43 @@ D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     .
 Rules:
 1. Section headers (number + bold text) = Category
 2. Part entries (after header) = Type Categories — include the part code in the English name
-3. Return ONLY valid JSON, no markdown, no explanations
+3. Nested indentation indicates hierarchy
+4. Extract ALL entries — do not truncate
 
-OUTPUT FORMAT:
+Return ONLY valid JSON in this structure:
 {
   "categories": [
     {
-      "category_name_en": "string",
-      "category_name_cn": "string",
+      "category_name_en": "Frame System",
+      "category_name_cn": "车架系统",
+      "category_description": "",
       "data_type": [
         {
-          "type_category_name_en": "string",
-          "type_category_name_cn": "string",
-          "type_category_description": "string"
+          "type_category_name_en": "DC97259880020 Front Accessories",
+          "type_category_name_cn": "中保险杠",
+          "type_category_description": ""
         }
       ]
     }
   ]
-}
-
-Do NOT include type_category_code or categories_code.</textarea>
-            <small>Applies only to Cabin &amp; Chassis extractions</small>
+}</textarea>
         </div>
 
-        <!-- Engine note -->
-        <div class="form-group hidden" id="engineNoteGroup">
-            <div class="info-box info-box--green">
-                <span class="info-box__icon">✂️</span>
-                <div><strong>Engine mode:</strong> Crops the top-right corner of each page to read the bilingual category label (e.g. <code>缸体管路PLUMBING,CYLINDER BLOCK</code>). Uses zero AI tokens. Duplicates are skipped automatically.</div>
-            </div>
-        </div>
-
-        <!-- Transmission note -->
-        <div class="form-group hidden" id="transmissionNoteGroup">
-            <div class="info-box info-box--orange">
-                <span class="info-box__icon">📋</span>
-                <div><strong>Transmission mode:</strong> Extracts the Chinese-only Table of Contents from the first pages and translates all category names to English in a single AI call.</div>
-            </div>
-        </div>
-
-        <!-- Axle Drive note -->
-        <div class="form-group hidden" id="axleDriveNoteGroup">
-            <div class="info-box info-box--purple">
-                <span class="info-box__icon">🔍</span>
-                <div><strong>Axle Drive mode:</strong> Identifies table pages via manifest.json, then uses AI vision to read each table title. Produces one Category with N Type Categories.<br><small style="opacity:.8">1 vision call per table page + 1 translation call</small></div>
+        <!-- Partbook-specific strategy info -->
+        <div id="strategyInfo" class="hidden">
+            <div class="form-row">
+                <div class="form-group">
+                    <div class="info-box info-box--orange" id="strategyBox">
+                        <span class="info-box__icon">⚡</span>
+                        <div id="strategyText"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <div class="info-box info-box--purple">
+                        <span class="info-box__icon">🔩</span>
+                        <div>Cabin &amp; Chassis also automatically extracts <strong>Parts Management</strong> tables for review after categories.</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -526,9 +368,9 @@ Do NOT include type_category_code or categories_code.</textarea>
             </div>
         </div>
 
-        <!-- Review & Edit -->
+        <!-- Step 1 — Categories Review -->
         <div class="hidden" id="reviewSection">
-            <div class="section-title">📝 Review &amp; Edit Extracted Data</div>
+            <div class="section-title">📝 Step 1 — Review &amp; Edit Extracted Categories</div>
             <p class="text-sm" style="margin-bottom:14px;">Edit the JSON below before submitting. Duplicate categories are automatically skipped — no need to remove them.</p>
 
             <textarea class="json-editor" id="jsonEditor" spellcheck="false"></textarea>
@@ -536,11 +378,11 @@ Do NOT include type_category_code or categories_code.</textarea>
             <div class="btn-group">
                 <button class="btn btn--ghost" id="downloadBtn">💾 Download JSON</button>
                 <button class="btn btn--warning" id="reExtractBtn">🔄 Re-Extract</button>
-                <button class="btn btn--success" id="approveBtn">✅ Approve &amp; Submit</button>
+                <button class="btn btn--success" id="approveBtn">✅ Approve &amp; Submit Categories</button>
             </div>
         </div>
 
-        <!-- Submission result -->
+        <!-- Submission result (categories) -->
         <div class="hidden" id="submissionResult"></div>
 
         <!-- Re-prompt -->
@@ -555,6 +397,73 @@ Do NOT include type_category_code or categories_code.</textarea>
                 <button class="btn btn--warning" id="confirmRePrompt">Start Re-Extraction</button>
             </div>
         </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             Step 2 — Parts Management Review (cabin_chassis only)
+        ════════════════════════════════════════════════════════════════ -->
+        <div class="hidden" id="partsSection">
+            <hr style="margin: 28px 0; border: none; border-top: 1px solid var(--border);">
+
+            <div class="section-title">🔩 Step 2 — Parts Management Review</div>
+
+            <div class="info-box info-box--blue" style="margin-bottom:16px;">
+                <span class="info-box__icon">ℹ️</span>
+                <div>
+                    Parts are grouped by <strong>Subtype Category</strong>.
+                    Review the table below, enter the parent Category name, then click
+                    <strong>Submit Parts</strong> to populate Parts Management.
+                </div>
+            </div>
+
+            <!-- Category name input -->
+            <div class="form-group" style="max-width:440px;">
+                <label>Parent Category Name (English) <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="partsCategoryName" placeholder="e.g. Frame System">
+                <small>Must exactly match a Category already in the EPC database</small>
+            </div>
+
+            <!-- Parts summary table -->
+            <div style="overflow-x:auto; margin-bottom:16px;">
+                <table class="parts-table" id="partsPreviewTable">
+                    <thead>
+                        <tr>
+                            <th>Subtype / 型号</th>
+                            <th style="text-align:center">Parts</th>
+                            <th>Preview (first 3)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="partsTableBody"></tbody>
+                </table>
+            </div>
+
+            <!-- Expanded detail panel -->
+            <div id="partsDetailPanel" class="hidden" style="background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;overflow-x:auto;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <strong id="partsDetailTitle">—</strong>
+                    <button class="btn btn--sm btn--ghost" onclick="closePartsDetail()">✕ Close</button>
+                </div>
+                <table class="parts-table" id="partsDetailTable">
+                    <thead>
+                        <tr>
+                            <th>Target ID</th><th>Part Number</th>
+                            <th>Name (EN)</th><th>Name (CN)</th>
+                            <th style="text-align:center">Qty</th><th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="partsDetailBody"></tbody>
+                </table>
+            </div>
+
+            <!-- Buttons -->
+            <div class="btn-group">
+                <button class="btn btn--ghost" id="downloadPartsBtn">⬇ Download Parts JSON</button>
+                <button class="btn btn--primary" id="approvePartsBtn">✅ Submit Parts to EPC</button>
+            </div>
+
+            <!-- Parts submission result -->
+            <div class="hidden" id="partsSubmissionResult" style="margin-top:16px;"></div>
+        </div>
+
     </div><!-- /statusCard -->
 
 </div><!-- /page -->
@@ -571,6 +480,7 @@ Do NOT include type_category_code or categories_code.</textarea>
     let currentJobId    = null;
     let statusInterval  = null;
     let editorPopulated = false;
+    let currentPartsData = null;
 
     const PROGRESS_MAP = {
         queued: 5, processing: 25, extracting: 60,
@@ -579,10 +489,17 @@ Do NOT include type_category_code or categories_code.</textarea>
     };
 
     const PARTBOOK_META = {
-        engine:       { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)', cls: 'badge-engine' },
-        transmission: { label: '🔧 Transmission — ToC Translation (1 AI call)', cls: 'badge-transmission' },
-        cabin_chassis:{ label: '🚛 Cabin & Chassis — Full Markdown Extraction', cls: 'badge-cabin_chassis' },
-        axle_drive:   { label: '🛞 Axle Drive — Vision Extraction (1 call/page)', cls: 'badge-axle_drive' }
+        engine:        { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)', cls: 'badge-engine' },
+        transmission:  { label: '🔧 Transmission — ToC Translation (1 AI call)', cls: 'badge-transmission' },
+        cabin_chassis: { label: '🚛 Cabin & Chassis — Full Markdown Extraction', cls: 'badge-cabin_chassis' },
+        axle_drive:    { label: '🛞 Axle Drive — Vision Extraction (1 call/page)', cls: 'badge-axle_drive' }
+    };
+
+    const STRATEGY_TEXT = {
+        engine:        'Crops top-right header from each page — zero AI tokens per page.',
+        transmission:  'Translates Table of Contents — 1 AI call total.',
+        cabin_chassis: 'Full markdown extraction of categories, type categories, AND parts tables.',
+        axle_drive:    'ZIP/JPEG vision extraction — 1 AI call per table page + 1 translation call.'
     };
 
     // ── Master categories ──────────────────────────────────────────────────
@@ -598,44 +515,46 @@ Do NOT include type_category_code or categories_code.</textarea>
             });
             if (!categories.length) showAlert('No master categories configured. Set UUIDs in .env.', 'warning');
         } catch (err) {
-            showAlert('Failed to load master categories: ' + err.message, 'error');
+            showAlert('Could not load master categories: ' + err.message, 'error');
         }
     }
 
     function onMasterCategoryChange() {
-        const sel   = document.getElementById('masterCategory');
-        const ptype = sel.options[sel.selectedIndex]?.dataset.partbookType || '';
-        const meta  = PARTBOOK_META[ptype];
+        const sel  = document.getElementById('masterCategory');
+        const opt  = sel.options[sel.selectedIndex];
+        const ptype = opt?.dataset?.partbookType;
+        const badge = document.getElementById('partbookBadge');
+        const group = document.getElementById('partbookBadgeGroup');
+        const info  = document.getElementById('strategyInfo');
 
-        const badgeGroup = document.getElementById('partbookBadgeGroup');
-        const badge      = document.getElementById('partbookBadge');
-        if (meta) {
-            badge.textContent = meta.label;
-            badge.className   = 'partbook-badge ' + meta.cls;
-            badgeGroup.classList.remove('hidden');
+        if (ptype && PARTBOOK_META[ptype]) {
+            badge.textContent  = PARTBOOK_META[ptype].label;
+            badge.className    = 'partbook-badge ' + PARTBOOK_META[ptype].cls;
+            group.classList.remove('hidden');
+            document.getElementById('strategyText').textContent = STRATEGY_TEXT[ptype] || '';
+            info.classList.toggle('hidden', ptype !== 'cabin_chassis');
         } else {
-            badgeGroup.classList.add('hidden');
+            group.classList.add('hidden');
+            info.classList.add('hidden');
         }
-
-        document.getElementById('promptGroup').classList.toggle('hidden', ptype !== 'cabin_chassis' && ptype !== '');
-        document.getElementById('engineNoteGroup').classList.toggle('hidden', ptype !== 'engine');
-        document.getElementById('transmissionNoteGroup').classList.toggle('hidden', ptype !== 'transmission');
-        document.getElementById('axleDriveNoteGroup').classList.toggle('hidden', ptype !== 'axle_drive');
     }
 
-    // ── Upload ─────────────────────────────────────────────────────────────
+    // ── Drag & drop / click upload ─────────────────────────────────────────
     uploadArea.addEventListener('click', () => fileInput.click());
     uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
     uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
     uploadArea.addEventListener('drop', e => {
         e.preventDefault();
         uploadArea.classList.remove('dragover');
-        if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+        const file = e.dataTransfer.files[0];
+        if (file) handleFile(file);
     });
-    fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files[0]) handleFile(fileInput.files[0]);
+    });
 
     function handleFile(file) {
-        if (!file.name.toLowerCase().endsWith('.pdf')) { showAlert('Please select a PDF file.', 'error'); return; }
+        if (!file.name.endsWith('.pdf')) { showAlert('Only PDF files are accepted.', 'error'); return; }
         const mc = document.getElementById('masterCategory').value;
         if (!mc) { showAlert('Please select a Master Category first.', 'error'); return; }
         uploadFile(file, mc, document.getElementById('aiModel').value, document.getElementById('extractionPrompt').value);
@@ -661,11 +580,14 @@ Do NOT include type_category_code or categories_code.</textarea>
             if (resp.ok) {
                 currentJobId    = data.job_id;
                 editorPopulated = false;
+                currentPartsData = null;
                 showAlert('File uploaded. Processing started…', 'success');
                 statusCard.classList.remove('hidden');
                 reviewSection.classList.add('hidden');
                 rePromptSection.classList.add('hidden');
                 document.getElementById('submissionResult').classList.add('hidden');
+                document.getElementById('partsSection').classList.add('hidden');
+                document.getElementById('partsSubmissionResult').classList.add('hidden');
                 startPolling();
             } else {
                 showAlert('Upload failed: ' + (data.error || 'Unknown error'), 'error');
@@ -681,7 +603,6 @@ Do NOT include type_category_code or categories_code.</textarea>
         statusInterval = setInterval(checkStatus, 2000);
         checkStatus();
     }
-
     function stopPolling() {
         clearInterval(statusInterval);
         statusInterval = null;
@@ -723,6 +644,11 @@ Do NOT include type_category_code or categories_code.</textarea>
         reviewSection.classList.remove('hidden');
         document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
         showAlert('Extraction complete. Review the data below, then approve to submit.', 'success');
+
+        // Populate parts section if available (cabin_chassis only)
+        if (job.parts_data && job.parts_data.subtypes?.length) {
+            populatePartsSection(job.parts_data);
+        }
     }
 
     // ── Download JSON ──────────────────────────────────────────────────────
@@ -750,10 +676,12 @@ Do NOT include type_category_code or categories_code.</textarea>
                 body: JSON.stringify({ prompt: newPrompt })
             });
             if (resp.ok) {
-                editorPopulated = false;
+                editorPopulated  = false;
+                currentPartsData = null;
                 showAlert('Re-extraction started…', 'info');
                 rePromptSection.classList.add('hidden');
                 reviewSection.classList.add('hidden');
+                document.getElementById('partsSection').classList.add('hidden');
                 startPolling();
             } else {
                 const d = await resp.json();
@@ -762,15 +690,15 @@ Do NOT include type_category_code or categories_code.</textarea>
         } catch (err) { showAlert('Network error: ' + err.message, 'error'); }
     });
 
-    // ── Approve & Submit ───────────────────────────────────────────────────
+    // ── Approve & Submit categories ────────────────────────────────────────
     document.getElementById('approveBtn').addEventListener('click', async () => {
-        if (!confirm('Submit to EPC database?\n\nDuplicate categories will be skipped automatically.')) return;
+        if (!confirm('Submit categories to EPC database?\n\nDuplicate categories will be skipped automatically.')) return;
 
         let editedData;
         try { editedData = JSON.parse(jsonEditor.value); }
         catch { showAlert('Invalid JSON — fix syntax errors before submitting.', 'error'); return; }
 
-        showAlert('Submitting to EPC…', 'info');
+        showAlert('Submitting categories to EPC…', 'info');
 
         try {
             const resp   = await fetch('/api/approve/' + currentJobId, {
@@ -789,23 +717,158 @@ Do NOT include type_category_code or categories_code.</textarea>
         const skipped  = r.categories_skipped?.length  || 0;
         const typeCats = r.type_categories_created?.length || 0;
         const errors   = r.errors?.length || 0;
-
         const el = document.getElementById('submissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
             <div class="submission-summary">
-                <div class="submission-summary__title">✅ Submission Complete</div>
+                <div class="submission-summary__title">✅ Categories Submission Complete</div>
                 <div class="summary-row"><span class="summary-row__label">Categories Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
                 <div class="summary-row"><span class="summary-row__label">Skipped (duplicates)</span><span class="summary-row__value summary-row__value--skipped">${skipped}</span></div>
                 ${typeCats ? `<div class="summary-row"><span class="summary-row__label">Type Categories Created</span><span class="summary-row__value summary-row__value--created">${typeCats}</span></div>` : ''}
                 ${errors   ? `<div class="summary-row"><span class="summary-row__label">Errors</span><span class="summary-row__value summary-row__value--error">${errors}</span></div>` : ''}
             </div>`;
-
         showAlert(
             errors ? `Completed with ${errors} error(s). Check summary.` :
                      `Done! ${created} new, ${skipped} skipped${typeCats ? `, ${typeCats} type categories` : ''}.`,
             errors ? 'warning' : 'success'
         );
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Parts Management — Step 2
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function populatePartsSection(partsData) {
+        if (!partsData || !partsData.subtypes?.length) return;
+        currentPartsData = partsData;
+
+        const tbody = document.getElementById('partsTableBody');
+        tbody.innerHTML = '';
+
+        partsData.subtypes.forEach((subtype, idx) => {
+            const parts   = subtype.parts || [];
+            const preview = parts.slice(0, 3)
+                .map(p => `<span style="font-size:11px;color:var(--text-3)">${p.target_id}</span> ${p.name_en}`)
+                .join('<br>');
+            const more = parts.length > 3
+                ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} more…</em>` : '';
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>
+                    <strong>${subtype.subtype_name_en}</strong><br>
+                    <span style="font-size:12px;color:var(--text-3)">${subtype.subtype_name_cn || ''}</span>
+                </td>
+                <td style="text-align:center">
+                    <span class="parts-count-badge">${parts.length}</span>
+                </td>
+                <td>
+                    ${preview}${more}
+                    <br>
+                    <button class="parts-expand-btn" style="margin-top:5px"
+                            onclick="expandPartsDetail(${idx})">View all</button>
+                </td>`;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('partsSection').classList.remove('hidden');
+    }
+
+    function expandPartsDetail(idx) {
+        const sub = currentPartsData.subtypes[idx];
+        document.getElementById('partsDetailTitle').textContent =
+            `${sub.subtype_name_en}  /  ${sub.subtype_name_cn || ''}  (${sub.parts.length} parts)`;
+
+        const tbody = document.getElementById('partsDetailBody');
+        tbody.innerHTML = '';
+        sub.parts.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><code>${p.target_id}</code></td>
+                <td>${p.part_number}</td>
+                <td>${p.name_en}</td>
+                <td>${p.name_cn}</td>
+                <td style="text-align:center">${p.quantity}</td>
+                <td style="color:var(--text-3);font-size:12px">${p.description || ''}</td>`;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('partsDetailPanel').classList.remove('hidden');
+        document.getElementById('partsDetailPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function closePartsDetail() {
+        document.getElementById('partsDetailPanel').classList.add('hidden');
+    }
+
+    // Download Parts JSON
+    document.getElementById('downloadPartsBtn').addEventListener('click', () => {
+        if (!currentPartsData) return;
+        const url = URL.createObjectURL(
+            new Blob([JSON.stringify(currentPartsData, null, 2)], { type: 'application/json' })
+        );
+        Object.assign(document.createElement('a'), {
+            href: url, download: `parts_${currentJobId}.json`
+        }).click();
+        URL.revokeObjectURL(url);
+    });
+
+    // Submit Parts
+    document.getElementById('approvePartsBtn').addEventListener('click', async () => {
+        const categoryName = document.getElementById('partsCategoryName').value.trim();
+        if (!categoryName) {
+            showAlert('Please enter the Parent Category Name before submitting parts.', 'error');
+            return;
+        }
+        if (!currentPartsData) {
+            showAlert('No parts data available.', 'error');
+            return;
+        }
+        if (!confirm(`Submit parts for category "${categoryName}" to the EPC database?`)) return;
+
+        document.getElementById('approvePartsBtn').disabled = true;
+        showAlert('Submitting parts to EPC…', 'info');
+
+        try {
+            const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data: currentPartsData, category_name_en: categoryName })
+            });
+            const result = await resp.json();
+
+            if (resp.ok && result.success) {
+                renderPartsSubmissionResult(result.parts_results);
+                showAlert('Parts submitted successfully!', 'success');
+            } else {
+                showAlert('Parts submission failed: ' + (result.error || 'Unknown error'), 'error');
+                document.getElementById('approvePartsBtn').disabled = false;
+            }
+        } catch (err) {
+            showAlert('Network error: ' + err.message, 'error');
+            document.getElementById('approvePartsBtn').disabled = false;
+        }
+    });
+
+    function renderPartsSubmissionResult(r) {
+        const created = r.created?.length  || 0;
+        const updated = r.updated?.length  || 0;
+        const errors  = r.errors?.length   || 0;
+        const el = document.getElementById('partsSubmissionResult');
+        el.classList.remove('hidden');
+        el.innerHTML = `
+            <div class="submission-summary">
+                <div class="submission-summary__title">🔩 Parts Submission Complete</div>
+                <div class="summary-row"><span class="summary-row__label">Subtypes Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
+                <div class="summary-row"><span class="summary-row__label">Subtypes Updated</span><span class="summary-row__value summary-row__value--created">${updated}</span></div>
+                ${errors ? `<div class="summary-row">
+                    <span class="summary-row__label">Errors</span>
+                    <span class="summary-row__value summary-row__value--error">${errors}</span>
+                </div>
+                <ul style="margin:6px 0 0 16px;font-size:12px;color:var(--danger)">
+                    ${r.errors.map(e => `<li>${e.subtype || e}: ${e.error || ''}</li>`).join('')}
+                </ul>` : ''}
+            </div>`;
     }
 
     // ── Alert utility ──────────────────────────────────────────────────────
