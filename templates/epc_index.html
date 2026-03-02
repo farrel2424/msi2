@@ -279,18 +279,21 @@
 
 **CRITICAL: Extract data in the EXACT format shown below - NO codes required!**
 
-PDF Structure Pattern:
+PDF Structure Pattern (4-level hierarchy):
+  Master Category = "Cabin & Chassis" (already selected, do NOT extract this)
+  Category        = Section header (e.g. "Frame System 车架系统")
+  Type Category   = Each DC-coded entry under that section
 ```
 10          Frame System 车架系统                                    1
 D C97259880020   Front Accessories 中保险杠...                        ...4
 D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     ...6
+D C95259980037   Frame Assembly 车架总成...     ...8
 ```
-
 Rules:
-1. Section headers (number + bold text) = Category
-2. Part entries (after header) = Type Categories — include the part code in the English name
-3. Nested indentation indicates hierarchy
-4. Extract ALL entries — do not truncate
+1. Numbered section headers = Category (category_name_en / category_name_cn)
+2. DC-coded entries UNDER a section = Type Categories for THAT category
+3. Include the part code in type_category_name_en
+4. Do NOT use "Cabin & Chassis" as a category — it is the master category
 
 Return ONLY valid JSON in this structure:
 {
@@ -831,40 +834,45 @@ Return ONLY valid JSON in this structure:
 
     // Submit Parts
     document.getElementById('approvePartsBtn').addEventListener('click', async () => {
-        const categoryName = document.getElementById('partsCategoryName').value.trim();
-        if (!categoryName) {
-            showAlert('Please enter the Parent Category Name before submitting parts.', 'error');
-            return;
-        }
-        if (!currentPartsData) {
-            showAlert('No parts data available.', 'error');
-            return;
-        }
-        if (!confirm(`Submit parts for category "${categoryName}" to the EPC database?`)) return;
+    if (!currentPartsData) {
+        showAlert('No parts data available.', 'error');
+        return;
+    }
+    if (!confirm('Submit parts to the EPC database?')) return;
 
-        document.getElementById('approvePartsBtn').disabled = true;
-        showAlert('Submitting parts to EPC…', 'info');
+    document.getElementById('approvePartsBtn').disabled = true;
+    showAlert('Submitting parts to EPC…', 'info');
 
+    try {
+        const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ parts_data: currentPartsData })  // ← was "data:"
+        });
+
+        // Always parse as text first to avoid the <!doctype crash
+        const text = await resp.text();
+        let result;
         try {
-            const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: currentPartsData, category_name_en: categoryName })
-            });
-            const result = await resp.json();
+            result = JSON.parse(text);
+        } catch (_) {
+            showAlert('Server error (non-JSON response). Check Flask logs.', 'error');
+            document.getElementById('approvePartsBtn').disabled = false;
+            return;
+        }
 
-            if (resp.ok && result.success) {
-                renderPartsSubmissionResult(result.parts_results);
-                showAlert('Parts submitted successfully!', 'success');
-            } else {
-                showAlert('Parts submission failed: ' + (result.error || 'Unknown error'), 'error');
-                document.getElementById('approvePartsBtn').disabled = false;
-            }
-        } catch (err) {
-            showAlert('Network error: ' + err.message, 'error');
+        if (resp.ok && result.success) {
+            renderPartsSubmissionResult(result.epc_results);  // ← was result.parts_results
+            showAlert('Parts submitted successfully!', 'success');
+        } else {
+            showAlert('Parts submission failed: ' + (result.error || 'Unknown error'), 'error');
             document.getElementById('approvePartsBtn').disabled = false;
         }
-    });
+    } catch (err) {
+        showAlert('Network error: ' + err.message, 'error');
+        document.getElementById('approvePartsBtn').disabled = false;
+    }
+});
 
     function renderPartsSubmissionResult(r) {
         const created = r.created?.length  || 0;

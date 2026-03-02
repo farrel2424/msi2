@@ -11,14 +11,21 @@ SUPPORTED PARTBOOK TYPES & EXTRACTION STRATEGIES
   transmission  → PyMuPDF ToC pages → Sumopod translation (1 small AI call)
   axle_drive    → ZIP-of-JPEGs → vision AI per table page (1 call/page)
 
+HIERARCHY (Cabin & Chassis)
+─────────────────────────────
+  Master Category  →  Category      →  Type Category (Subtype)
+  "Cabin & Chassis"   "Frame System"   "Front Accessories Of Frame"
+
 TWO-STAGE WORKFLOW (Cabin & Chassis)
 ──────────────────────────────────────
-  Stage 1 – Category/Structure extraction (existing)
-    Reads each table page header → Category + Type Category names
+  Stage 1 – Category/Structure extraction
+    Reads TOC + each table page header → Category + Type Category names
+    Returns code_to_category map for Stage 2
     Submits via POST /categories/create
 
-  Stage 2 – Parts Management (new)
+  Stage 2 – Parts Management
     Reads each table page body → parts rows grouped by subtype
+    Each group tagged with category_name_en from Stage 1 code_to_category map
     Deduplicates, merges quantities, assigns T-IDs
     Submits via POST /item_category/create  (multipart, with data_items)
 """
@@ -71,7 +78,7 @@ class EPCAutomationConfig:
 
         # Motorsights EPC API
         epc_base_url: str = "https://dev-gateway.motorsights.com/api/epc",
-        epc_bearer_token: Optional[str] = None,  # Deprecated - use SSO
+        epc_bearer_token: Optional[str] = None,
 
         # Processing options
         max_retries: int = 3,
@@ -86,9 +93,9 @@ class EPCAutomationConfig:
         # Logging
         processed_log_file: str = "epc_processed_files.json"
     ):
-        self.sumopod_base_url   = sumopod_base_url or os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1")
-        self.sumopod_api_key    = sumopod_api_key or os.getenv("SUMOPOD_API_KEY")
-        self.sumopod_model      = sumopod_model or os.getenv("SUMOPOD_MODEL", "gpt4o")
+        self.sumopod_base_url      = sumopod_base_url or os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1")
+        self.sumopod_api_key       = sumopod_api_key or os.getenv("SUMOPOD_API_KEY")
+        self.sumopod_model         = sumopod_model or os.getenv("SUMOPOD_MODEL", "gpt4o")
         self.sumopod_custom_prompt = sumopod_custom_prompt
 
         try:
@@ -108,12 +115,12 @@ class EPCAutomationConfig:
         self.epc_base_url     = epc_base_url or os.getenv("EPC_API_BASE_URL", "https://dev-gateway.motorsights.com/api/epc")
         self.epc_bearer_token = epc_bearer_token
 
-        self.max_retries          = max_retries
-        self.enable_review_mode   = enable_review_mode
-        self.master_category_id   = master_category_id
+        self.max_retries             = max_retries
+        self.enable_review_mode      = enable_review_mode
+        self.master_category_id      = master_category_id
         self.master_category_name_en = master_category_name_en
-        self.partbook_type        = partbook_type
-        self.processed_log_file   = processed_log_file
+        self.partbook_type           = partbook_type
+        self.processed_log_file      = processed_log_file
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -122,7 +129,7 @@ class EPCAutomationConfig:
 
 class ProcessedFilesTracker:
     def __init__(self, log_file: str):
-        self.log_file = log_file
+        self.log_file        = log_file
         self.processed_files = self._load_log()
 
     def _load_log(self) -> Dict:
@@ -146,14 +153,13 @@ class ProcessedFilesTracker:
         return sha.hexdigest()
 
     def is_processed(self, filepath: Path) -> bool:
-        filename = str(filepath)
+        filename  = str(filepath)
         file_hash = self.get_file_hash(filepath)
         if filename in self.processed_files:
             if self.processed_files[filename].get("hash") == file_hash:
                 logging.info(f"File already processed: {filename}")
                 return True
             logging.info(f"File modified since last processing: {filename}")
-            return False
         return False
 
     def mark_processed(self, filepath: Path, success: bool, details: Optional[Dict] = None):
@@ -207,14 +213,12 @@ class EPCPDFAutomation:
     def _setup_logging(self) -> logging.Logger:
         import sys
         import io
-        # Force UTF-8 on the console stream so non-ASCII chars don't crash
-        # on Windows (cp1252 console).  Falls back if reconfiguring fails.
         try:
             utf8_stream = io.TextIOWrapper(
                 sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
             )
         except AttributeError:
-            utf8_stream = sys.stdout  # already a text stream (redirected)
+            utf8_stream = sys.stdout
 
         fmt = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
@@ -241,9 +245,15 @@ class EPCPDFAutomation:
         Route category-structure extraction to the correct strategy.
 
         cabin_chassis → pymupdf4llm markdown → Sumopod full-text extraction
+                        (fallback: fitz vision per page if markdown is empty)
         engine        → PyMuPDF top-right crop → regex split (0 AI tokens)
         transmission  → PyMuPDF ToC pages → Sumopod translation (1 AI call)
         axle_drive    → ZIP-of-JPEGs → Sumopod vision per table page
+
+        Returns a dict with at minimum:
+          {"categories": [...]}
+        For cabin_chassis it also returns:
+          {"categories": [...], "code_to_category": {...}}
         """
         ptype = self.config.partbook_type
 
@@ -253,17 +263,30 @@ class EPCPDFAutomation:
             self.logger.info("Converted to markdown (%d chars)", len(markdown_text))
 
             if markdown_text.strip():
-                # Text-layer PDF - use the fast markdown path
-                return self.sumopod.extract_catalog_data(
+                # Text-layer PDF — use the fast markdown path via Sumopod
+                result = self.sumopod.extract_catalog_data(
                     markdown_text,
                     custom_prompt=custom_prompt
                 )
+                # Markdown path doesn't produce code_to_category — build it
+                # from the extracted categories so Stage 2 can use it.
+                code_to_category: Dict[str, str] = {}
+                for cat in result.get("categories", []):
+                    cat_en = cat.get("category_name_en", "")
+                    for subtype in cat.get("data_type", []):
+                        name_en = subtype.get("type_category_name_en", "")
+                        # Strip the leading code prefix if present (e.g. "DC97259880020 Front…")
+                        parts = name_en.split(" ", 1)
+                        code  = parts[0] if len(parts) > 1 else ""
+                        if code:
+                            code_to_category[code] = cat_en
+                        code_to_category[name_en] = cat_en
+                result["code_to_category"] = code_to_category
+                return result
             else:
-                # Image-based PDF (no embedded text layer) - fall back to
-                # rendering each page with fitz and reading the bilingual
-                # subtype header (code + EN + CN) directly from the image.
-                # Uses a cabin_chassis-specific prompt that splits the header
-                # correctly — no translation step needed since EN is present.
+                # Image-based PDF — fall back to vision extraction per page.
+                # extract_cabin_chassis_categories returns both "categories"
+                # AND "code_to_category" for passing into Stage 2.
                 self.logger.info(
                     "Markdown is empty - PDF is image-based. "
                     "Falling back to cabin_chassis vision extraction."
@@ -302,128 +325,7 @@ class EPCPDFAutomation:
             raise ValueError(f"Unknown partbook_type: '{ptype}'")
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Stage 2: Parts Management extraction & submission
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def process_parts(
-        self,
-        pdf_path: Path,
-        master_category_id: Optional[str] = None,
-        category_id: Optional[str] = None,
-        dokumen_name: Optional[str] = None,
-        subtype_id_map: Optional[Dict[str, str]] = None,
-        target_id_start: int = 1,
-        auto_submit: bool = True,
-    ) -> Dict:
-        """
-        Stage 2 - Extract parts rows from the partbook and submit them to
-        POST /item_category/create.
-
-        Supports Cabin & Chassis partbooks (ZIP-of-JPEGs format).
-
-        Args:
-            pdf_path:           Path to the partbook PDF (ZIP format).
-            master_category_id: UUID of the master category.
-            category_id:        UUID of the Category (2-level fallback if no
-                                subtype_id_map entries).
-            dokumen_name:       Document name for the EPC record. Defaults to
-                                the PDF filename stem.
-            subtype_id_map:     Dict mapping subtype_code (or name) →
-                                type_category_id UUID. Build this from the
-                                results of Stage 1 (submit_to_epc).
-            target_id_start:    The T-number index to start from. Pass 1 for
-                                a fresh item_category, or call
-                                epc_client.get_next_target_id_start(id) for
-                                existing ones.
-            auto_submit:        If True, submits directly. If False, returns
-                                extracted data for review without posting.
-
-        Returns:
-            Dict with keys:
-              success, stage, parts_data, epc_submission (if auto_submit)
-        """
-        pdf_path = Path(pdf_path)
-        result: Dict = {"success": False, "stage": "init", "pdf": str(pdf_path)}
-
-        if master_category_id is None:
-            master_category_id = self.config.master_category_id
-        if not master_category_id:
-            raise ValueError("master_category_id is required for Parts Management")
-
-        if dokumen_name is None:
-            dokumen_name = pdf_path.stem  # e.g. "CabinChassis_v2"
-
-        try:
-            # ── Extract parts rows via vision AI ──────────────────────────
-            result["stage"] = "extracting_parts"
-            self.logger.info(
-                "Stage 2 - Parts extraction from '%s' (start T%03d)",
-                pdf_path.name, target_id_start
-            )
-
-            if self.config.partbook_type != "cabin_chassis":
-                raise ValueError(
-                    f"process_parts() only supports cabin_chassis partbooks. "
-                    f"Got partbook_type='{self.config.partbook_type}'"
-                )
-
-            parts_data = extract_cabin_chassis_parts(
-                pdf_path=str(pdf_path),
-                sumopod_client=self.sumopod,
-                target_id_start=target_id_start
-            )
-
-            result["parts_data"] = parts_data
-            total_parts = sum(len(g["parts"]) for g in parts_data)
-            self.logger.info(
-                "Extracted %d subtype groups, %d total parts",
-                len(parts_data), total_parts
-            )
-
-            if not auto_submit:
-                result["stage"]           = "pending_review"
-                result["review_required"] = True
-                result["success"]         = True
-                self.logger.info("Parts extraction complete - awaiting manual review")
-                return result
-
-            # ── Submit to EPC API ─────────────────────────────────────────
-            result["stage"] = "submitting_parts"
-            self.logger.info("Submitting parts to EPC ...")
-
-            success, epc_results = self.epc_client.batch_submit_parts(
-                parts_data         = parts_data,
-                master_category_id = master_category_id,
-                dokumen_name       = dokumen_name,
-                category_id        = category_id,
-                subtype_id_map     = subtype_id_map,
-            )
-
-            result["epc_submission"] = epc_results
-
-            if success:
-                result["success"] = True
-                result["stage"]   = "completed"
-                self.logger.info(
-                    "[OK] Parts submission complete - %d item categories, %d parts",
-                    len(epc_results.get("item_categories_created", [])),
-                    epc_results.get("total_parts_submitted", 0)
-                )
-            else:
-                errors = epc_results.get("errors", [])
-                result["error"] = f"Parts submission had {len(errors)} error(s)"
-                self.logger.error("[FAIL] %s", result["error"])
-
-        except Exception as e:
-            result["error"] = str(e)
-            self.logger.error(
-                "[FAIL] Error at stage '%s': %s", result["stage"], e, exc_info=True
-            )
-
-        return result
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Stage 1: Structure (Category) processing - unchanged from original
+    # Stage 1: process_pdf — extract + (optionally) submit structure
     # ──────────────────────────────────────────────────────────────────────────
 
     def process_pdf(
@@ -436,7 +338,7 @@ class EPCPDFAutomation:
     ) -> Dict:
         """
         Stage 1 - Extract and submit Category / Type Category structure.
-        (Parts entry is handled separately via process_parts().)
+        Parts entry is handled separately via process_parts().
         """
         pdf_path = Path(pdf_path)
         if auto_submit is None:
@@ -450,12 +352,16 @@ class EPCPDFAutomation:
             master_category_name_en = self.config.master_category_name_en
 
         try:
-            # ── Extraction stage ──────────────────────────────────────────
+            # ── Extraction ────────────────────────────────────────────────
             result["stage"] = "extracting"
             self.logger.info("Stage 1 - Extracting categories from '%s'", pdf_path.name)
 
             extracted_data = self._extract_data(pdf_path, custom_prompt=custom_prompt)
-            result["extracted_data"] = extracted_data
+
+            # Store code_to_category separately so the web UI can pass it to Stage 2
+            result["code_to_category"] = extracted_data.pop("code_to_category", {})
+            result["extracted_data"]   = extracted_data
+
             self.logger.info(
                 "Extracted %d categories",
                 len(extracted_data.get("categories", []))
@@ -468,12 +374,12 @@ class EPCPDFAutomation:
                 self.logger.info("[OK] Extraction complete - awaiting manual review")
                 return result
 
-            # ── Submission stage ──────────────────────────────────────────
+            # ── Submission ────────────────────────────────────────────────
             result["stage"] = "submitting"
             self.logger.info("Stage 1 - Submitting to EPC API")
             success, epc_results = self.submit_to_epc(
                 extracted_data,
-                master_category_id   = master_category_id,
+                master_category_id      = master_category_id,
                 master_category_name_en = master_category_name_en
             )
             result["epc_submission"] = epc_results
@@ -516,20 +422,140 @@ class EPCPDFAutomation:
             raise ValueError("Master Category ID is required for EPC submission")
 
         if self.config.partbook_type in ("engine", "transmission"):
-            # Flat structure - categories only, no type_categories
+            # Flat structure — categories only, no type_categories
             return self.epc_client.batch_create_flat_categories(
-                catalog_data=extracted_data,
-                master_category_id=master_category_id,
-                master_category_name_en=master_category_name_en
+                catalog_data            = extracted_data,
+                master_category_id      = master_category_id,
+                master_category_name_en = master_category_name_en
             )
         else:
-            # Full structure - categories + type_categories
+            # Full structure — categories + type_categories
             # (cabin_chassis AND axle_drive both use this path)
             return self.epc_client.batch_create_type_categories_and_categories(
-                catalog_data=extracted_data,
-                master_category_id=master_category_id,
-                master_category_name_en=master_category_name_en
+                catalog_data            = extracted_data,
+                master_category_id      = master_category_id,
+                master_category_name_en = master_category_name_en
             )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Stage 2: Parts Management extraction & submission
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def process_parts(
+        self,
+        pdf_path: Path,
+        master_category_id: Optional[str] = None,
+        dokumen_name: Optional[str] = None,
+        target_id_start: int = 1,
+        auto_submit: bool = True,
+        code_to_category: Optional[Dict[str, str]] = None,
+    ) -> Dict:
+        """
+        Stage 2 — Extract parts rows from the partbook and submit them to
+        POST /item_category/create.
+
+        Supports Cabin & Chassis partbooks only.
+
+        Args:
+            pdf_path:           Path to the partbook PDF.
+            master_category_id: UUID of the master category.
+            dokumen_name:       Document name for the EPC record. Defaults to
+                                the PDF filename stem.
+            target_id_start:    The T-number index to start from (1 = fresh).
+            auto_submit:        If True, submits directly. If False, returns
+                                extracted data for review.
+            code_to_category:   Dict mapping subtype code/name → category_name_en.
+                                Built by Stage 1 (_extract_data). Pass this in
+                                so each subtype group is correctly tagged with
+                                its parent Category (e.g. "Frame System").
+
+        Returns:
+            Dict with keys: success, stage, parts_data, epc_submission (if auto_submit)
+        """
+        pdf_path = Path(pdf_path)
+        result: Dict = {"success": False, "stage": "init", "pdf": str(pdf_path)}
+
+        if master_category_id is None:
+            master_category_id = self.config.master_category_id
+        if not master_category_id:
+            raise ValueError("master_category_id is required for Parts Management")
+
+        if dokumen_name is None:
+            dokumen_name = pdf_path.stem
+
+        try:
+            # ── Extract parts rows via vision AI ──────────────────────────
+            result["stage"] = "extracting_parts"
+            self.logger.info(
+                "Stage 2 - Parts extraction from '%s' (start T%03d)",
+                pdf_path.name, target_id_start
+            )
+
+            if self.config.partbook_type != "cabin_chassis":
+                raise ValueError(
+                    f"process_parts() only supports cabin_chassis partbooks. "
+                    f"Got partbook_type='{self.config.partbook_type}'"
+                )
+
+            # Pass code_to_category so each group gets the correct
+            # category_name_en tag (e.g. "Frame System", "Brake System")
+            parts_data = extract_cabin_chassis_parts(
+                pdf_path         = str(pdf_path),
+                sumopod_client   = self.sumopod,
+                target_id_start  = target_id_start,
+                code_to_category = code_to_category or {},
+            )
+
+            result["parts_data"] = parts_data
+            total_parts = sum(len(g["parts"]) for g in parts_data)
+            self.logger.info(
+                "Extracted %d subtype groups, %d total parts",
+                len(parts_data), total_parts
+            )
+
+            if not auto_submit:
+                result["stage"]           = "pending_review"
+                result["review_required"] = True
+                result["success"]         = True
+                self.logger.info("Parts extraction complete - awaiting manual review")
+                return result
+
+            # ── Submit to EPC API ─────────────────────────────────────────
+            result["stage"] = "submitting_parts"
+            self.logger.info("Submitting parts to EPC ...")
+
+            success, epc_results = self.epc_client.batch_submit_parts(
+                parts_data         = parts_data,
+                master_category_id = master_category_id,
+                dokumen_name       = dokumen_name,
+            )
+
+            result["epc_submission"] = epc_results
+
+            if success:
+                result["success"] = True
+                result["stage"]   = "completed"
+                self.logger.info(
+                    "[OK] Parts submission complete — Created: %d | Updated: %d",
+                    len(epc_results.get("created", [])),
+                    len(epc_results.get("updated", [])),
+                )
+            else:
+                errors = epc_results.get("errors", [])
+                result["error"] = f"Parts submission had {len(errors)} error(s)"
+                self.logger.error("[FAIL] %s", result["error"])
+
+        except Exception as e:
+            result["error"] = str(e)
+            self.logger.error(
+                "[FAIL] Error at stage '%s': %s", result["stage"], e, exc_info=True
+            )
+
+        return result
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Batch directory processing (Stage 1 only)
+    # ──────────────────────────────────────────────────────────────────────────
 
     def process_directory(
         self,
@@ -540,8 +566,8 @@ class EPCPDFAutomation:
         auto_submit: bool = None
     ) -> List[Dict]:
         self.logger.info("Starting batch processing of directory: %s", directory)
-        pattern    = "**/*.pdf" if recursive else "*.pdf"
-        pdf_files  = list(directory.glob(pattern))
+        pattern   = "**/*.pdf" if recursive else "*.pdf"
+        pdf_files = list(directory.glob(pattern))
         self.logger.info("Found %d PDF files", len(pdf_files))
 
         results = []

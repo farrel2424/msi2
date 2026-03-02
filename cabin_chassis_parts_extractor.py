@@ -1,20 +1,20 @@
 """
 cabin_chassis_parts_extractor.py
 ─────────────────────────────────────────────────────────────────────────────
-Extracts PARTS DATA (the actual line-items in each table) from a Cabin &
-Chassis partbook — a standard, pure PDF file.
+Extracts PARTS DATA and CATEGORY STRUCTURE from a Cabin & Chassis partbook.
+
+Hierarchy (correct):
+  Master Category  →  Category        →  Type Category (Subtype)
+  "Cabin & Chassis"   "Frame System"     "Front Accessories Of Frame"
 
 Strategy
 ─────────
 Each page is rendered to a JPEG via PyMuPDF (fitz) at 150 DPI, then sent to
 vision AI.  Pages are classified as:
 
-  • Diagram page  — shows an exploded-view illustration, no parts table
-  • Table page    — shows the 6-column parts table with a bilingual header
-
-Diagram pages are skipped automatically.  Duplicate pages (identical pixel
-content — e.g. the same page reprinted at a different page number) are
-detected by SHA-256 hash and skipped.
+  • Diagram page  — exploded-view illustration, no parts table → skip
+  • TOC page      — numbered table of contents listing Categories + Subtypes
+  • Table page    — the 6-column parts table with a bilingual subtype header
 
 Table structure (6 columns, left → right)
 ──────────────────────────────────────────
@@ -25,9 +25,6 @@ Subtype header (one line above each table)
 ──────────────────────────────────────────
   <code>  <English name>  <Chinese name>
   e.g.  "DC97259190594  Air Intake System  进气系统"
-
-Tables that span multiple pages share the same header — they are
-concatenated into one continuous parts list before deduplication.
 
 Deduplication rules (per spec)
 ───────────────────────────────
@@ -41,14 +38,16 @@ T-number assignment
   Gaps in the partbook's own serial numbers are corrected.
   Starts from target_id_start (1 = fresh, or last-DB-T + 1 for appends).
 
-Output
-──────
+Output of extract_cabin_chassis_parts()
+────────────────────────────────────────
 List of subtype-group dicts:
 [
   {
-    "subtype_code":    "DC97259190594",
-    "subtype_name_en": "Air Intake System",
-    "subtype_name_cn": "进气系统",
+    "category_name_en": "Frame System",
+    "category_name_cn": "车架系统",
+    "subtype_code":     "DC97259190594",
+    "subtype_name_en":  "Air Intake System",
+    "subtype_name_cn":  "进气系统",
     "parts": [
       {
         "target_id":            "T001",
@@ -64,6 +63,31 @@ List of subtype-group dicts:
   },
   ...
 ]
+
+Output of extract_cabin_chassis_categories()
+─────────────────────────────────────────────
+{
+  "categories": [
+    {
+      "category_name_en": "Frame System",
+      "category_name_cn": "车架系统",
+      "category_description": "",
+      "data_type": [
+        {
+          "type_category_name_en": "DC97259880020 Front Accessories Of Frame",
+          "type_category_name_cn": "车架前端附件",
+          "type_category_description": ""
+        },
+        ...
+      ]
+    },
+    ...
+  ],
+  "code_to_category": {
+    "DC97259880020": "Frame System",
+    ...
+  }
+}
 """
 
 from __future__ import annotations
@@ -82,7 +106,7 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Vision prompt
+# Vision prompt — PARTS extraction (table body)
 # ─────────────────────────────────────────────────────────────────────────────
 
 _PARTS_SYSTEM_PROMPT = """\
@@ -99,8 +123,11 @@ Each TABLE page contains:
 
 DIAGRAM pages show only an exploded-view illustration — no table is present.
 
+TOC pages show a numbered list of section headings and part entries with page numbers.
+
 RULES:
 • If this is a DIAGRAM page, return {"page_type": "diagram"}.
+• If this is a TOC page, return {"page_type": "toc", "categories": [...]}.
 • If this is a TABLE page:
   - Extract the subtype header (code, English name, Chinese name).
   - Extract ONLY rows where 编码 (part number) is non-empty.
@@ -129,6 +156,21 @@ OUTPUT FORMAT (table page):
   ]
 }
 
+OUTPUT FORMAT (toc page):
+{
+  "page_type": "toc",
+  "categories": [
+    {
+      "category_name_en": "Frame System",
+      "category_name_cn": "车架系统",
+      "subtypes": [
+        {"code": "DC97259880020", "name_en": "Front Accessories Of Frame", "name_cn": "车架前端附件"},
+        {"code": "DC95259510002", "name_en": "Transmission Auxiliary Crossbeam", "name_cn": "变速器辅助横梁"}
+      ]
+    }
+  ]
+}
+
 OUTPUT FORMAT (diagram page):
 {
   "page_type": "diagram"
@@ -136,7 +178,68 @@ OUTPUT FORMAT (diagram page):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers
+# Vision prompt — CATEGORY extraction (header + TOC only)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CATEGORY_SYSTEM_PROMPT = """\
+You are reading a Cabin & Chassis automotive parts catalog page image.
+
+The partbook has this hierarchy:
+  Master Category → Category → Type Category (Subtype)
+  "Cabin & Chassis"  "Frame System"  "Front Accessories Of Frame"
+
+THREE types of pages exist:
+
+1. TOC PAGE — shows a numbered table of contents, e.g.:
+   10   Frame System   车架系统   1
+        DC97259880020  Front Accessories Of Frame  车架前端附件  ...4
+        DC95259510002  Transmission Auxiliary Crossbeam  变速器辅助横梁  ...6
+        DC95259980037  Frame Assembly  车架总成  ...8
+   These pages identify Category names AND which subtypes belong to them.
+
+2. TABLE PAGE — shows column headers 序号 | 编码 | 名称 | NAME | 数量 | 备注
+   Has ONE bilingual subtype header printed above the table columns, e.g.:
+   "DC97259800020  Front Accessories Of Frame  车架前端附件"
+
+3. DIAGRAM PAGE — shows only an exploded-view illustration, no table columns.
+
+Rules for codes:
+- Codes are alphanumeric (DC, DZ, Q, C, D followed by digits).
+- Spaces inside a code in the image (e.g. "D C97259800020") must be removed.
+
+For a TOC PAGE return:
+{
+  "page_type": "toc",
+  "categories": [
+    {
+      "category_name_en": "Frame System",
+      "category_name_cn": "车架系统",
+      "subtypes": [
+        {"code": "DC97259880020", "name_en": "Front Accessories Of Frame", "name_cn": "车架前端附件"},
+        {"code": "DC95259510002", "name_en": "Transmission Auxiliary Crossbeam", "name_cn": "变速器辅助横梁"},
+        {"code": "DC95259980037", "name_en": "Frame Assembly", "name_cn": "车架总成"}
+      ]
+    }
+  ]
+}
+
+For a TABLE PAGE return:
+{
+  "page_type": "table",
+  "subtype_code": "DC97259800020",
+  "subtype_name_en": "Front Accessories Of Frame",
+  "subtype_name_cn": "车架前端附件"
+}
+
+For a DIAGRAM PAGE return:
+{"page_type": "diagram"}
+
+Return ONLY valid JSON, no markdown fences, no explanation.
+"""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Low-level helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _render_page_to_b64(doc: fitz.Document, page_index: int, dpi: int = 150) -> str:
@@ -153,7 +256,7 @@ def _image_hash(b64: str) -> str:
 
 
 def _call_vision(b64: str, sumopod_client) -> Optional[Dict]:
-    """Send one rendered page to vision AI and return the parsed dict."""
+    """Send one page to vision AI for full parts extraction."""
     raw = ""
     try:
         resp = sumopod_client.client.chat.completions.create(
@@ -184,19 +287,61 @@ def _call_vision(b64: str, sumopod_client) -> Optional[Dict]:
             max_tokens=4096,
             timeout=120,
         )
-
         raw = resp.choices[0].message.content.strip()
-        # Strip markdown fences if the model adds them
         if raw.startswith("```"):
             raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw)
         return json.loads(raw.strip())
-
     except json.JSONDecodeError as exc:
         logger.warning("Vision AI returned non-JSON: %s … (%s)", raw[:300], exc)
         return None
     except Exception as exc:
         logger.warning("Vision AI call failed: %s", exc)
+        return None
+
+
+def _call_category_vision(b64: str, sumopod_client) -> Optional[Dict]:
+    """Send one page to vision AI to read only the header / TOC structure."""
+    raw = ""
+    try:
+        resp = sumopod_client.client.chat.completions.create(
+            model=sumopod_client.model,
+            messages=[
+                {"role": "system", "content": _CATEGORY_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url":    f"data:image/jpeg;base64,{b64}",
+                                "detail": "low",   # header-only read — low detail is enough
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Classify this page and extract the category/subtype header. "
+                                "Follow the system prompt exactly."
+                            ),
+                        },
+                    ],
+                },
+            ],
+            temperature=0.0,
+            max_tokens=1024,
+            timeout=60,
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+        return json.loads(raw.strip())
+    except json.JSONDecodeError as exc:
+        logger.warning("Category vision AI returned non-JSON: %s (%s)", raw[:200], exc)
+        return None
+    except Exception as exc:
+        logger.warning("Category vision AI call failed: %s", exc)
         return None
 
 
@@ -250,123 +395,46 @@ def _assign_target_ids(parts: List[Dict], start: int) -> List[Dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Category (structure) extraction for image-based PDFs
+# Public API — Stage 1: Category structure extraction
 # ─────────────────────────────────────────────────────────────────────────────
-
-_CATEGORY_SYSTEM_PROMPT = """\
-You are reading a Cabin & Chassis automotive parts catalog page image.
-
-Each TABLE page has a single bilingual subtype header printed above the table,
-in this exact format on one line:
-    <code>  <English name>  <Chinese name>
-Examples:
-    "DC97259800020  Front Accessories Of Frame  车架前端附件"
-    "DC97259190594  Air Intake System  进气系统"
-    "DC95259200037  Oil Pan Protection Shield  油底壳保护罩"
-
-Rules:
-- The code is alphanumeric: letters (DC, DZ, Q, C, D followed by digits).
-  It may appear with spaces between letters and digits in the image (e.g.
-  "D C97259800020") — remove those spaces when you return it.
-- The English name follows the code (Title Case words).
-- The Chinese name follows the English name (Chinese characters).
-- DIAGRAM pages show only an exploded-view illustration with NO table and NO
-  parts list — they sometimes show the same header line at the top but have
-  no table columns below it.
-- TABLE pages show column headers: 序号 | 编码 | 名称 | NAME | 数量 | 备注
-
-Return ONLY valid JSON, no markdown fences, no explanation.
-
-If this is a TABLE page:
-{
-  "page_type": "table",
-  "subtype_code": "<code with spaces removed>",
-  "subtype_name_en": "<English name only>",
-  "subtype_name_cn": "<Chinese name only>"
-}
-
-If this is a DIAGRAM page OR the page has no subtype header:
-{
-  "page_type": "other"
-}"""
-
-
-def _call_category_vision(b64: str, sumopod_client) -> Optional[Dict]:
-    """Send one rendered page to vision AI to read the subtype header only."""
-    raw = ""
-    try:
-        resp = sumopod_client.client.chat.completions.create(
-            model=sumopod_client.model,
-            messages=[
-                {"role": "system", "content": _CATEGORY_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url":    f"data:image/jpeg;base64,{b64}",
-                                "detail": "low",  # header-only read, low detail is enough
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": "Classify this page and extract the subtype header. Follow the system prompt exactly.",
-                        },
-                    ],
-                },
-            ],
-            temperature=0.0,
-            max_tokens=256,
-            timeout=60,
-        )
-
-        raw = resp.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
-            raw = re.sub(r"\n?```$", "", raw)
-        return json.loads(raw.strip())
-
-    except json.JSONDecodeError as exc:
-        logger.warning("Category vision AI returned non-JSON: %s (%s)", raw[:200], exc)
-        return None
-    except Exception as exc:
-        logger.warning("Category vision AI call failed: %s", exc)
-        return None
-
 
 def extract_cabin_chassis_categories(
     pdf_path: str,
     sumopod_client,
     category_name_en: str = "Cabin & Chassis",
-    category_name_cn: str = "\u9a7e\u9a76\u5ba4\u548c\u5e95\u76d8",
+    category_name_cn: str = "驾驶室和底盘",
     dpi: int = 150,
 ) -> Dict:
     """
-    Extract Category / Type-Category structure from an image-based Cabin &
-    Chassis PDF (fallback when pymupdf4llm returns empty markdown).
+    Extract Category + Type Category structure from a Cabin & Chassis PDF.
 
-    Renders each page with fitz, reads the bilingual subtype header
-    (code + English + Chinese) directly from the image — no translation
-    step needed because EN is already present in the header.
+    Strategy:
+      - TOC pages  → establish which Category each subtype belongs to
+      - TABLE pages → confirm subtypes exist; fall back to "Uncategorized"
+                      bucket if no TOC was seen yet for that code
 
-    Returns the same dict shape as the other extractors:
+    Returns:
     {
       "categories": [
         {
-          "category_name_en": "Cabin & Chassis",
-          "category_name_cn": "...",
+          "category_name_en": "Frame System",
+          "category_name_cn": "车架系统",
           "category_description": "",
           "data_type": [
             {
-              "type_category_name_en": "DC97259800020 Front Accessories Of Frame",
-              "type_category_name_cn": "...",
+              "type_category_name_en": "DC97259880020 Front Accessories Of Frame",
+              "type_category_name_cn": "车架前端附件",
               "type_category_description": ""
             },
             ...
           ]
-        }
-      ]
+        },
+        ...
+      ],
+      "code_to_category": {
+        "DC97259880020": "Frame System",
+        ...
+      }
     }
     """
     logger.info("Cabin & Chassis category extractor: opening '%s'", pdf_path)
@@ -376,8 +444,15 @@ def extract_cabin_chassis_categories(
     logger.info("%d pages to scan", total_pages)
 
     seen_hashes: set = set()
-    # Use OrderedDict to preserve page order and deduplicate by code
-    seen_codes: OrderedDict = OrderedDict()
+
+    # category_name_en → {"cn": str, "subtypes": OrderedDict{dedup_key: {...}}}
+    categories: OrderedDict = OrderedDict()
+
+    # Maps subtype dedup_key (code or name_en) → parent category_name_en
+    # Populated by TOC pages so TABLE pages can find their parent.
+    code_to_category: Dict[str, str] = {}
+    # Maps category_name_en → category_name_cn (for cat_cn lookup)
+    cat_cn_map: Dict[str, str] = {}
 
     for idx in range(total_pages):
         page_num = idx + 1
@@ -389,66 +464,128 @@ def extract_cabin_chassis_categories(
 
         h = _image_hash(b64)
         if h in seen_hashes:
-            logger.debug("Page %d: duplicate image - skipped", page_num)
+            logger.debug("Page %d: duplicate image — skipped", page_num)
             continue
         seen_hashes.add(h)
 
-        logger.info("Page %d/%d: reading subtype header ...", page_num, total_pages)
+        logger.info("Page %d/%d: reading page type …", page_num, total_pages)
         result = _call_category_vision(b64, sumopod_client)
 
-        if result is None or result.get("page_type") != "table":
-            logger.debug("Page %d: not a table page - skipped", page_num)
+        if result is None:
+            logger.debug("Page %d: no result from vision AI — skipped", page_num)
             continue
 
-        code    = (result.get("subtype_code")    or "").replace(" ", "").strip()
-        name_en = (result.get("subtype_name_en") or "").strip()
-        name_cn = (result.get("subtype_name_cn") or "").strip()
+        page_type = result.get("page_type")
 
-        if not name_en and not code:
-            logger.warning("Page %d: table page but no header extracted - skipped", page_num)
-            continue
+        # ── TOC page: builds category → subtypes mapping ──────────────────
+        if page_type == "toc":
+            for cat in result.get("categories", []):
+                cat_en = (cat.get("category_name_en") or "").strip()
+                cat_cn = (cat.get("category_name_cn") or "").strip()
+                if not cat_en:
+                    continue
 
-        # Use code as dedup key; fall back to EN name if code missing
-        dedup_key = code or name_en
-        if dedup_key in seen_codes:
-            logger.debug("Page %d: duplicate subtype '%s' - skipped", page_num, dedup_key)
-            continue
+                if cat_en not in categories:
+                    categories[cat_en] = {"cn": cat_cn, "subtypes": OrderedDict()}
+                    cat_cn_map[cat_en] = cat_cn
+                    logger.info("Page %d: new category from TOC: '%s'", page_num, cat_en)
 
-        # type_category_name_en includes the code prefix (same convention as
-        # the existing markdown prompt: "DC97259800020 Front Accessories Of Frame")
-        if code:
-            display_en = f"{code} {name_en}".strip()
+                for sub in cat.get("subtypes", []):
+                    code    = (sub.get("code")    or "").replace(" ", "").strip()
+                    name_en = (sub.get("name_en") or "").strip()
+                    name_cn = (sub.get("name_cn") or "").strip()
+                    if not name_en and not code:
+                        continue
+
+                    dedup_key = code or name_en
+                    code_to_category[dedup_key] = cat_en
+
+                    if dedup_key not in categories[cat_en]["subtypes"]:
+                        display_en = f"{code} {name_en}".strip() if code else name_en
+                        categories[cat_en]["subtypes"][dedup_key] = {
+                            "type_category_name_en": display_en,
+                            "type_category_name_cn": name_cn,
+                            "type_category_description": "",
+                        }
+                        logger.info(
+                            "Page %d: TOC subtype '%s' → category '%s'",
+                            page_num, display_en, cat_en,
+                        )
+
+        # ── TABLE page: confirm subtype under its parent category ─────────
+        elif page_type == "table":
+            code    = (result.get("subtype_code")    or "").replace(" ", "").strip()
+            name_en = (result.get("subtype_name_en") or "").strip()
+            name_cn = (result.get("subtype_name_cn") or "").strip()
+
+            if not name_en and not code:
+                logger.warning(
+                    "Page %d: table page but no header extracted — skipped", page_num
+                )
+                continue
+
+            dedup_key = code or name_en
+            parent_cat_en = code_to_category.get(dedup_key)
+
+            if not parent_cat_en:
+                # TOC not seen yet / subtype missing from TOC → fallback bucket
+                parent_cat_en = "Uncategorized"
+                if parent_cat_en not in categories:
+                    categories[parent_cat_en] = {"cn": "", "subtypes": OrderedDict()}
+                    logger.warning(
+                        "Page %d: subtype '%s' has no TOC parent — placed in 'Uncategorized'",
+                        page_num, name_en or code,
+                    )
+
+            if dedup_key not in categories[parent_cat_en]["subtypes"]:
+                display_en = f"{code} {name_en}".strip() if code else name_en
+                categories[parent_cat_en]["subtypes"][dedup_key] = {
+                    "type_category_name_en": display_en,
+                    "type_category_name_cn": name_cn,
+                    "type_category_description": "",
+                }
+                logger.info(
+                    "Page %d: table confirmed subtype '%s' under '%s'",
+                    page_num, display_en, parent_cat_en,
+                )
+            else:
+                logger.debug(
+                    "Page %d: subtype '%s' already in '%s' — skipped",
+                    page_num, dedup_key, parent_cat_en,
+                )
+
+        elif page_type == "diagram":
+            logger.debug("Page %d: diagram — skipped", page_num)
+
         else:
-            display_en = name_en
-
-        seen_codes[dedup_key] = {
-            "type_category_name_en": display_en,
-            "type_category_name_cn": name_cn,
-            "type_category_description": "",
-        }
-        logger.info("Page %d: new subtype: '%s'", page_num, display_en)
+            logger.debug("Page %d: unknown page_type=%r — skipped", page_num, page_type)
 
     doc.close()
 
-    subtypes = list(seen_codes.values())
+    # Build final output
+    output_categories = []
+    for cat_en, cat_data in categories.items():
+        output_categories.append({
+            "category_name_en":     cat_en,
+            "category_name_cn":     cat_data["cn"],
+            "category_description": "",
+            "data_type":            list(cat_data["subtypes"].values()),
+        })
+
     logger.info(
-        "Cabin & Chassis category extraction complete: %d unique subtypes", len(subtypes)
+        "Cabin & Chassis category extraction complete: %d categories, %d total subtypes",
+        len(output_categories),
+        sum(len(c["data_type"]) for c in output_categories),
     )
 
     return {
-        "categories": [
-            {
-                "category_name_en":      category_name_en,
-                "category_name_cn":      category_name_cn,
-                "category_description":  "",
-                "data_type":             subtypes,
-            }
-        ]
+        "categories":       output_categories,
+        "code_to_category": code_to_category,  # passed to extract_cabin_chassis_parts
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Public API
+# Public API — Stage 2: Parts extraction
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_cabin_chassis_parts(
@@ -456,28 +593,34 @@ def extract_cabin_chassis_parts(
     sumopod_client,
     target_id_start: int = 1,
     dpi: int = 150,
+    code_to_category: Optional[Dict[str, str]] = None,
 ) -> List[Dict]:
     """
     Extract all parts from a Cabin & Chassis partbook PDF.
 
     Args:
-        pdf_path:        Path to the pure PDF partbook file.
-        sumopod_client:  Initialised SumopodClient with vision capability.
-        target_id_start: T-number index to start from.
-                         Pass 1 for a fresh item_category, or call
-                         epc_client.get_next_target_id_start(item_category_id)
-                         to continue from an existing DB sequence.
-        dpi:             Render resolution (150 DPI is sufficient for table OCR).
+        pdf_path:           Path to the pure PDF partbook file.
+        sumopod_client:     Initialised SumopodClient with vision capability.
+        target_id_start:    T-number index to start from (1 = fresh).
+        dpi:                Render resolution (150 DPI is sufficient).
+        code_to_category:   Optional dict mapping subtype dedup_key (code or
+                            name_en) → category_name_en.  Built by
+                            extract_cabin_chassis_categories() in Stage 1.
+                            When provided, each output group is tagged with
+                            category_name_en / category_name_cn.
 
     Returns:
         List of subtype-group dicts, each with:
           {
-            "subtype_code":    str,
-            "subtype_name_en": str,
-            "subtype_name_cn": str,
-            "parts":           List[Dict]  # T-IDs assigned, quantities merged
+            "category_name_en": "Frame System",
+            "category_name_cn": "车架系统",
+            "subtype_code":     "DC97259880020",
+            "subtype_name_en":  "Front Accessories Of Frame",
+            "subtype_name_cn":  "车架前端附件",
+            "parts": [ { target_id, part_number, catalog_item_name_en,
+                         catalog_item_name_ch, quantity, description, unit } ]
           }
-        T-IDs are sequential across ALL groups (global sequence).
+        T-IDs are sequential across ALL subtype groups (global sequence).
     """
     logger.info("Cabin & Chassis parts extractor: opening '%s'", pdf_path)
 
@@ -485,9 +628,14 @@ def extract_cabin_chassis_parts(
     total_pages = len(doc)
     logger.info("%d pages in PDF", total_pages)
 
-    # groups: subtype_code (or name_en fallback) → {meta, raw_parts}
+    # groups: subtype dedup_key → {meta + raw_parts}
     groups: OrderedDict = OrderedDict()
     seen_hashes: set    = set()
+
+    # Start with any code_to_category passed from Stage 1; supplement from TOC pages
+    _code_to_category: Dict[str, str] = dict(code_to_category or {})
+    # category_name_en → category_name_cn
+    _cat_cn_map: Dict[str, str] = {}
 
     for idx in range(total_pages):
         page_num = idx + 1
@@ -497,7 +645,6 @@ def extract_cabin_chassis_parts(
             logger.warning("Page %d: render failed: %s", page_num, exc)
             continue
 
-        # Duplicate-page detection (same pixel content at different page offsets)
         h = _image_hash(b64)
         if h in seen_hashes:
             logger.info("Page %d: duplicate content — skipped", page_num)
@@ -508,10 +655,26 @@ def extract_cabin_chassis_parts(
         result = _call_vision(b64, sumopod_client)
 
         if result is None:
-            logger.warning("Page %d: no result from vision AI, skipping", page_num)
+            logger.warning("Page %d: no result from vision AI — skipped", page_num)
             continue
 
         page_type = result.get("page_type")
+
+        # ── TOC page: update code→category map on the fly ─────────────────
+        if page_type == "toc":
+            for cat in result.get("categories", []):
+                cat_en = (cat.get("category_name_en") or "").strip()
+                cat_cn = (cat.get("category_name_cn") or "").strip()
+                if cat_en and cat_en not in _cat_cn_map:
+                    _cat_cn_map[cat_en] = cat_cn
+                for sub in cat.get("subtypes", []):
+                    code    = (sub.get("code")    or "").replace(" ", "").strip()
+                    name_en = (sub.get("name_en") or "").strip()
+                    dedup   = code or name_en
+                    if dedup and dedup not in _code_to_category:
+                        _code_to_category[dedup] = cat_en
+            logger.debug("Page %d: TOC — updated code_to_category map", page_num)
+            continue
 
         if page_type == "diagram":
             logger.debug("Page %d: diagram — skipped", page_num)
@@ -523,6 +686,7 @@ def extract_cabin_chassis_parts(
             )
             continue
 
+        # ── TABLE page: extract subtype header + parts rows ───────────────
         code    = (result.get("subtype_code")    or "").replace(" ", "").strip()
         name_en = (result.get("subtype_name_en") or "").strip()
         name_cn = (result.get("subtype_name_cn") or "").strip()
@@ -534,23 +698,31 @@ def extract_cabin_chassis_parts(
 
         logger.info(
             "Page %d: subtype '%s' ('%s') — %d raw rows",
-            page_num, name_en or code, code, len(rows)
+            page_num, name_en or code, code, len(rows),
         )
 
-        # Pages with the same header belong to one split table → same group
         group_key = code or name_en
+
+        # Resolve parent category
+        cat_en = _code_to_category.get(group_key, "Uncategorized")
+        cat_cn = _cat_cn_map.get(cat_en, "")
+
         if group_key not in groups:
             groups[group_key] = {
-                "subtype_code":    code,
-                "subtype_name_en": name_en,
-                "subtype_name_cn": name_cn,
-                "raw_parts":       [],
+                "category_name_en": cat_en,
+                "category_name_cn": cat_cn,
+                "subtype_code":     code,
+                "subtype_name_en":  name_en,
+                "subtype_name_cn":  name_cn,
+                "raw_parts":        [],
             }
+
+        # Pages with the same header = one split table → accumulate rows
         groups[group_key]["raw_parts"].extend(rows)
 
     doc.close()
 
-    # ── Deduplicate, merge quantities, assign T-IDs ──────────────────────────
+    # ── Deduplicate, merge quantities, assign T-IDs ──────────────────────
     output: List[Dict] = []
     current_t = target_id_start
 
@@ -560,22 +732,25 @@ def extract_cabin_chassis_parts(
         current_t += len(merged)
 
         output.append({
-            "subtype_code":    group["subtype_code"],
-            "subtype_name_en": group["subtype_name_en"],
-            "subtype_name_cn": group["subtype_name_cn"],
-            "parts":           merged,
+            "category_name_en": group["category_name_en"],
+            "category_name_cn": group["category_name_cn"],
+            "subtype_code":     group["subtype_code"],
+            "subtype_name_en":  group["subtype_name_en"],
+            "subtype_name_cn":  group["subtype_name_cn"],
+            "parts":            merged,
         })
 
         logger.info(
-            "Subtype '%s': %d unique parts (T%03d – T%03d)",
+            "Subtype '%s' [%s]: %d unique parts (T%03d – T%03d)",
             group["subtype_name_en"],
+            group["category_name_en"],
             len(merged),
             current_t - len(merged),
             current_t - 1,
         )
 
     logger.info(
-        "Extraction complete: %d subtype groups, %d total unique parts",
+        "Parts extraction complete: %d subtype groups, %d total unique parts",
         len(output),
         sum(len(g["parts"]) for g in output),
     )

@@ -92,7 +92,6 @@ def allowed_file(filename: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
-    """Background thread: Stage 1 — category/type-category extraction."""
     with job_lock:
         job_status[job_id]["status"]  = "processing"
         job_status[job_id]["message"] = "Extracting category structure …"
@@ -101,15 +100,16 @@ def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
         config = EPCAutomationConfig(**config_params)
         automation = EPCPDFAutomation(config)
         result = automation.process_pdf(
-            pdf_path   = Path(pdf_path),
-            auto_submit = False,   # always pause for review
+            pdf_path    = Path(pdf_path),
+            auto_submit = False,
         )
 
         with job_lock:
-            job_status[job_id]["status"]         = "review"
-            job_status[job_id]["message"]        = "Structure extracted — awaiting review"
-            job_status[job_id]["extracted_data"] = result.get("extracted_data", {})
-            job_status[job_id]["stage"]          = "structure"
+            job_status[job_id]["status"]           = "review"
+            job_status[job_id]["message"]          = "Structure extracted — awaiting review"
+            job_status[job_id]["extracted_data"]   = result.get("extracted_data", {})
+            job_status[job_id]["code_to_category"] = result.get("code_to_category", {})  # ← ADD
+            job_status[job_id]["stage"]            = "structure"
 
     except Exception as e:
         with job_lock:
@@ -118,29 +118,32 @@ def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
 
 
 def _run_stage2(job_id: str, pdf_path: str, config_params: dict,
-                master_category_id: str, dokumen_name: str,
-                subtype_id_map: dict, target_id_start: int):
+                master_category_id: str, dokumen_name: str, target_id_start: int):
     """Background thread: Stage 2 — parts extraction."""
     with job_lock:
         job_status[job_id]["status"]  = "processing_parts"
         job_status[job_id]["message"] = "Extracting parts rows from tables …"
 
     try:
+
+        with job_lock:
+            code_to_category = job_status[job_id].get("code_to_category", {})
+
         config = EPCAutomationConfig(**config_params)
         automation = EPCPDFAutomation(config)
         result = automation.process_parts(
             pdf_path           = Path(pdf_path),
             master_category_id = master_category_id,
             dokumen_name       = dokumen_name,
-            subtype_id_map     = subtype_id_map or {},
             target_id_start    = target_id_start,
             auto_submit        = False,   # pause for review
+            code_to_category   = code_to_category,
         )
 
         with job_lock:
             job_status[job_id]["status"]     = "parts_review"
             job_status[job_id]["message"]    = "Parts extracted — awaiting review"
-            job_status[job_id]["parts_data"] = {"subtypes": result.get("parts_data", [])}
+            job_status[job_id]["parts_data"] = result.get("parts_data", [])
             job_status[job_id]["stage"]      = "parts"
 
     except Exception as e:
@@ -294,20 +297,13 @@ def api_approve_structure(job_id: str):
 
 @app.route("/api/start-parts/<job_id>", methods=["POST"])
 def api_start_parts(job_id: str):
-    """
-    Start Stage 2: Parts extraction.
-    Called after structure submission.  Accepts optional subtype_id_map.
-    """
+    
     with job_lock:
         job = job_status.get(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
     body = request.get_json(force=True) or {}
-
-    # subtype_id_map: maps subtype_code / name → type_category_id
-    # The frontend can build this from the Stage 1 submission results.
-    subtype_id_map  = body.get("subtype_id_map", {})
     target_id_start = int(body.get("target_id_start", 1))
     dokumen_name    = body.get("dokumen_name", Path(job["pdf_path"]).stem)
 
@@ -319,7 +315,6 @@ def api_start_parts(job_id: str):
             job["config_params"],
             job["master_category_id"],
             dokumen_name,
-            subtype_id_map,
             target_id_start,
         ),
         daemon=True
@@ -333,69 +328,87 @@ def api_approve_parts(job_id: str):
     """
     User approves the extracted parts data.  Submit Stage 2 to EPC.
     """
-    with job_lock:
-        job = job_status.get(job_id)
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
+    try:
+        with job_lock:
+            job = job_status.get(job_id)
+            
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
 
-    body       = request.get_json(force=True) or {}
-    parts_data = body.get("parts_data") or job.get("parts_data", [])
+        body       = request.get_json(force=True) or {}
+        parts_data = (
+            body.get("parts_data")
+            or body.get("data")          # legacy key from old frontend
+            or job.get("parts_data", [])
+        )
+    
+        if isinstance(parts_data, dict):
+            parts_data = parts_data.get("subtypes") or parts_data.get("parts_data") or []
+    
+        dokumen_name  = body.get("dokumen_name", Path(job["pdf_path"]).stem)
+        config_params = job["config_params"]
+        config = EPCAutomationConfig(**config_params)
+        automation = EPCPDFAutomation(config)
 
-    subtype_id_map  = body.get("subtype_id_map", {})
-    dokumen_name    = body.get("dokumen_name", Path(job["pdf_path"]).stem)
-
-    config_params = job["config_params"]
-    config = EPCAutomationConfig(**config_params)
-    automation = EPCPDFAutomation(config)
-
-    success, epc_results = automation.epc_client.batch_submit_parts(
-        parts_data         = parts_data,
-        master_category_id = job["master_category_id"],
-        dokumen_name       = dokumen_name,
-        subtype_id_map     = subtype_id_map,
-    )
-
-    with job_lock:
-        job_status[job_id]["parts_submission_result"] = epc_results
-        job_status[job_id]["status"]  = "completed" if success else "parts_error"
-        job_status[job_id]["message"] = (
-            f"✓ Parts submitted — "
-            f"{epc_results.get('total_parts_submitted', 0)} parts across "
-            f"{len(epc_results.get('item_categories_created', []))} subtypes"
-            if success else
-            f"Parts submission errors: {len(epc_results.get('errors', []))}"
+        success, epc_results = automation.epc_client.batch_submit_parts(
+            parts_data         = parts_data,
+            master_category_id = job["master_category_id"],
+            dokumen_name       = dokumen_name,
         )
 
-    return jsonify({"success": success, "epc_results": epc_results})
+        with job_lock:
+            job_status[job_id]["parts_submission_result"] = epc_results
+            job_status[job_id]["status"]  = "completed" if success else "parts_error"
+            job_status[job_id]["message"] = (
+                f"✓ Parts submitted — "
+                f"{len(epc_results.get('created', []))} created, "
+                f"{len(epc_results.get('updated', []))} updated"
+                if success else
+                f"Parts submission errors: {len(epc_results.get('errors', []))}"
+            )
+
+        return jsonify({"success": success, "epc_results": epc_results})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/re-extract/<job_id>", methods=["POST"])
 def api_re_extract(job_id: str):
     """Restart Stage 1 with a modified extraction prompt."""
-    with job_lock:
-        job = job_status.get(job_id)
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
+    try:
+        with job_lock:
+            job = job_status.get(job_id)
+            
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
 
-    body       = request.get_json(force=True) or {}
-    new_prompt = body.get("prompt", "")
+        body       = request.get_json(force=True) or {}
+        new_prompt = body.get("prompt", "")
 
-    config_params = dict(job["config_params"])
-    config_params["sumopod_custom_prompt"] = new_prompt
+        config_params = dict(job["config_params"])
+        config_params["sumopod_custom_prompt"] = new_prompt
 
-    with job_lock:
-        job_status[job_id]["status"]         = "queued"
-        job_status[job_id]["message"]        = "Re-extraction queued"
-        job_status[job_id]["extracted_data"] = None
-        job_status[job_id]["config_params"]  = config_params
+        with job_lock:
+            job_status[job_id]["status"]         = "queued"
+            job_status[job_id]["message"]        = "Re-extraction queued"
+            job_status[job_id]["extracted_data"] = None
+            job_status[job_id]["config_params"]  = config_params
 
-    threading.Thread(
-        target=_run_stage1,
-        args=(job_id, job["pdf_path"], config_params),
-        daemon=True
-    ).start()
+        threading.Thread(
+            target=_run_stage1,
+            args=(job_id, job["pdf_path"], config_params),
+            daemon=True
+        ).start()
 
-    return jsonify({"status": "re_extraction_started"})
+        return jsonify({"status": "re_extraction_started"})
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route("/api/jobs")
