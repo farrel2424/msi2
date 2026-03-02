@@ -140,7 +140,7 @@ def _run_stage2(job_id: str, pdf_path: str, config_params: dict,
         with job_lock:
             job_status[job_id]["status"]     = "parts_review"
             job_status[job_id]["message"]    = "Parts extracted — awaiting review"
-            job_status[job_id]["parts_data"] = result.get("parts_data", [])
+            job_status[job_id]["parts_data"] = {"subtypes": result.get("parts_data", [])}
             job_status[job_id]["stage"]      = "parts"
 
     except Exception as e:

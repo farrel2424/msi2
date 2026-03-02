@@ -480,11 +480,17 @@ Return ONLY valid JSON in this structure:
     let currentJobId    = null;
     let statusInterval  = null;
     let editorPopulated = false;
+    let partsPopulated = false;
     let currentPartsData = null;
 
     const PROGRESS_MAP = {
         queued: 5, processing: 25, extracting: 60,
-        pending_review: 90, submitting: 95,
+        review: 90,              // ← was "pending_review"
+        pending_review: 90,      // ← keep for safety
+        processing_parts: 70,
+        parts_review: 90,
+        structure_submitted: 95,
+        submitting: 95,
         completed: 100, error: 100, failed: 100
     };
 
@@ -609,18 +615,19 @@ Return ONLY valid JSON in this structure:
     }
 
     async function checkStatus() {
-        if (!currentJobId) return;
-        try {
-            const resp = await fetch('/api/status/' + currentJobId);
-            if (!resp.ok) return;
-            const job = await resp.json();
-            renderStatus(job);
-            if (['completed', 'error', 'failed'].includes(job.status)) stopPolling();
-            if (job.status === 'pending_review' && !editorPopulated) openReview(job);
-        } catch (err) {
-            console.error('Status check error:', err);
-        }
+    if (!currentJobId) return;
+    try {
+        const resp = await fetch('/api/status/' + currentJobId);
+        if (!resp.ok) return;
+        const job = await resp.json();
+        renderStatus(job);
+        if (['completed', 'error', 'failed', 'review', 'parts_review'].includes(job.status)) stopPolling();
+        if (job.status === 'review' && !editorPopulated) openReview(job);
+        if (job.status === 'parts_review' && !partsPopulated) openPartsReview(job);
+    } catch (err) {
+        console.error('Status check error:', err);
     }
+}
 
     function renderStatus(job) {
         document.getElementById('statusFilename').textContent = job.filename || '—';
@@ -651,6 +658,14 @@ Return ONLY valid JSON in this structure:
         }
     }
 
+    function openPartsReview(job) {
+        if (!job.parts_data || !job.parts_data.subtypes?.length) return;
+        partsPopulated = true;
+        stopPolling();
+        populatePartsSection(job.parts_data);
+        showAlert('Parts extraction complete. Review and approve to submit.', 'success');
+}
+
     // ── Download JSON ──────────────────────────────────────────────────────
     document.getElementById('downloadBtn').addEventListener('click', () => {
         try {
@@ -677,6 +692,7 @@ Return ONLY valid JSON in this structure:
             });
             if (resp.ok) {
                 editorPopulated  = false;
+                partsPopulated   = false;
                 currentPartsData = null;
                 showAlert('Re-extraction started…', 'info');
                 rePromptSection.classList.add('hidden');
@@ -786,8 +802,8 @@ Return ONLY valid JSON in this structure:
             tr.innerHTML = `
                 <td><code>${p.target_id}</code></td>
                 <td>${p.part_number}</td>
-                <td>${p.name_en}</td>
-                <td>${p.name_cn}</td>
+                <td>${p.catalog_item_name_en || p.name_en || ''}</td>
+                <td>${p.catalog_item_name_ch || p.name_cn || ''}</td>
                 <td style="text-align:center">${p.quantity}</td>
                 <td style="color:var(--text-3);font-size:12px">${p.description || ''}</td>`;
             tbody.appendChild(tr);
