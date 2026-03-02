@@ -27,6 +27,11 @@ from werkzeug.utils import secure_filename
 
 from epc_automation import EPCPDFAutomation, EPCAutomationConfig
 
+import logging
+logging.getLogger().addHandler(logging.NullHandler())
+for handler in logging.root.handlers:
+    handler.handleError = lambda record: None
+
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"]        = "uploads"
 app.config["MAX_CONTENT_LENGTH"]   = 16 * 1024 * 1024  # 16 MB

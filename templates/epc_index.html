@@ -720,15 +720,19 @@ Return ONLY valid JSON in this structure:
         showAlert('Submitting categories to EPC…', 'info');
 
         try {
-            const resp   = await fetch('/api/approve/' + currentJobId, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: editedData })
-            });
-            const result = await resp.json();
-            if (resp.ok && result.success) renderSubmissionResult(result.epc_results);
-            else showAlert('Submission failed: ' + (result.error || 'Unknown error'), 'error');
-        } catch (err) { showAlert('Network error: ' + err.message, 'error'); }
+    const resp = await fetch('/api/approve-structure/' + currentJobId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extracted_data: editedData })
+    });
+    const text = await resp.text();
+    let result;
+    try { result = JSON.parse(text); }
+    catch (_) { showAlert('Server error (non-JSON response). Check Flask logs.', 'error'); return; }
+
+    if (resp.ok && result.success) renderSubmissionResult(result.epc_results);
+    else showAlert('Submission failed: ' + (result.error || 'Unknown error'), 'error');
+} catch (err) { showAlert('Network error: ' + err.message, 'error'); }
     });
 
     function renderSubmissionResult(r) {
