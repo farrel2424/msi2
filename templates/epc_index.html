@@ -627,8 +627,33 @@ Return ONLY valid JSON in this structure:
         if (['completed', 'error', 'failed', 'review', 'parts_review'].includes(job.status)) stopPolling();
         if (job.status === 'review' && !editorPopulated) openReview(job);
         if (job.status === 'parts_review' && !partsPopulated) openPartsReview(job);
+
+        if (job.status === 'structure_submitted' && job.partbook_type === 'cabin_chassis') {
+            stopPolling();
+            await startPartsExtraction();
+        }
+
     } catch (err) {
         console.error('Status check error:', err);
+    }
+}
+
+    async function startPartsExtraction() {
+    showAlert('Structure submitted — starting Parts extraction…', 'info');
+    try {
+        const resp = await fetch(`/api/start-parts/${currentJobId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dokumen_name: '', target_id_start: 1 })
+        });
+        if (resp.ok) {
+            startPolling(); // resume polling → will hit parts_review → openPartsReview()
+        } else {
+            const d = await resp.json();
+            showAlert('Failed to start parts extraction: ' + (d.error || 'Unknown'), 'error');
+        }
+    } catch (err) {
+        showAlert('Network error: ' + err.message, 'error');
     }
 }
 
