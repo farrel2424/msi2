@@ -60,7 +60,7 @@ Do NOT include type_category_code or categories_code."""
         api_key: Optional[str] = None,
         model: str = "gpt4o",
         temperature: float = 0.7,
-        max_tokens: int = 2000,
+        max_tokens: int = 8000,
         max_retries: int = 3,
         custom_system_prompt: Optional[str] = None,
     ):
