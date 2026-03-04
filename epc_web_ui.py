@@ -26,6 +26,9 @@ from flask import Flask, jsonify, render_template, request, send_file
 from werkzeug.utils import secure_filename
 
 from epc_automation import EPCPDFAutomation, EPCAutomationConfig
+import logging
+import logging.handlers
+import sys
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"]        = "uploads"
@@ -430,6 +433,29 @@ def api_clear_history():
         job_status.clear()
     return jsonify({"success": True})
 
+def configure_logging():
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    # File handler — never closes between requests
+    file_handler = logging.handlers.RotatingFileHandler(
+        "epc_automation.log", maxBytes=10_000_000, backupCount=3, encoding="utf-8"
+    )
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    ))
+    root.addHandler(file_handler)
+
+    # Console handler — use sys.stderr explicitly so it's never "closed"
+    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler.setFormatter(logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    ))
+    root.addHandler(console_handler)
+
+# Call this ONCE before app.run()
+configure_logging()
 
 if __name__ == "__main__":
+    
     app.run(debug=True, host="0.0.0.0", port=5000)

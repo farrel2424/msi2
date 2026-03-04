@@ -641,7 +641,7 @@ Return ONLY valid JSON in this structure:
             `<span class="status-badge status-${job.status}">${job.status.replace('_', ' ').toUpperCase()}</span>`;
         document.getElementById('progressFill').style.width = (PROGRESS_MAP[job.status] || 0) + '%';
         if (job.status === 'error' || job.status === 'failed') {
-            showAlert('Error: ' + (job.error || 'Unknown error'), 'error');
+            showAlert('Error: ' + (job.message || job.error || 'Unknown error'), 'error');
             stopPolling();
         }
     }

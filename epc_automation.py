@@ -212,27 +212,34 @@ class EPCPDFAutomation:
 
     def _setup_logging(self) -> logging.Logger:
         import sys
-        import io
-        try:
-            utf8_stream = io.TextIOWrapper(
-                sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
-            )
-        except AttributeError:
-            utf8_stream = sys.stdout
+        import logging.handlers
 
         fmt = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-        stream_handler = logging.StreamHandler(utf8_stream)
-        stream_handler.setFormatter(fmt)
-
-        file_handler = logging.FileHandler("epc_automation.log", encoding="utf-8")
-        file_handler.setFormatter(fmt)
-
         root = logging.getLogger()
-        if not root.handlers:
-            root.setLevel(logging.INFO)
-            root.addHandler(stream_handler)
-            root.addHandler(file_handler)
+
+    # Tear down ALL existing handlers — including any dead stdout wrappers
+    # from previous requests. This is the fix for "I/O operation on closed file".
+        for h in root.handlers[:]:
+            try:
+                h.flush()
+                h.close()
+            except Exception:
+                pass
+            root.removeHandler(h)
+
+        root.setLevel(logging.INFO)
+
+    # Rotating file handler — survives across requests, never closed by Werkzeug
+        fh = logging.handlers.RotatingFileHandler(
+            "epc_automation.log", maxBytes=10_000_000, backupCount=3, encoding="utf-8"
+        )
+        fh.setFormatter(fmt)
+        root.addHandler(fh)
+
+    # stderr is stable under Werkzeug; stdout is not
+        ch = logging.StreamHandler(sys.stderr)
+        ch.setFormatter(fmt)
+        root.addHandler(ch)
 
         return logging.getLogger(__name__)
 
