@@ -27,11 +27,6 @@ from werkzeug.utils import secure_filename
 
 from epc_automation import EPCPDFAutomation, EPCAutomationConfig
 
-import logging
-logging.getLogger().addHandler(logging.NullHandler())
-for handler in logging.root.handlers:
-    handler.handleError = lambda record: None
-
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"]        = "uploads"
 app.config["MAX_CONTENT_LENGTH"]   = 16 * 1024 * 1024  # 16 MB
@@ -70,13 +65,11 @@ MASTER_CATEGORIES = {
     },
 }
 
-
 def _get_master_category_info(master_category_id: str) -> dict:
     for v in MASTER_CATEGORIES.values():
         if v["id"] and v["id"] == master_category_id:
             return v
     return {"name_en": "", "partbook_type": "cabin_chassis"}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # In-memory job store
@@ -84,13 +77,11 @@ def _get_master_category_info(master_category_id: str) -> dict:
 job_status: dict = {}
 job_lock = threading.Lock()
 
-
 def allowed_file(filename: str) -> bool:
     return (
         "." in filename
         and filename.rsplit(".", 1)[1].lower() in app.config["ALLOWED_EXTENSIONS"]
     )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Background workers

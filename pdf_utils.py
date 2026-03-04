@@ -33,11 +33,9 @@ def extract_zip_pdf(pdf_path: str, dest_dir: str) -> dict:
 
     return json.loads(manifest_path.read_text(encoding="utf-8"))
 
-
 def image_to_base64(image_path: str) -> str:
     """Encode an image file to a base64 string."""
     return base64.b64encode(Path(image_path).read_bytes()).decode("utf-8")
-
 
 def pdf_page_to_base64(pdf_path: str, page_index: int, dpi: int = 150) -> str:
     """
@@ -53,7 +51,6 @@ def pdf_page_to_base64(pdf_path: str, page_index: int, dpi: int = 150) -> str:
     data = base64.b64encode(pix.tobytes("jpeg")).decode("utf-8")
     doc.close()
     return data
-
 
 def parse_llm_json(text: str) -> dict:
     """Strip markdown code fences from an LLM response, then parse JSON."""
