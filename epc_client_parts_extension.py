@@ -285,20 +285,31 @@ class _PartsManagementMixin:
         self,
         type_category_name_en: str,
         category_id: Optional[str] = None,
+        subtype_code: Optional[str] = None,
     ) -> Optional[str]:
-        """Look up type_category_id by English name."""
+        """Look up type_category_id by English name, with code-prefix fallback."""
+
+        # Build both candidate names to try:
+        # 1. Plain name as stored by Stage 2: "Front Accessories Of Frame"
+        # 2. Code-prefixed as stored by Stage 1: "DC97259800020 Front Accessories Of Frame"
+        candidates = [type_category_name_en.strip()]
+        if subtype_code:
+            candidates.append(f"{subtype_code} {type_category_name_en}".strip())
+
         success, result = self._api_request(
             "POST", "type_category/get",
             json_data={"page": 1, "limit": 200, "search": type_category_name_en},
         )
+        
         if not success or not result:
             return None
 
         for item in result.get("data", {}).get("items", []):
-            en = (item.get("type_category_name_en") or "").strip().lower()
-            if en == type_category_name_en.strip().lower():
+            en = (item.get("type_category_name_en") or "").strip()
+            if any(en.lower() == c.lower() for c in candidates):
                 if category_id is None or item.get("category_id") == category_id:
                     return item.get("type_category_id")
+                    
         return None
 
     # ------------------------------------------------------------------
@@ -388,8 +399,11 @@ class _PartsManagementMixin:
 
             # ── Resolve type_category_id ─────────────────────────────────
             type_category_id = self.resolve_type_category_id_by_name(
-                subtype_name_en, category_id
+                subtype_name_en, 
+                category_id,
+                subtype_code=group.get("subtype_code", ""),
             )
+
             if not type_category_id:
                 self.logger.warning(
                     "type_category '%s' not found under '%s' — using category_id only",

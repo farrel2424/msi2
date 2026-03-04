@@ -142,7 +142,7 @@ def _run_stage2(job_id: str, pdf_path: str, config_params: dict,
         with job_lock:
             job_status[job_id]["status"]     = "parts_review"
             job_status[job_id]["message"]    = "Parts extracted — awaiting review"
-            job_status[job_id]["parts_data"] = result.get("parts_data", [])
+            job_status[job_id]["parts_data"] = {"subtypes": result.get("parts_data", [])}
             job_status[job_id]["stage"]      = "parts"
 
     except Exception as e:
@@ -365,6 +365,45 @@ def api_approve_parts(job_id: str):
                 if success else
                 f"Parts submission errors: {len(epc_results.get('errors', []))}"
             )
+
+        return jsonify({"success": success, "epc_results": epc_results})
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/approve-parts-single/<job_id>", methods=["POST"])
+def api_approve_parts_single(job_id: str):
+    """
+    Submit a single subtype group to EPC.
+    Body: { "subtype": { subtype_name_en, subtype_name_cn, category_name_en,
+                         subtype_code, parts: [...] } }
+    """
+    try:
+        with job_lock:
+            job = job_status.get(job_id)
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
+
+        body    = request.get_json(force=True) or {}
+        subtype = body.get("subtype")
+        if not subtype:
+            return jsonify({"success": False, "error": "Missing 'subtype' in request body"}), 400
+
+        # Wrap the single subtype as a one-item list — reuses batch_submit_parts
+        parts_data    = [subtype]
+        dokumen_name  = body.get("dokumen_name", Path(job["pdf_path"]).stem)
+        config_params = job["config_params"]
+
+        config     = EPCAutomationConfig(**config_params)
+        automation = EPCPDFAutomation(config)
+
+        success, epc_results = automation.epc_client.batch_submit_parts(
+            parts_data         = parts_data,
+            master_category_id = job["master_category_id"],
+            dokumen_name       = dokumen_name,
+        )
 
         return jsonify({"success": success, "epc_results": epc_results})
 

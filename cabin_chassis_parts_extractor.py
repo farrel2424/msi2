@@ -38,6 +38,19 @@ T-number assignment
   Gaps in the partbook's own serial numbers are corrected.
   Starts from target_id_start (1 = fresh, or last-DB-T + 1 for appends).
 
+Speed optimisations (v2)
+─────────────────────────
+  1. Diagram pre-screening  — cheap _call_category_vision() (low detail,
+     1024 tokens) classifies each page BEFORE the expensive _call_vision()
+     call (high detail, 4096 tokens).  Diagram pages are skipped entirely,
+     saving ~3 s per diagram page.
+  2. Parallel page processing — ThreadPoolExecutor (max_workers=5) runs
+     render + classify + extract concurrently across pages.  Pages are
+     re-sorted into document order before grouping.
+  3. Configurable detail level — _call_vision() accepts a detail parameter
+     (default "high").  Set to "low" if your PDFs are clean prints and you
+     want maximum throughput.
+
 Output of extract_cabin_chassis_parts()
 ────────────────────────────────────────
 List of subtype-group dicts:
@@ -98,11 +111,16 @@ import json
 import logging
 import re
 from collections import OrderedDict
-from typing import Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
 logger = logging.getLogger(__name__)
+
+# Maximum number of pages to process in parallel.
+# Keep at or below 5 to respect Sumopod rate limits.
+_MAX_WORKERS = 5
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -255,8 +273,16 @@ def _image_hash(b64: str) -> str:
     return hashlib.sha256(base64.b64decode(b64)).hexdigest()
 
 
-def _call_vision(b64: str, sumopod_client) -> Optional[Dict]:
-    """Send one page to vision AI for full parts extraction."""
+def _call_vision(b64: str, sumopod_client, detail: str = "high") -> Optional[Dict]:
+    """
+    Send one page to vision AI for full parts extraction.
+
+    Args:
+        b64:            Base64-encoded JPEG of the page.
+        sumopod_client: Initialised SumopodClient.
+        detail:         OpenAI image detail level — "high" (default) or "low".
+                        Use "low" for clean-print PDFs to save tokens & latency.
+    """
     raw = ""
     try:
         resp = sumopod_client.client.chat.completions.create(
@@ -270,7 +296,7 @@ def _call_vision(b64: str, sumopod_client) -> Optional[Dict]:
                             "type": "image_url",
                             "image_url": {
                                 "url":    f"data:image/jpeg;base64,{b64}",
-                                "detail": "high",
+                                "detail": detail,
                             },
                         },
                         {
@@ -301,7 +327,10 @@ def _call_vision(b64: str, sumopod_client) -> Optional[Dict]:
 
 
 def _call_category_vision(b64: str, sumopod_client) -> Optional[Dict]:
-    """Send one page to vision AI to read only the header / TOC structure."""
+    """
+    Send one page to vision AI to read only the header / TOC structure.
+    Uses low detail and small token budget — cheap pre-screening call.
+    """
     raw = ""
     try:
         resp = sumopod_client.client.chat.completions.create(
@@ -315,7 +344,7 @@ def _call_category_vision(b64: str, sumopod_client) -> Optional[Dict]:
                             "type": "image_url",
                             "image_url": {
                                 "url":    f"data:image/jpeg;base64,{b64}",
-                                "detail": "low",   # header-only read — low detail is enough
+                                "detail": "low",  # header-only read — low detail is enough
                             },
                         },
                         {
@@ -408,68 +437,59 @@ def extract_cabin_chassis_categories(
     """
     Extract Category + Type Category structure from a Cabin & Chassis PDF.
 
-    Strategy:
-      - TOC pages  → establish which Category each subtype belongs to
-      - TABLE pages → confirm subtypes exist; fall back to "Uncategorized"
-                      bucket if no TOC was seen yet for that code
+    Uses the cheap _call_category_vision() on every page (low detail, 1024 tokens).
+    Diagram pages are discarded after classification.
 
     Returns:
-    {
-      "categories": [
         {
-          "category_name_en": "Frame System",
-          "category_name_cn": "车架系统",
-          "category_description": "",
-          "data_type": [
-            {
-              "type_category_name_en": "DC97259880020 Front Accessories Of Frame",
-              "type_category_name_cn": "车架前端附件",
-              "type_category_description": ""
-            },
-            ...
-          ]
-        },
-        ...
-      ],
-      "code_to_category": {
-        "DC97259880020": "Frame System",
-        ...
-      }
-    }
+          "categories": [ { category_name_en, category_name_cn,
+                            category_description, data_type: [...] } ],
+          "code_to_category": { "<subtype_code>": "<category_name_en>", ... }
+        }
     """
     logger.info("Cabin & Chassis category extractor: opening '%s'", pdf_path)
 
-    doc = fitz.open(pdf_path)
+    doc         = fitz.open(pdf_path)
     total_pages = len(doc)
-    logger.info("%d pages to scan", total_pages)
+    logger.info("%d pages in PDF", total_pages)
 
-    seen_hashes: set = set()
+    # category_name_en → { cn, subtypes: OrderedDict{dedup_key → subtype_dict} }
+    categories:       OrderedDict       = OrderedDict()
+    code_to_category: Dict[str, str]    = {}
+    cat_cn_map:       Dict[str, str]    = {}
+    seen_hashes:      set               = set()
 
-    # category_name_en → {"cn": str, "subtypes": OrderedDict{dedup_key: {...}}}
-    categories: OrderedDict = OrderedDict()
-
-    # Maps subtype dedup_key (code or name_en) → parent category_name_en
-    # Populated by TOC pages so TABLE pages can find their parent.
-    code_to_category: Dict[str, str] = {}
-    # Maps category_name_en → category_name_cn (for cat_cn lookup)
-    cat_cn_map: Dict[str, str] = {}
-
+    # ── Render all pages up-front (fast, no network) ──────────────────────
+    page_b64s: Dict[int, str] = {}
     for idx in range(total_pages):
-        page_num = idx + 1
         try:
             b64 = _render_page_to_b64(doc, idx, dpi=dpi)
+            h   = _image_hash(b64)
+            if h in seen_hashes:
+                logger.debug("Page %d: duplicate image — skipped", idx + 1)
+                continue
+            seen_hashes.add(h)
+            page_b64s[idx] = b64
         except Exception as exc:
-            logger.warning("Page %d: render failed: %s", page_num, exc)
-            continue
+            logger.warning("Page %d: render failed: %s", idx + 1, exc)
 
-        h = _image_hash(b64)
-        if h in seen_hashes:
-            logger.debug("Page %d: duplicate image — skipped", page_num)
-            continue
-        seen_hashes.add(h)
+    doc.close()
 
-        logger.info("Page %d/%d: reading page type …", page_num, total_pages)
-        result = _call_category_vision(b64, sumopod_client)
+    # ── Classify pages in parallel ────────────────────────────────────────
+    def _classify(idx: int) -> Tuple[int, Optional[Dict]]:
+        return idx, _call_category_vision(page_b64s[idx], sumopod_client)
+
+    page_results: Dict[int, Optional[Dict]] = {}
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {executor.submit(_classify, idx): idx for idx in page_b64s}
+        for future in as_completed(futures):
+            idx, result = future.result()
+            page_results[idx] = result
+
+    # ── Process results in document order ─────────────────────────────────
+    for idx in sorted(page_results):
+        page_num = idx + 1
+        result   = page_results[idx]
 
         if result is None:
             logger.debug("Page %d: no result from vision AI — skipped", page_num)
@@ -477,7 +497,6 @@ def extract_cabin_chassis_categories(
 
         page_type = result.get("page_type")
 
-        # ── TOC page: builds category → subtypes mapping ──────────────────
         if page_type == "toc":
             for cat in result.get("categories", []):
                 cat_en = (cat.get("category_name_en") or "").strip()
@@ -497,48 +516,37 @@ def extract_cabin_chassis_categories(
                     if not name_en and not code:
                         continue
 
-                    dedup_key = code or name_en
+                    dedup_key  = code or name_en
+                    display_en = f"{code} {name_en}".strip() if code else name_en
                     code_to_category[dedup_key] = cat_en
 
                     if dedup_key not in categories[cat_en]["subtypes"]:
-                        display_en = f"{code} {name_en}".strip() if code else name_en
                         categories[cat_en]["subtypes"][dedup_key] = {
                             "type_category_name_en": display_en,
                             "type_category_name_cn": name_cn,
                             "type_category_description": "",
                         }
-                        logger.info(
-                            "Page %d: TOC subtype '%s' → category '%s'",
-                            page_num, display_en, cat_en,
-                        )
 
-        # ── TABLE page: confirm subtype under its parent category ─────────
         elif page_type == "table":
             code    = (result.get("subtype_code")    or "").replace(" ", "").strip()
             name_en = (result.get("subtype_name_en") or "").strip()
             name_cn = (result.get("subtype_name_cn") or "").strip()
 
             if not name_en and not code:
-                logger.warning(
-                    "Page %d: table page but no header extracted — skipped", page_num
-                )
+                logger.debug("Page %d: table page with no subtype header — skipped", page_num)
                 continue
 
-            dedup_key = code or name_en
-            parent_cat_en = code_to_category.get(dedup_key)
+            dedup_key      = code or name_en
+            display_en     = f"{code} {name_en}".strip() if code else name_en
+            parent_cat_en  = code_to_category.get(dedup_key, category_name_en)
 
-            if not parent_cat_en:
-                # TOC not seen yet / subtype missing from TOC → fallback bucket
-                parent_cat_en = "Uncategorized"
-                if parent_cat_en not in categories:
-                    categories[parent_cat_en] = {"cn": "", "subtypes": OrderedDict()}
-                    logger.warning(
-                        "Page %d: subtype '%s' has no TOC parent — placed in 'Uncategorized'",
-                        page_num, name_en or code,
-                    )
+            if parent_cat_en not in categories:
+                categories[parent_cat_en] = {
+                    "cn":      cat_cn_map.get(parent_cat_en, category_name_cn),
+                    "subtypes": OrderedDict(),
+                }
 
             if dedup_key not in categories[parent_cat_en]["subtypes"]:
-                display_en = f"{code} {name_en}".strip() if code else name_en
                 categories[parent_cat_en]["subtypes"][dedup_key] = {
                     "type_category_name_en": display_en,
                     "type_category_name_cn": name_cn,
@@ -548,11 +556,6 @@ def extract_cabin_chassis_categories(
                     "Page %d: table confirmed subtype '%s' under '%s'",
                     page_num, display_en, parent_cat_en,
                 )
-            else:
-                logger.debug(
-                    "Page %d: subtype '%s' already in '%s' — skipped",
-                    page_num, dedup_key, parent_cat_en,
-                )
 
         elif page_type == "diagram":
             logger.debug("Page %d: diagram — skipped", page_num)
@@ -560,9 +563,7 @@ def extract_cabin_chassis_categories(
         else:
             logger.debug("Page %d: unknown page_type=%r — skipped", page_num, page_type)
 
-    doc.close()
-
-    # Build final output
+    # ── Build final output ─────────────────────────────────────────────────
     output_categories = []
     for cat_en, cat_data in categories.items():
         output_categories.append({
@@ -580,7 +581,7 @@ def extract_cabin_chassis_categories(
 
     return {
         "categories":       output_categories,
-        "code_to_category": code_to_category,  # passed to extract_cabin_chassis_parts
+        "code_to_category": code_to_category,
     }
 
 
@@ -594,9 +595,16 @@ def extract_cabin_chassis_parts(
     target_id_start: int = 1,
     dpi: int = 150,
     code_to_category: Optional[Dict[str, str]] = None,
+    vision_detail: str = "high",
 ) -> List[Dict]:
     """
     Extract all parts from a Cabin & Chassis partbook PDF.
+
+    Speed improvements vs v1:
+      • Each page is first screened with the cheap _call_category_vision()
+        (low detail, 1024 tokens) to identify and skip diagram pages before
+        spending a full _call_vision() call (high detail, 4096 tokens).
+      • Pages are processed in parallel using ThreadPoolExecutor (max 5 workers).
 
     Args:
         pdf_path:           Path to the pure PDF partbook file.
@@ -608,6 +616,9 @@ def extract_cabin_chassis_parts(
                             extract_cabin_chassis_categories() in Stage 1.
                             When provided, each output group is tagged with
                             category_name_en / category_name_cn.
+        vision_detail:      Detail level for the full parts extraction call.
+                            "high" (default) for scanned/photo PDFs.
+                            "low" for clean digital prints — faster & cheaper.
 
     Returns:
         List of subtype-group dicts, each with:
@@ -624,134 +635,164 @@ def extract_cabin_chassis_parts(
     """
     logger.info("Cabin & Chassis parts extractor: opening '%s'", pdf_path)
 
-    doc = fitz.open(pdf_path)
+    doc         = fitz.open(pdf_path)
     total_pages = len(doc)
     logger.info("%d pages in PDF", total_pages)
 
-    # groups: subtype dedup_key → {meta + raw_parts}
-    groups: OrderedDict = OrderedDict()
-    seen_hashes: set    = set()
-
-    # Start with any code_to_category passed from Stage 1; supplement from TOC pages
     _code_to_category: Dict[str, str] = dict(code_to_category or {})
-    # category_name_en → category_name_cn
-    _cat_cn_map: Dict[str, str] = {}
+    _cat_cn_map:       Dict[str, str] = {}
+    seen_hashes:       set            = set()
 
+    # ── Render all pages up-front ─────────────────────────────────────────
+    page_b64s: Dict[int, str] = {}
     for idx in range(total_pages):
-        page_num = idx + 1
         try:
             b64 = _render_page_to_b64(doc, idx, dpi=dpi)
+            h   = _image_hash(b64)
+            if h in seen_hashes:
+                logger.info("Page %d: duplicate content — skipped", idx + 1)
+                continue
+            seen_hashes.add(h)
+            page_b64s[idx] = b64
         except Exception as exc:
-            logger.warning("Page %d: render failed: %s", page_num, exc)
-            continue
+            logger.warning("Page %d: render failed: %s", idx + 1, exc)
 
-        h = _image_hash(b64)
-        if h in seen_hashes:
-            logger.info("Page %d: duplicate content — skipped", page_num)
-            continue
-        seen_hashes.add(h)
+    doc.close()
+    logger.info("%d unique pages to process", len(page_b64s))
 
-        logger.info("Page %d/%d: calling vision AI …", page_num, total_pages)
-        result = _call_vision(b64, sumopod_client)
+    # ── Parallel: pre-screen then extract ────────────────────────────────
+    def _process_page(idx: int) -> Tuple[int, Optional[Dict]]:
+        """
+        1. Cheap classification call to detect diagrams.
+        2. Full parts extraction call only on non-diagram pages.
+        """
+        b64      = page_b64s[idx]
+        page_num = idx + 1
+
+        # Step 1 — cheap classification (low detail, 1024 tokens)
+        classification = _call_category_vision(b64, sumopod_client)
+        if classification is None:
+            logger.warning("Page %d: classification failed — skipped", page_num)
+            return idx, None
+
+        page_type = classification.get("page_type")
+
+        if page_type == "diagram":
+            logger.debug("Page %d: diagram — skipped (pre-screen)", page_num)
+            return idx, None
+
+        if page_type == "toc":
+            # TOC pages don't need the expensive parts call; return the
+            # classification result directly so the grouping loop can update
+            # the code_to_category map from any TOC pages in this pass.
+            logger.info("Page %d: TOC page detected", page_num)
+            return idx, classification
+
+        # Step 2 — full parts extraction (configurable detail, 4096 tokens)
+        logger.info(
+            "Page %d/%d: table page confirmed — running full extraction …",
+            page_num, total_pages,
+        )
+        result = _call_vision(b64, sumopod_client, detail=vision_detail)
+        return idx, result
+
+    page_results: Dict[int, Optional[Dict]] = {}
+    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+        futures = {executor.submit(_process_page, idx): idx for idx in page_b64s}
+        for future in as_completed(futures):
+            idx, result = future.result()
+            page_results[idx] = result
+
+    # ── Process results in document order ─────────────────────────────────
+    # groups: subtype dedup_key → { meta + raw_parts list }
+    groups: OrderedDict = OrderedDict()
+
+    for idx in sorted(page_results):
+        page_num = idx + 1
+        result   = page_results[idx]
 
         if result is None:
-            logger.warning("Page %d: no result from vision AI — skipped", page_num)
             continue
 
         page_type = result.get("page_type")
 
-        # ── TOC page: update code→category map on the fly ─────────────────
+        # ── TOC pages: update code→category map on the fly ────────────────
         if page_type == "toc":
             for cat in result.get("categories", []):
                 cat_en = (cat.get("category_name_en") or "").strip()
                 cat_cn = (cat.get("category_name_cn") or "").strip()
-                if cat_en and cat_en not in _cat_cn_map:
+                if cat_en:
                     _cat_cn_map[cat_en] = cat_cn
                 for sub in cat.get("subtypes", []):
                     code    = (sub.get("code")    or "").replace(" ", "").strip()
                     name_en = (sub.get("name_en") or "").strip()
-                    dedup   = code or name_en
-                    if dedup and dedup not in _code_to_category:
-                        _code_to_category[dedup] = cat_en
-            logger.debug("Page %d: TOC — updated code_to_category map", page_num)
+                    if code and cat_en:
+                        _code_to_category.setdefault(code, cat_en)
+                    if name_en and cat_en:
+                        _code_to_category.setdefault(name_en, cat_en)
             continue
 
-        if page_type == "diagram":
-            logger.debug("Page %d: diagram — skipped", page_num)
+        # ── Table pages: accumulate parts into groups ──────────────────────
+        if page_type == "table":
+            raw_code = (result.get("subtype_code")    or "").replace(" ", "").strip()
+            name_en  = (result.get("subtype_name_en") or "").strip()
+            name_cn  = (result.get("subtype_name_cn") or "").strip()
+            parts    = result.get("parts", [])
+
+            if not name_en and not raw_code:
+                logger.debug("Page %d: table with no subtype header — skipped", page_num)
+                continue
+
+            dedup_key     = raw_code or name_en
+            parent_cat_en = _code_to_category.get(dedup_key, "")
+            parent_cat_cn = _cat_cn_map.get(parent_cat_en, "")
+
+            if dedup_key not in groups:
+                groups[dedup_key] = {
+                    "category_name_en": parent_cat_en,
+                    "category_name_cn": parent_cat_cn,
+                    "subtype_code":     raw_code,
+                    "subtype_name_en":  name_en,
+                    "subtype_name_cn":  name_cn,
+                    "raw_parts":        [],
+                }
+                logger.info(
+                    "Page %d: new subtype group '%s' (category: '%s')",
+                    page_num, name_en, parent_cat_en,
+                )
+
+            groups[dedup_key]["raw_parts"].extend(parts)
+            logger.info("Page %d: added %d raw parts to '%s'", page_num, len(parts), name_en)
+
+        else:
+            logger.debug("Page %d: page_type=%r — skipped", page_num, page_type)
+
+    # ── Deduplicate, merge quantities, assign T-IDs ────────────────────────
+    output:   List[Dict] = []
+    t_cursor: int        = target_id_start
+
+    for dedup_key, grp in groups.items():
+        merged = _merge_parts(grp["raw_parts"])
+        if not merged:
+            logger.info("Subtype '%s': all parts filtered out — skipped", grp["subtype_name_en"])
             continue
 
-        if page_type != "table":
-            logger.warning(
-                "Page %d: unexpected page_type=%r — skipped", page_num, page_type
-            )
-            continue
-
-        # ── TABLE page: extract subtype header + parts rows ───────────────
-        code    = (result.get("subtype_code")    or "").replace(" ", "").strip()
-        name_en = (result.get("subtype_name_en") or "").strip()
-        name_cn = (result.get("subtype_name_cn") or "").strip()
-        rows    = result.get("parts") or []
-
-        if not code and not name_en:
-            logger.warning("Page %d: table page but no header found — skipped", page_num)
-            continue
-
-        logger.info(
-            "Page %d: subtype '%s' ('%s') — %d raw rows",
-            page_num, name_en or code, code, len(rows),
-        )
-
-        group_key = code or name_en
-
-        # Resolve parent category
-        cat_en = _code_to_category.get(group_key, "Uncategorized")
-        cat_cn = _cat_cn_map.get(cat_en, "")
-
-        if group_key not in groups:
-            groups[group_key] = {
-                "category_name_en": cat_en,
-                "category_name_cn": cat_cn,
-                "subtype_code":     code,
-                "subtype_name_en":  name_en,
-                "subtype_name_cn":  name_cn,
-                "raw_parts":        [],
-            }
-
-        # Pages with the same header = one split table → accumulate rows
-        groups[group_key]["raw_parts"].extend(rows)
-
-    doc.close()
-
-    # ── Deduplicate, merge quantities, assign T-IDs ──────────────────────
-    output: List[Dict] = []
-    current_t = target_id_start
-
-    for group in groups.values():
-        merged    = _merge_parts(group["raw_parts"])
-        merged    = _assign_target_ids(merged, current_t)
-        current_t += len(merged)
+        merged    = _assign_target_ids(merged, start=t_cursor)
+        t_cursor += len(merged)
 
         output.append({
-            "category_name_en": group["category_name_en"],
-            "category_name_cn": group["category_name_cn"],
-            "subtype_code":     group["subtype_code"],
-            "subtype_name_en":  group["subtype_name_en"],
-            "subtype_name_cn":  group["subtype_name_cn"],
+            "category_name_en": grp["category_name_en"],
+            "category_name_cn": grp["category_name_cn"],
+            "subtype_code":     grp["subtype_code"],
+            "subtype_name_en":  grp["subtype_name_en"],
+            "subtype_name_cn":  grp["subtype_name_cn"],
             "parts":            merged,
         })
 
-        logger.info(
-            "Subtype '%s' [%s]: %d unique parts (T%03d – T%03d)",
-            group["subtype_name_en"],
-            group["category_name_en"],
-            len(merged),
-            current_t - len(merged),
-            current_t - 1,
-        )
-
+    total_parts = sum(len(g["parts"]) for g in output)
     logger.info(
-        "Parts extraction complete: %d subtype groups, %d total unique parts",
-        len(output),
-        sum(len(g["parts"]) for g in output),
+        "Parts extraction complete: %d subtype groups, %d total parts (T%03d–T%03d)",
+        len(output), total_parts, target_id_start, t_cursor - 1,
     )
+
     return output

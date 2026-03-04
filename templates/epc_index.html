@@ -433,6 +433,8 @@ Return ONLY valid JSON in this structure:
                             <th>Subtype / 型号</th>
                             <th style="text-align:center">Parts</th>
                             <th>Preview (first 3)</th>
+                            <th style="text-align:center;width:100px">Status</th>
+                            <th style="text-align:center;width:110px">Action</th>
                         </tr>
                     </thead>
                     <tbody id="partsTableBody"></tbody>
@@ -460,7 +462,7 @@ Return ONLY valid JSON in this structure:
             <!-- Buttons -->
             <div class="btn-group">
                 <button class="btn btn--ghost" id="downloadPartsBtn">⬇ Download Parts JSON</button>
-                <button class="btn btn--primary" id="approvePartsBtn">✅ Submit Parts to EPC</button>
+                <button class="btn btn--primary" id="approvePartsBtn">✅ Submit All Parts to EPC</button>
             </div>
 
             <!-- Parts submission result -->
@@ -745,20 +747,24 @@ Return ONLY valid JSON in this structure:
         showAlert('Submitting categories to EPC…', 'info');
 
         try {
-    const resp = await fetch('/api/approve-structure/' + currentJobId, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ extracted_data: editedData })
-    });
-    const text = await resp.text();
-    let result;
-    try { result = JSON.parse(text); }
-    catch (_) { showAlert('Server error (non-JSON response). Check Flask logs.', 'error'); return; }
+            const resp = await fetch('/api/approve-structure/' + currentJobId, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ extracted_data: editedData })
+                        });
+            const text = await resp.text();
+            let result;
+            try { result = JSON.parse(text); }
+            catch (_) { showAlert('Server error (non-JSON response). Check Flask logs.', 'error'); return; }
 
-    if (resp.ok && result.success) renderSubmissionResult(result.epc_results);
-    else showAlert('Submission failed: ' + (result.error || 'Unknown error'), 'error');
-} catch (err) { showAlert('Network error: ' + err.message, 'error'); }
-    });
+            if (resp.ok && result.success) {
+                renderSubmissionResult(result.epc_results);
+                startPolling();
+            } else {
+                showAlert('Submission failed: ' + (result.error || 'Unknown error'), 'error');
+            }
+        } catch (err) { showAlert('Network error: ' + err.message, 'error'); }
+});
 
     function renderSubmissionResult(r) {
         const created  = r.categories_created?.length  || 0;
@@ -787,40 +793,97 @@ Return ONLY valid JSON in this structure:
     // ═══════════════════════════════════════════════════════════════════════
 
     function populatePartsSection(partsData) {
-        if (!partsData || !partsData.subtypes?.length) return;
-        currentPartsData = partsData;
+    if (!partsData || !partsData.subtypes?.length) return;
+    currentPartsData = partsData;
 
-        const tbody = document.getElementById('partsTableBody');
-        tbody.innerHTML = '';
+    const tbody = document.getElementById('partsTableBody');
+    tbody.innerHTML = '';
 
-        partsData.subtypes.forEach((subtype, idx) => {
-            const parts   = subtype.parts || [];
-            const preview = parts.slice(0, 3)
-                .map(p => `<span style="font-size:11px;color:var(--text-3)">${p.target_id}</span> ${p.name_en}`)
-                .join('<br>');
-            const more = parts.length > 3
-                ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} more…</em>` : '';
+    partsData.subtypes.forEach((subtype, idx) => {
+        const parts   = subtype.parts || [];
+        const preview = parts.slice(0, 3)
+            .map(p => `<span style="font-size:11px;color:var(--text-3)">${p.target_id}</span> ${p.name_en || p.catalog_item_name_en || ''}`)
+            .join('<br>');
+        const more = parts.length > 3
+            ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} more…</em>` : '';
 
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>
-                    <strong>${subtype.subtype_name_en}</strong><br>
-                    <span style="font-size:12px;color:var(--text-3)">${subtype.subtype_name_cn || ''}</span>
-                </td>
-                <td style="text-align:center">
-                    <span class="parts-count-badge">${parts.length}</span>
-                </td>
-                <td>
-                    ${preview}${more}
-                    <br>
-                    <button class="parts-expand-btn" style="margin-top:5px"
-                            onclick="expandPartsDetail(${idx})">View all</button>
-                </td>`;
-            tbody.appendChild(tr);
+        const tr = document.createElement('tr');
+        tr.id = `subtype-row-${idx}`;
+        tr.innerHTML = `
+            <td>
+                <strong>${subtype.subtype_name_en}</strong><br>
+                <span style="font-size:12px;color:var(--text-3)">${subtype.subtype_name_cn || ''}</span>
+            </td>
+            <td style="text-align:center">
+                <span class="parts-count-badge">${parts.length}</span>
+            </td>
+            <td>
+                ${preview}${more}
+                <br>
+                <button class="parts-expand-btn" style="margin-top:5px"
+                        onclick="expandPartsDetail(${idx})">View all</button>
+            </td>
+            <td style="text-align:center" id="subtype-status-${idx}">
+                <span style="font-size:12px;color:var(--text-3)">—</span>
+            </td>
+            <td style="text-align:center">
+                <button class="btn btn--sm btn--primary" id="subtype-btn-${idx}"
+                        onclick="submitSingleSubtype(${idx})">
+                    Submit
+                </button>
+            </td>`;
+        tbody.appendChild(tr);
+    });
+
+    document.getElementById('partsSection').classList.remove('hidden');
+}
+
+    async function submitSingleSubtype(idx) {
+    if (!currentPartsData) return;
+
+    const subtype   = currentPartsData.subtypes[idx];
+    const btn       = document.getElementById(`subtype-btn-${idx}`);
+    const statusEl  = document.getElementById(`subtype-status-${idx}`);
+
+    if (!confirm(`Submit "${subtype.subtype_name_en}" to EPC?`)) return;
+
+    btn.disabled    = true;
+    btn.textContent = '…';
+    statusEl.innerHTML = `<span style="font-size:12px;color:var(--warning)">Submitting…</span>`;
+
+    try {
+        const resp = await fetch(`/api/approve-parts-single/${currentJobId}`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ subtype }),
         });
 
-        document.getElementById('partsSection').classList.remove('hidden');
+        const text = await resp.text();
+        let result;
+        try { result = JSON.parse(text); }
+        catch (_) {
+            statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">⚠ Server error</span>`;
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+            return;
+        }
+
+        if (resp.ok && result.success) {
+            statusEl.innerHTML = `<span style="font-size:12px;color:var(--success)">✓ Done</span>`;
+            btn.textContent    = '✓ Done';
+            btn.classList.replace('btn--primary', 'btn--ghost');
+        } else {
+            const msg = result.error || 'Failed';
+            statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${msg}">✗ Error</span>`;
+            btn.disabled = false;
+            btn.textContent = 'Retry';
+        }
+    } catch (err) {
+        statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">✗ Network error</span>`;
+        btn.disabled = false;
+        btn.textContent = 'Retry';
     }
+}
 
     function expandPartsDetail(idx) {
         const sub = currentPartsData.subtypes[idx];
