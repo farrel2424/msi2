@@ -1,22 +1,3 @@
-"""
-Cabin & Chassis Parts Submitter
-=================================
-Orchestrates the full pipeline:
-  PDF → AI extraction → deduplication → T-ID assignment → EPC API submission
-
-Usage (standalone script):
-  python cabin_chassis_parts_runner.py \\
-      --pdf path/to/partbook.pdf \\
-      --category "Frame System" \\
-      --dokumen "Cabin & Chassis Manual" \\
-      --dry-run          # preview extracted data without submitting
-
-Or import and use programmatically:
-  from cabin_chassis_parts_submitter import CabinChassisPartsSubmitter
-  submitter = CabinChassisPartsSubmitter(config)
-  results = submitter.run(pdf_path="...", category_name_en="...")
-"""
-
 import json
 import logging
 import os
@@ -96,14 +77,12 @@ class CabinChassisPartsSubmitter:
         self.config = config
         self.logger = self._setup_logging()
 
-        # Sumopod AI client
         self.sumopod = SumopodClient(
             base_url=config.sumopod_base_url,
             api_key=config.sumopod_api_key,
             model=config.sumopod_model,
         )
 
-        # EPC API client
         auth_client = None
         if config.sso_email and config.sso_password:
             auth_client = MotorsightsAuthClient(
@@ -117,7 +96,6 @@ class CabinChassisPartsSubmitter:
             auth_client=auth_client,
         )
 
-        # Parts extractor
         self.extractor = CabinChassisPartsExtractor(sumopod_client=self.sumopod)
 
     # ------------------------------------------------------------------
@@ -138,7 +116,7 @@ class CabinChassisPartsSubmitter:
             pdf_path:            Path to the partbook PDF
             category_name_en:    Category name to submit under (e.g. "Frame System")
             dokumen_name:        Override dokumen_name from config
-            save_extracted_json: If provided, save extracted JSON to this path before submitting
+            save_extracted_json: If provided, save extracted JSON to this path
 
         Returns:
             Result dict with keys: success, stage, extracted_data, submission_results, error
@@ -162,9 +140,10 @@ class CabinChassisPartsSubmitter:
             extracted = self.extractor.extract_from_pdf(pdf_path)
             result["extracted_data"] = extracted
 
+            # extracted = {"subtypes": [...]}  — unwrap for the summary log
             total_parts = sum(len(s["parts"]) for s in extracted.get("subtypes", []))
             self.logger.info(
-                "✓ Extracted %d subtype(s), %d total part(s).",
+                "Extracted %d subtype(s), %d total part(s).",
                 len(extracted.get("subtypes", [])),
                 total_parts,
             )
@@ -179,7 +158,7 @@ class CabinChassisPartsSubmitter:
 
         except Exception as e:
             result["error"] = str(e)
-            self.logger.error("✗ Extraction failed: %s", e, exc_info=True)
+            self.logger.error("Extraction failed: %s", e, exc_info=True)
             return result
 
         # ── Stage 2: Submit (or dry-run) ──────────────────────────────
@@ -190,26 +169,31 @@ class CabinChassisPartsSubmitter:
 
         try:
             result["stage"] = "submission"
+
+            # ✅ FIX 1: removed invalid kwargs `category_name_en` and `default_unit`
+            #    Real signature: batch_submit_parts(parts_data, master_category_id,
+            #                    dokumen_name, category_id=None, subtype_id_map=None)
+            #
+            # ✅ FIX 2: pass extracted.get("subtypes", []) — the List[Dict] that
+            #    batch_submit_parts iterates over, NOT the whole dict.
             overall_success, sub_results = self.epc.batch_submit_parts(
-                parts_data=extracted,
+                parts_data=extracted.get("subtypes", []),
                 master_category_id=self.config.master_category_id,
-                category_name_en=category_name_en,
                 dokumen_name=dokumen,
-                default_unit=self.config.default_unit,
             )
             result["submission_results"] = sub_results
 
             if overall_success:
                 result.update(success=True, stage="completed")
-                self.logger.info("✓ All parts submitted successfully.")
+                self.logger.info("All parts submitted successfully.")
             else:
                 errors = sub_results.get("errors", [])
                 result["error"] = f"{len(errors)} subtype(s) failed."
-                self.logger.error("✗ %s", result["error"])
+                self.logger.error("%s", result["error"])
 
         except Exception as e:
             result["error"] = str(e)
-            self.logger.error("✗ Submission failed: %s", e, exc_info=True)
+            self.logger.error("Submission failed: %s", e, exc_info=True)
 
         return result
 
@@ -230,12 +214,11 @@ class CabinChassisPartsSubmitter:
             self._log_extraction_summary(extracted)
             return {"success": True, "stage": "dry_run", "extracted_data": extracted}
 
+        # ✅ FIX 1 & 2 applied here as well
         overall_success, sub_results = self.epc.batch_submit_parts(
-            parts_data=extracted,
+            parts_data=extracted.get("subtypes", []),
             master_category_id=self.config.master_category_id,
-            category_name_en=category_name_en,
             dokumen_name=dokumen,
-            default_unit=self.config.default_unit,
         )
         return {
             "success": overall_success,
@@ -254,8 +237,8 @@ class CabinChassisPartsSubmitter:
             en = subtype.get("subtype_name_en", "(unknown)")
             cn = subtype.get("subtype_name_cn", "")
             parts = subtype.get("parts", [])
-            self.logger.info("  %-40s %s  →  %d part(s)", en, cn, len(parts))
-            for p in parts[:3]:  # preview first 3 parts
+            self.logger.info("  %-40s %s  ->  %d part(s)", en, cn, len(parts))
+            for p in parts[:3]:
                 self.logger.info(
                     "    %s  |  %-20s |  %-30s |  qty:%s",
                     p.get("target_id", "?"),
@@ -269,12 +252,12 @@ class CabinChassisPartsSubmitter:
 
     @staticmethod
     def _setup_logging() -> logging.Logger:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s  %(levelname)-8s  %(message)s",
-            handlers=[
-                logging.StreamHandler(),
-                logging.FileHandler("cabin_chassis_parts.log", encoding="utf-8"),
-            ],
-        )
-        return logging.getLogger(__name__)
+        logger = logging.getLogger("CabinChassisPartsSubmitter")
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(
+                logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+            )
+            logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        return logger

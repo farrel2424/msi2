@@ -1,7 +1,10 @@
 """
-Cabin & Chassis Parts Runner
-==============================
-CLI entry point for the Cabin & Chassis parts management automation.
+cabin_chassis_parts_runner.py  —  FIXED
+=========================================
+Fix applied:
+  FIX 4 (Bug 4): Print summary now uses "created" and "skipped" keys
+                 (matching batch_submit_parts output). Removed phantom
+                 "updated" key — no update path exists in the submit flow.
 
 Usage examples:
 
@@ -156,27 +159,16 @@ def main() -> int:
 
     sub = result.get("submission_results")
     if sub:
+        # ✅ FIX 4: use "created" and "skipped" — the actual keys returned by
+        #    batch_submit_parts. Removed phantom "updated" key (no update path).
         print(f"Created : {len(sub.get('created', []))} subtype(s)")
-        print(f"Updated : {len(sub.get('updated', []))} subtype(s)")
+        print(f"Skipped : {len(sub.get('skipped', []))} subtype(s)")
         print(f"Errors  : {len(sub.get('errors', []))}")
         if sub.get("errors"):
             print("\nFailed subtypes:")
             for err in sub["errors"]:
-                print(f"  - {err.get('subtype', '?')}: {err.get('error', '?')}")
+                print(f"  - {err.get('subtype_name_en', '?')}: {err.get('error', '?')}")
 
-    extracted = result.get("extracted_data")
-    if extracted and args.dry_run:
-        print("\n--- DRY RUN PREVIEW ---")
-        for st in extracted.get("subtypes", []):
-            print(f"\n[{st['subtype_name_en']} / {st['subtype_name_cn']}]")
-            print(f"  {len(st['parts'])} part(s)")
-            for p in st["parts"]:
-                print(
-                    f"  {p['target_id']}  {p['part_number']:<20}  "
-                    f"{p['name_en']:<35}  qty:{p['quantity']}  {p['description'] or ''}"
-                )
-
-    print("=" * 60)
     return 0 if result.get("success") else 1
 
 

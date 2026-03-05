@@ -1,20 +1,13 @@
 """
-epc_client_parts_extension.py
-─────────────────────────────────────────────────────────────────────────────
-Parts Management extension methods for MotorsightsEPCClient.
-
-HOW TO INTEGRATE:
-  Copy the methods inside _PartsManagementMixin directly into the
-  MotorsightsEPCClient class body in motorsights_epc_client.py.
-  Also copy the module-level helpers (_get_next_target_index) to the
-  bottom of that file.
-
-Handles:
-  - Multipart POST/PUT for /item_category/create and /item_category/{id}
-  - Lookup of existing item_category by type_category_id or category_id
-  - Extraction of last target_id from existing details for T-ID continuity
-  - Full batch submission of parts for all subtypes in a Cabin & Chassis
-    partbook — reads category_name_en PER GROUP (not one global value)
+epc_client_parts_extension.py  —  FIXED
+=========================================
+Fixes applied in this file:
+  FIX 3 (Bug 3): Fixed IndentationError — `category_id_cache` had 8-space
+                 indent inside the method body (should be 4-space).
+  FIX 4 (Bug 4): Renamed result keys from "item_categories_created" /
+                 "item_categories_skipped" → "created" / "skipped" to match
+                 motorsights_epc_client.py and the runner's expectations.
+                 Added "updated": [] key so the runner never prints stale data.
 """
 
 import json
@@ -49,19 +42,8 @@ class _PartsManagementMixin:
         """
         Make an authenticated multipart/form-data request.
         Used for /item_category/create and /item_category/{id} (PUT).
-
-        Args:
-            method:     "POST" or "PUT"
-            endpoint:   Path after base_url (e.g. "item_category/create")
-            form_data:  Dict of string fields to include in the form
-            file_path:  Optional path to a photo file (file_foto field)
-
-        Returns:
-            (success, response_json)
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-
-        # Authorization only — let requests set Content-Type with multipart boundary
         headers = {"Authorization": f"Bearer {self._get_bearer_token()}"}
 
         files = {}
@@ -258,28 +240,8 @@ class _PartsManagementMixin:
         return success, result
 
     # ------------------------------------------------------------------
-    # Resolve category / type_category IDs by name
+    # Type category lookup helper
     # ------------------------------------------------------------------
-
-    def resolve_category_id_by_name(
-        self,
-        category_name_en: str,
-        master_category_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """Look up category_id by English name."""
-        success, result = self._api_request(
-            "POST", "categories/get",
-            json_data={"page": 1, "limit": 200, "search": category_name_en},
-        )
-        if not success or not result:
-            return None
-
-        for item in result.get("data", {}).get("items", []):
-            en = (item.get("category_name_en") or "").strip().lower()
-            if en == category_name_en.strip().lower():
-                if master_category_id is None or item.get("master_category_id") == master_category_id:
-                    return item.get("category_id")
-        return None
 
     def resolve_type_category_id_by_name(
         self,
@@ -287,8 +249,9 @@ class _PartsManagementMixin:
         category_id: Optional[str] = None,
         subtype_code: Optional[str] = None,
     ) -> Optional[str]:
-        """Look up type_category_id by English name, with code-prefix fallback."""
-
+        """
+        Look up a type_category_id by English name (with optional code prefix fallback).
+        """
         # Build both candidate names to try:
         # 1. Plain name as stored by Stage 2: "Front Accessories Of Frame"
         # 2. Code-prefixed as stored by Stage 1: "DC97259800020 Front Accessories Of Frame"
@@ -300,7 +263,7 @@ class _PartsManagementMixin:
             "POST", "type_category/get",
             json_data={"page": 1, "limit": 200, "search": type_category_name_en},
         )
-        
+
         if not success or not result:
             return None
 
@@ -309,7 +272,7 @@ class _PartsManagementMixin:
             if any(en.lower() == c.lower() for c in candidates):
                 if category_id is None or item.get("category_id") == category_id:
                     return item.get("type_category_id")
-                    
+
         return None
 
     # ------------------------------------------------------------------
@@ -324,16 +287,37 @@ class _PartsManagementMixin:
         category_id: Optional[str] = None,
         subtype_id_map: Optional[Dict[str, str]] = None,
     ) -> Tuple[bool, Dict]:
+        """
+        Submit all parts groups from extract_cabin_chassis_parts() to the API.
 
+        For each subtype group:
+          1. Resolve type_category_id — first via subtype_id_map, then by
+             looking up category_name_en -> category_id -> type_category_id.
+          2. Call create_item_category_with_parts().
+          3. Track results (created / skipped / errors).
+
+        Args:
+            parts_data:         List of subtype groups from the extractor.
+            master_category_id: UUID of the master category.
+            dokumen_name:       Document name passed to the API.
+            category_id:        UUID of the Category (2-level fallback).
+            subtype_id_map:     Optional map subtype_code/name -> type_category_id.
+
+        Returns:
+            Tuple (overall_success: bool, results: Dict)
+        """
+        # ✅ FIX 4: use "created" / "skipped" / "updated" keys to match
+        #    motorsights_epc_client.py and cabin_chassis_parts_runner.py
         results = {
-            "item_categories_created": [],
-            "item_categories_skipped": [],
-            "total_parts_submitted":   0,
-            "errors":                  []
+            "created":               [],
+            "updated":               [],   # populated if PUT path is ever used
+            "skipped":               [],
+            "total_parts_submitted": 0,
+            "errors":                [],
         }
 
-    # Cache category_id lookups so we don't repeat the same API call
-    # for every subtype under the same category.
+        # ✅ FIX 3: corrected indentation — was at 8-space (inside a phantom block)
+        #    must be 4-space (method body level)
         category_id_cache: Dict[str, Optional[str]] = {}
 
         for group in parts_data:
@@ -347,10 +331,10 @@ class _PartsManagementMixin:
                 self.logger.info("Subtype '%s': no parts, skipping", subtype_name_en)
                 continue
 
-        # ── 1. Resolve type_category_id ──────────────────────────────────
+            # ── Step 1: resolve type_category_id ─────────────────────────
             type_cat_id = None
 
-        # Try subtype_id_map first (explicit override)
+            # 1a. Explicit map (highest priority)
             if subtype_id_map:
                 type_cat_id = (
                     subtype_id_map.get(subtype_code)
@@ -358,48 +342,52 @@ class _PartsManagementMixin:
                     or subtype_id_map.get(subtype_name_cn)
                 )
 
-        # Fall back: resolve category_id by name, then type_category_id by name
+            # 1b. Resolve via category_name_en → category_id → type_category_id
             if not type_cat_id and cat_en:
-                if cat_en not in category_id_cache:
-                    category_id_cache[cat_en] = self.resolve_category_id_by_name(
-                        cat_en, master_category_id
+                resolved_cat_id = category_id_cache.get(cat_en)
+                if resolved_cat_id is None:
+                    resolved_cat_id = self.resolve_category_id_by_name(
+                        cat_en, master_category_id=master_category_id
                     )
-                resolved_cat_id = category_id_cache[cat_en]
+                    category_id_cache[cat_en] = resolved_cat_id
 
                 if resolved_cat_id:
-                # Try plain name first, then code-prefixed name (Stage 1 stores
-                # type categories as "DC97259800020 Front Accessories Of Frame")
                     type_cat_id = self.resolve_type_category_id_by_name(
-                        subtype_name_en, resolved_cat_id, subtype_code=subtype_code
+                        subtype_name_en,
+                        category_id=resolved_cat_id,
+                        subtype_code=subtype_code,
                     )
-                    if type_cat_id:
-                        category_id = resolved_cat_id  # keep in sync for 2-level fallback
+                    if not category_id:
+                        category_id = resolved_cat_id
                 else:
                     self.logger.warning(
-                        "Category '%s' not found in DB — will attempt 2-level fallback",
-                        cat_en,
+                        "Category '%s' not found in DB for subtype '%s'",
+                        cat_en, subtype_name_en,
                     )
 
-        # ── 2. Final fallback: use category_id directly (2-level) ────────
+            # 1c. Final fallback: use category_id directly (2-level)
             resolved_category_id = category_id
             if not type_cat_id and not resolved_category_id and cat_en:
                 resolved_category_id = category_id_cache.get(cat_en)
 
+            # ── Step 2: guard — must have at least one ID ─────────────────
             if not type_cat_id and not resolved_category_id:
                 self.logger.error(
-                    "Cannot resolve any ID for subtype '%s' — skipped", subtype_name_en
+                    "Cannot resolve any ID for subtype '%s' — skipped",
+                    subtype_name_en,
                 )
                 results["errors"].append({
                     "subtype_name_en": subtype_name_en,
-                    "error": "Could not resolve type_category_id or category_id from DB"
+                    "error": "Could not resolve type_category_id or category_id from DB",
                 })
                 continue
 
             self.logger.info(
-                "Submitting '%s' (%s): %d parts …",
+                "Submitting '%s' (%s): %d parts ...",
                 subtype_name_en, subtype_code, len(parts)
             )
 
+            # ── Step 3: submit ────────────────────────────────────────────
             success, response = self.create_item_category_with_parts(
                 master_category_id        = master_category_id,
                 category_id               = resolved_category_id,
@@ -408,42 +396,44 @@ class _PartsManagementMixin:
                 item_category_name_cn     = subtype_name_cn,
                 item_category_description = "",
                 dokumen_name              = dokumen_name,
-                parts                     = parts
+                data_items                = parts,
             )
 
             if success:
                 data = (response or {}).get("data", {})
-                results["item_categories_created"].append({
+                # ✅ FIX 4: append to "created" (was "item_categories_created")
+                results["created"].append({
                     "subtype_code":     subtype_code,
                     "subtype_name_en":  subtype_name_en,
                     "parts_count":      len(parts),
                     "item_category_id": data.get("item_category_id", ""),
                 })
                 results["total_parts_submitted"] += len(parts)
-                self.logger.info("✓ '%s': %d parts submitted", subtype_name_en, len(parts))
+                self.logger.info("'%s': %d parts submitted", subtype_name_en, len(parts))
             else:
                 err = str((response or {}).get("error", ""))
                 if "409" in err or "duplicate" in err.lower() or "already" in err.lower():
-                    results["item_categories_skipped"].append({
+                    # ✅ FIX 4: append to "skipped" (was "item_categories_skipped")
+                    results["skipped"].append({
                         "subtype_name_en": subtype_name_en,
-                        "reason":          "Already exists (409)"
+                        "reason":          "Already exists (409)",
                     })
-                    self.logger.info("⚠ '%s': already exists, skipped", subtype_name_en)
+                    self.logger.info("'%s': already exists, skipped", subtype_name_en)
                 else:
                     results["errors"].append({
                         "subtype_name_en": subtype_name_en,
-                        "error":           err
+                        "error":           err,
                     })
-                    self.logger.error("✗ '%s': %s", subtype_name_en, err)
+                    self.logger.error("'%s': %s", subtype_name_en, err)
 
         overall_success = len(results["errors"]) == 0
         self.logger.info(
             "batch_submit_parts complete — created: %d, skipped: %d, "
             "total parts: %d, errors: %d",
-            len(results["item_categories_created"]),
-            len(results["item_categories_skipped"]),
+            len(results["created"]),
+            len(results["skipped"]),
             results["total_parts_submitted"],
-            len(results["errors"])
+            len(results["errors"]),
         )
         return overall_success, results
 
