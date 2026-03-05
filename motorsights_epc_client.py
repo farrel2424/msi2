@@ -572,10 +572,23 @@ class MotorsightsEPCClient:
         master_category_id: Optional[str] = None,
     ) -> Optional[str]:
         """Look up category_id by English name."""
-        success, result = self._api_request(
-            "POST", "categories/get",
-            json_data={"page": 1, "limit": 200, "search": category_name_en},
-        )
+        url = f"{self.base_url}/categories/get"
+        def _request():
+            r = self.session.post(
+                url,
+                json={"page": 1, "limit": 200, "search": category_name_en},
+                headers=self._get_headers(),
+                timeout=30,
+            )
+            r.raise_for_status()
+            return True, r.json()
+        try:
+            success, result = self._handle_401_retry(_request)
+            if not success or not isinstance(result, dict):
+                return None
+        except requests.exceptions.RequestException as e:
+            self.logger.error("resolve_category_id_by_name failed: %s", e)
+            return None
         if not success or not result:
             return None
         for item in result.get("data", {}).get("items", []):
@@ -595,10 +608,23 @@ class MotorsightsEPCClient:
         candidates = [type_category_name_en.strip()]
         if subtype_code:
             candidates.append(f"{subtype_code} {type_category_name_en}".strip())
-        success, result = self._api_request(
-            "POST", "type_category/get",
-            json_data={"page": 1, "limit": 200, "search": type_category_name_en},
-        )
+        url = f"{self.base_url}/type_category/get"
+        def _request():
+            r = self.session.post(
+                url,
+                json={"page": 1, "limit": 200, "search": type_category_name_en},
+                headers=self._get_headers(),
+                timeout=30,
+            )
+            r.raise_for_status()
+            return True, r.json()
+        try:
+            success, result = self._handle_401_retry(_request)
+            if not success or not isinstance(result, dict):
+                return None
+        except requests.exceptions.RequestException as e:
+            self.logger.error("resolve_type_category_id_by_name failed: %s", e)
+            return None
         if not success or not result:
             return None
         for item in result.get("data", {}).get("items", []):
@@ -606,7 +632,7 @@ class MotorsightsEPCClient:
             if any(en.lower() == c.lower() for c in candidates):
                 if category_id is None or item.get("category_id") == category_id:
                     return item.get("type_category_id")
-        return None    
+        return None
     
     def batch_submit_parts(
         self,
@@ -637,8 +663,8 @@ class MotorsightsEPCClient:
             Tuple (overall_success: bool, results: Dict)
         """
         results = {
-            "item_categories_created": [],
-            "item_categories_skipped": [],
+            "created": [],
+            "skipped": [],
             "total_parts_submitted":   0,
             "errors":                  []
         }
@@ -738,7 +764,7 @@ class MotorsightsEPCClient:
 
             if success:
                 data = (response or {}).get("data", {})
-                results["item_categories_created"].append({
+                results["created"].append({
                     "subtype_code":     subtype_code,
                     "subtype_name_en":  subtype_name_en,
                     "parts_count":      len(parts),
@@ -749,7 +775,7 @@ class MotorsightsEPCClient:
             else:
                 err = str((response or {}).get("error", ""))
                 if "409" in err or "duplicate" in err.lower() or "already" in err.lower():
-                    results["item_categories_skipped"].append({
+                    results["skipped"].append({
                         "subtype_name_en": subtype_name_en,
                         "reason":          "Already exists (409)"
                     })
@@ -765,8 +791,8 @@ class MotorsightsEPCClient:
         self.logger.info(
             "batch_submit_parts complete — created: %d, skipped: %d, "
             "total parts: %d, errors: %d",
-            len(results["item_categories_created"]),
-            len(results["item_categories_skipped"]),
+            len(results["created"]),
+            len(results["skipped"]),
             results["total_parts_submitted"],
             len(results["errors"])
         )

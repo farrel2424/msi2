@@ -968,7 +968,7 @@ Return ONLY valid JSON in this structure:
 
     function renderPartsSubmissionResult(r) {
         const created = r.created?.length  || 0;
-        const updated = r.updated?.length  || 0;
+        const skipped = r.skipped?.length  || 0;
         const errors  = r.errors?.length   || 0;
         const el = document.getElementById('partsSubmissionResult');
         el.classList.remove('hidden');
@@ -976,7 +976,7 @@ Return ONLY valid JSON in this structure:
             <div class="submission-summary">
                 <div class="submission-summary__title">🔩 Parts Submission Complete</div>
                 <div class="summary-row"><span class="summary-row__label">Subtypes Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
-                <div class="summary-row"><span class="summary-row__label">Subtypes Updated</span><span class="summary-row__value summary-row__value--created">${updated}</span></div>
+                <div class="summary-row"><span class="summary-row__label">Subtypes Skipped (duplicates)</span><span class="summary-row__value summary-row__value--created">${skipped}</span></div>
                 ${errors ? `<div class="summary-row">
                     <span class="summary-row__label">Errors</span>
                     <span class="summary-row__value summary-row__value--error">${errors}</span>
