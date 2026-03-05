@@ -982,7 +982,7 @@ Return ONLY valid JSON in this structure:
                     <span class="summary-row__value summary-row__value--error">${errors}</span>
                 </div>
                 <ul style="margin:6px 0 0 16px;font-size:12px;color:var(--danger)">
-                    ${r.errors.map(e => `<li>${e.subtype || e}: ${e.error || ''}</li>`).join('')}
+                    ${r.errors.map(e => `<li>${e.subtype_name_en || e}: ${e.error || ''}</li>`).join('')}
                 </ul>` : ''}
             </div>`;
     }

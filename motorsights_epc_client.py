@@ -633,7 +633,7 @@ class MotorsightsEPCClient:
                 if category_id is None or item.get("category_id") == category_id:
                     return item.get("type_category_id")
         return None
-    
+
     def batch_submit_parts(
         self,
         parts_data: List[Dict],
@@ -665,8 +665,8 @@ class MotorsightsEPCClient:
         results = {
             "created": [],
             "skipped": [],
-            "total_parts_submitted":   0,
-            "errors":                  []
+            "total_parts_submitted": 0,
+            "errors":                []
         }
 
         # Cache category_id lookups — many subtypes share the same parent category
@@ -694,39 +694,28 @@ class MotorsightsEPCClient:
                     or subtype_id_map.get(subtype_name_cn)
                 )
 
-            # 1b. Name-based DB lookup — resolve category first, then type_category
+            # ✅ FIX Bug 1: use a per-iteration local variable instead of
+            #    overwriting the function parameter `category_id`.
+            resolved_category_id: Optional[str] = category_id
+
+            # 1b. Resolve via category_name_en → category_id → type_category_id
             if not type_cat_id and cat_en:
-                if cat_en not in category_id_cache:
-                    category_id_cache[cat_en] = self.resolve_category_id_by_name(
-                        cat_en, master_category_id
+                resolved_cat_id = category_id_cache.get(cat_en)
+                if resolved_cat_id is None:
+                    resolved_cat_id = self.resolve_category_id_by_name(
+                        cat_en, master_category_id=master_category_id
                     )
-                resolved_cat_id = category_id_cache[cat_en]
+                    category_id_cache[cat_en] = resolved_cat_id
 
                 if resolved_cat_id:
-                    # Try plain name: "Front Accessories Of Frame"
-                    # Then code-prefixed: "DC97259800020 Front Accessories Of Frame"
-                    # (Stage 1 stores type categories with the code prefix)
-                    for candidate in filter(None, [
+                    type_cat_id = self.resolve_type_category_id_by_name(
                         subtype_name_en,
-                        f"{subtype_code} {subtype_name_en}".strip() if subtype_code else None,
-                    ]):
-                        success, result = self._api_request(
-                            "POST", "type_category/get",
-                            json_data={"page": 1, "limit": 200, "search": candidate},
-                        )
-                        if success and result:
-                            for item in result.get("data", {}).get("items", []):
-                                en = (item.get("type_category_name_en") or "").strip()
-                                if (en.lower() == candidate.lower()
-                                        and item.get("category_id") == resolved_cat_id):
-                                    type_cat_id = item.get("type_category_id")
-                                    break
-                        if type_cat_id:
-                            break
-
-                    # Keep resolved_cat_id for 2-level fallback below
-                    if not category_id:
-                        category_id = resolved_cat_id
+                        category_id=resolved_cat_id,
+                        subtype_code=subtype_code,
+                    )
+                    # ✅ FIX: store into local var, NOT into the parameter
+                    if not resolved_category_id:
+                        resolved_category_id = resolved_cat_id
                 else:
                     self.logger.warning(
                         "Category '%s' not found in DB for subtype '%s'",
@@ -734,7 +723,8 @@ class MotorsightsEPCClient:
                     )
 
             # ── Step 2: guard — must have at least one ID ─────────────────
-            if not type_cat_id and not category_id:
+            # ✅ FIX: check resolved_category_id, not category_id
+            if not type_cat_id and not resolved_category_id:
                 self.logger.error(
                     "Cannot resolve type_category_id or category_id for '%s' — skipped",
                     subtype_name_en,
@@ -751,9 +741,10 @@ class MotorsightsEPCClient:
             )
 
             # ── Step 3: submit ────────────────────────────────────────────
+            # ✅ FIX: pass resolved_category_id (per-iteration local), not category_id
             success, response = self.create_item_category_with_parts(
                 master_category_id        = master_category_id,
-                category_id               = category_id,
+                category_id               = resolved_category_id,
                 type_category_id          = type_cat_id,
                 item_category_name_en     = subtype_name_en,
                 item_category_name_cn     = subtype_name_cn,

@@ -543,9 +543,9 @@ class EPCPDFAutomation:
                 result["success"] = True
                 result["stage"]   = "completed"
                 self.logger.info(
-                    "[OK] Parts submission complete — Created: %d | Updated: %d",
+                    "[OK] Parts submission complete — Created: %d | Skipped: %d",
                     len(epc_results.get("created", [])),
-                    len(epc_results.get("updated", [])),
+                    len(epc_results.get("skipped", [])),
                 )
             else:
                 errors = epc_results.get("errors", [])
