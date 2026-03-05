@@ -562,10 +562,52 @@ class MotorsightsEPCClient:
         )
         return overall_success, results
 
-    # =========================================================================
+# =========================================================================
     # BATCH OPERATIONS — PARTS MANAGEMENT
     # =========================================================================
 
+    def resolve_category_id_by_name(
+        self,
+        category_name_en: str,
+        master_category_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Look up category_id by English name."""
+        success, result = self._api_request(
+            "POST", "categories/get",
+            json_data={"page": 1, "limit": 200, "search": category_name_en},
+        )
+        if not success or not result:
+            return None
+        for item in result.get("data", {}).get("items", []):
+            en = (item.get("category_name_en") or "").strip().lower()
+            if en == category_name_en.strip().lower():
+                if master_category_id is None or item.get("master_category_id") == master_category_id:
+                    return item.get("category_id")
+        return None
+
+    def resolve_type_category_id_by_name(
+        self,
+        type_category_name_en: str,
+        category_id: Optional[str] = None,
+        subtype_code: Optional[str] = None,
+    ) -> Optional[str]:
+        """Look up type_category_id by English name, with code-prefix fallback."""
+        candidates = [type_category_name_en.strip()]
+        if subtype_code:
+            candidates.append(f"{subtype_code} {type_category_name_en}".strip())
+        success, result = self._api_request(
+            "POST", "type_category/get",
+            json_data={"page": 1, "limit": 200, "search": type_category_name_en},
+        )
+        if not success or not result:
+            return None
+        for item in result.get("data", {}).get("items", []):
+            en = (item.get("type_category_name_en") or "").strip()
+            if any(en.lower() == c.lower() for c in candidates):
+                if category_id is None or item.get("category_id") == category_id:
+                    return item.get("type_category_id")
+        return None    
+    
     def batch_submit_parts(
         self,
         parts_data: List[Dict],
@@ -578,7 +620,9 @@ class MotorsightsEPCClient:
         Submit all parts groups from extract_cabin_chassis_parts() to the API.
 
         For each subtype group:
-          1. Resolve type_category_id from subtype_id_map (if available).
+          1. Resolve type_category_id — first via subtype_id_map, then by
+             looking up category_name_en → category_id → type_category_id
+             from the DB (supports plain name AND code-prefixed name).
           2. Call create_item_category_with_parts().
           3. Track results (created / skipped / errors).
 
@@ -587,9 +631,7 @@ class MotorsightsEPCClient:
             master_category_id: UUID of the master category.
             dokumen_name:       Document name passed to the API.
             category_id:        UUID of the Category (2-level fallback).
-            subtype_id_map:     Maps subtype_code / name → type_category_id.
-                                Build from Stage 1 submission results or by
-                                querying GET /categories/{id}.
+            subtype_id_map:     Optional map subtype_code/name → type_category_id.
 
         Returns:
             Tuple (overall_success: bool, results: Dict)
@@ -601,18 +643,24 @@ class MotorsightsEPCClient:
             "errors":                  []
         }
 
+        # Cache category_id lookups — many subtypes share the same parent category
+        category_id_cache: Dict[str, Optional[str]] = {}
+
         for group in parts_data:
             subtype_code    = group.get("subtype_code", "")
             subtype_name_en = group.get("subtype_name_en", "")
             subtype_name_cn = group.get("subtype_name_cn", "")
+            cat_en          = (group.get("category_name_en") or "").strip()
             parts           = group.get("parts", [])
 
             if not parts:
                 self.logger.info("Subtype '%s': no parts, skipping", subtype_name_en)
                 continue
 
-            # Resolve type_category_id
+            # ── Step 1: resolve type_category_id ─────────────────────────
             type_cat_id = None
+
+            # 1a. Explicit map (highest priority)
             if subtype_id_map:
                 type_cat_id = (
                     subtype_id_map.get(subtype_code)
@@ -620,11 +668,63 @@ class MotorsightsEPCClient:
                     or subtype_id_map.get(subtype_name_cn)
                 )
 
+            # 1b. Name-based DB lookup — resolve category first, then type_category
+            if not type_cat_id and cat_en:
+                if cat_en not in category_id_cache:
+                    category_id_cache[cat_en] = self.resolve_category_id_by_name(
+                        cat_en, master_category_id
+                    )
+                resolved_cat_id = category_id_cache[cat_en]
+
+                if resolved_cat_id:
+                    # Try plain name: "Front Accessories Of Frame"
+                    # Then code-prefixed: "DC97259800020 Front Accessories Of Frame"
+                    # (Stage 1 stores type categories with the code prefix)
+                    for candidate in filter(None, [
+                        subtype_name_en,
+                        f"{subtype_code} {subtype_name_en}".strip() if subtype_code else None,
+                    ]):
+                        success, result = self._api_request(
+                            "POST", "type_category/get",
+                            json_data={"page": 1, "limit": 200, "search": candidate},
+                        )
+                        if success and result:
+                            for item in result.get("data", {}).get("items", []):
+                                en = (item.get("type_category_name_en") or "").strip()
+                                if (en.lower() == candidate.lower()
+                                        and item.get("category_id") == resolved_cat_id):
+                                    type_cat_id = item.get("type_category_id")
+                                    break
+                        if type_cat_id:
+                            break
+
+                    # Keep resolved_cat_id for 2-level fallback below
+                    if not category_id:
+                        category_id = resolved_cat_id
+                else:
+                    self.logger.warning(
+                        "Category '%s' not found in DB for subtype '%s'",
+                        cat_en, subtype_name_en,
+                    )
+
+            # ── Step 2: guard — must have at least one ID ─────────────────
+            if not type_cat_id and not category_id:
+                self.logger.error(
+                    "Cannot resolve type_category_id or category_id for '%s' — skipped",
+                    subtype_name_en,
+                )
+                results["errors"].append({
+                    "subtype_name_en": subtype_name_en,
+                    "error": "Could not resolve type_category_id or category_id from DB",
+                })
+                continue
+
             self.logger.info(
                 "Submitting '%s' (%s): %d parts …",
                 subtype_name_en, subtype_code, len(parts)
             )
 
+            # ── Step 3: submit ────────────────────────────────────────────
             success, response = self.create_item_category_with_parts(
                 master_category_id        = master_category_id,
                 category_id               = category_id,
@@ -648,7 +748,6 @@ class MotorsightsEPCClient:
                 self.logger.info("✓ '%s': %d parts submitted", subtype_name_en, len(parts))
             else:
                 err = str((response or {}).get("error", ""))
-                # Check for 409 / duplicate
                 if "409" in err or "duplicate" in err.lower() or "already" in err.lower():
                     results["item_categories_skipped"].append({
                         "subtype_name_en": subtype_name_en,

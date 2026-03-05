@@ -321,197 +321,129 @@ class _PartsManagementMixin:
         parts_data: List[Dict],
         master_category_id: str,
         dokumen_name: str,
-        default_unit: str = "pcs",
+        category_id: Optional[str] = None,
+        subtype_id_map: Optional[Dict[str, str]] = None,
     ) -> Tuple[bool, Dict]:
-        """
-        Submit all parts from a Cabin & Chassis partbook extraction result.
 
-        Each group in parts_data must carry:
-          - category_name_en   ← used to resolve category_id per group
-          - subtype_name_en / subtype_name_cn
-          - parts: List[Dict]  ← already have target_id, part_number, etc.
-
-        This replaces the old signature that took a single global
-        category_name_en parameter — the correct category is now read
-        directly from each subtype group, supporting partbooks that contain
-        multiple Categories (e.g. "Frame System", "Brake System", ...).
-
-        Args:
-            parts_data:         List of subtype-group dicts from
-                                extract_cabin_chassis_parts().
-            master_category_id: UUID of the Cabin & Chassis master category.
-            dokumen_name:       Document name for the item_category record.
-            default_unit:       Unit string (partbook has no unit column).
-
-        Returns:
-            (overall_success, results_dict)
-            results_dict keys: created, updated, errors
-        """
-        results: Dict = {
-            "created": [],
-            "updated": [],
-            "errors":  [],
+        results = {
+            "item_categories_created": [],
+            "item_categories_skipped": [],
+            "total_parts_submitted":   0,
+            "errors":                  []
         }
 
-        # Cache resolved category_ids to avoid repeated API calls for the
-        # same category (many subtypes share one parent Category).
+    # Cache category_id lookups so we don't repeat the same API call
+    # for every subtype under the same category.
         category_id_cache: Dict[str, Optional[str]] = {}
 
         for group in parts_data:
+            subtype_code    = group.get("subtype_code", "")
+            subtype_name_en = group.get("subtype_name_en", "")
+            subtype_name_cn = group.get("subtype_name_cn", "")
             cat_en          = (group.get("category_name_en") or "").strip()
-            subtype_name_en = (group.get("subtype_name_en")  or "").strip()
-            subtype_name_cn = (group.get("subtype_name_cn")  or "").strip()
-            raw_parts       = group.get("parts", [])
+            parts           = group.get("parts", [])
 
-            if not raw_parts:
-                self.logger.warning("Subtype '%s': no parts — skipped", subtype_name_en)
+            if not parts:
+                self.logger.info("Subtype '%s': no parts, skipping", subtype_name_en)
                 continue
 
-            # ── Validate category_name_en ────────────────────────────────
-            if not cat_en:
+        # ── 1. Resolve type_category_id ──────────────────────────────────
+            type_cat_id = None
+
+        # Try subtype_id_map first (explicit override)
+            if subtype_id_map:
+                type_cat_id = (
+                    subtype_id_map.get(subtype_code)
+                    or subtype_id_map.get(subtype_name_en)
+                    or subtype_id_map.get(subtype_name_cn)
+                )
+
+        # Fall back: resolve category_id by name, then type_category_id by name
+            if not type_cat_id and cat_en:
+                if cat_en not in category_id_cache:
+                    category_id_cache[cat_en] = self.resolve_category_id_by_name(
+                        cat_en, master_category_id
+                    )
+                resolved_cat_id = category_id_cache[cat_en]
+
+                if resolved_cat_id:
+                # Try plain name first, then code-prefixed name (Stage 1 stores
+                # type categories as "DC97259800020 Front Accessories Of Frame")
+                    type_cat_id = self.resolve_type_category_id_by_name(
+                        subtype_name_en, resolved_cat_id, subtype_code=subtype_code
+                    )
+                    if type_cat_id:
+                        category_id = resolved_cat_id  # keep in sync for 2-level fallback
+                else:
+                    self.logger.warning(
+                        "Category '%s' not found in DB — will attempt 2-level fallback",
+                        cat_en,
+                    )
+
+        # ── 2. Final fallback: use category_id directly (2-level) ────────
+            resolved_category_id = category_id
+            if not type_cat_id and not resolved_category_id and cat_en:
+                resolved_category_id = category_id_cache.get(cat_en)
+
+            if not type_cat_id and not resolved_category_id:
                 self.logger.error(
-                    "Subtype '%s' has no category_name_en — skipped", subtype_name_en
+                    "Cannot resolve any ID for subtype '%s' — skipped", subtype_name_en
                 )
                 results["errors"].append({
-                    "subtype": subtype_name_en,
-                    "error":   "Missing category_name_en in parts data",
+                    "subtype_name_en": subtype_name_en,
+                    "error": "Could not resolve type_category_id or category_id from DB"
                 })
                 continue
-
-            # ── Resolve category_id (cached) ─────────────────────────────
-            if cat_en not in category_id_cache:
-                category_id_cache[cat_en] = self.resolve_category_id_by_name(
-                    cat_en, master_category_id
-                )
-
-            category_id = category_id_cache[cat_en]
-
-            if not category_id:
-                self.logger.error(
-                    "Category '%s' not found in DB — skipping subtype '%s'",
-                    cat_en, subtype_name_en,
-                )
-                results["errors"].append({
-                    "subtype": subtype_name_en,
-                    "error":   f"Category '{cat_en}' not found in database",
-                })
-                continue
-
-            # ── Resolve type_category_id ─────────────────────────────────
-            type_category_id = self.resolve_type_category_id_by_name(
-                subtype_name_en, 
-                category_id,
-                subtype_code=group.get("subtype_code", ""),
-            )
-
-            if not type_category_id:
-                self.logger.warning(
-                    "type_category '%s' not found under '%s' — using category_id only",
-                    subtype_name_en, cat_en,
-                )
 
             self.logger.info(
-                "Processing '%s' → '%s' (%d parts)…",
-                cat_en, subtype_name_en, len(raw_parts),
+                "Submitting '%s' (%s): %d parts …",
+                subtype_name_en, subtype_code, len(parts)
             )
 
-            # ── Check if item_category already exists ────────────────────
-            if type_category_id:
-                existing = self.get_item_category_by_type_category(
-                    type_category_id, dokumen_name
-                )
+            success, response = self.create_item_category_with_parts(
+                master_category_id        = master_category_id,
+                category_id               = resolved_category_id,
+                type_category_id          = type_cat_id,
+                item_category_name_en     = subtype_name_en,
+                item_category_name_cn     = subtype_name_cn,
+                item_category_description = "",
+                dokumen_name              = dokumen_name,
+                parts                     = parts
+            )
+
+            if success:
+                data = (response or {}).get("data", {})
+                results["item_categories_created"].append({
+                    "subtype_code":     subtype_code,
+                    "subtype_name_en":  subtype_name_en,
+                    "parts_count":      len(parts),
+                    "item_category_id": data.get("item_category_id", ""),
+                })
+                results["total_parts_submitted"] += len(parts)
+                self.logger.info("✓ '%s': %d parts submitted", subtype_name_en, len(parts))
             else:
-                existing = self.get_item_category_by_category(category_id, dokumen_name)
-
-            # ── Build data_items from the already-processed parts list ───
-            # Parts from extract_cabin_chassis_parts() already have target_id,
-            # catalog_item_name_en, catalog_item_name_ch, quantity, etc.
-            data_items = [
-                {
-                    "target_id":            p.get("target_id", ""),
-                    "part_number":          p.get("part_number", ""),
-                    "catalog_item_name_en": p.get("catalog_item_name_en", ""),
-                    "catalog_item_name_ch": p.get("catalog_item_name_ch", ""),
-                    "description":          p.get("description", ""),
-                    "quantity":             p.get("quantity", 1),
-                    "unit":                 p.get("unit", default_unit),
-                }
-                for p in raw_parts
-                if (p.get("part_number") or "").strip()
-            ]
-
-            if not data_items:
-                self.logger.warning(
-                    "Subtype '%s': all parts filtered out — skipped", subtype_name_en
-                )
-                continue
-
-            # ── Submit ───────────────────────────────────────────────────
-            if existing:
-                existing_details = self.get_item_category_details(
-                    existing["item_category_id"]
-                )
-                # Re-number T-IDs from DB continuation point
-                start_idx = _get_next_target_index(existing_details)
-                self.logger.info(
-                    "item_category exists (%s). Continuing from T%03d.",
-                    existing["item_category_id"], start_idx,
-                )
-                for i, item in enumerate(data_items, start=start_idx):
-                    item["target_id"] = f"T{i:03d}"
-
-                success, resp = self.update_item_category_with_parts(
-                    item_category_id      = existing["item_category_id"],
-                    master_category_id    = master_category_id,
-                    category_id           = category_id,
-                    type_category_id      = type_category_id,
-                    item_category_name_en = existing.get("item_category_name_en", subtype_name_en),
-                    item_category_name_cn = existing.get("item_category_name_cn", subtype_name_cn),
-                    dokumen_name          = dokumen_name,
-                    data_items            = data_items,
-                )
-                if success:
-                    results["updated"].append(subtype_name_en)
-                    self.logger.info("✓ Updated '%s' with %d parts", subtype_name_en, len(data_items))
+                err = str((response or {}).get("error", ""))
+                if "409" in err or "duplicate" in err.lower() or "already" in err.lower():
+                    results["item_categories_skipped"].append({
+                        "subtype_name_en": subtype_name_en,
+                        "reason":          "Already exists (409)"
+                    })
+                    self.logger.info("⚠ '%s': already exists, skipped", subtype_name_en)
                 else:
                     results["errors"].append({
-                        "subtype":  subtype_name_en,
-                        "error":    "PUT failed",
-                        "response": resp,
+                        "subtype_name_en": subtype_name_en,
+                        "error":           err
                     })
-                    self.logger.error("✗ PUT failed for '%s': %s", subtype_name_en, resp)
-
-            else:
-                success, resp = self.create_item_category_with_parts(
-                    master_category_id        = master_category_id,
-                    category_id               = category_id if not type_category_id else None,
-                    type_category_id          = type_category_id,
-                    item_category_name_en     = subtype_name_en,
-                    item_category_name_cn     = subtype_name_cn,
-                    item_category_description = "",
-                    dokumen_name              = dokumen_name,
-                    data_items                = data_items,
-                )
-                if success:
-                    results["created"].append(subtype_name_en)
-                    self.logger.info("✓ Created '%s' with %d parts", subtype_name_en, len(data_items))
-                else:
-                    results["errors"].append({
-                        "subtype":  subtype_name_en,
-                        "error":    "POST failed",
-                        "response": resp,
-                    })
-                    self.logger.error("✗ POST failed for '%s': %s", subtype_name_en, resp)
-
-            # Polite delay between requests
-            time.sleep(0.5)
+                    self.logger.error("✗ '%s': %s", subtype_name_en, err)
 
         overall_success = len(results["errors"]) == 0
         self.logger.info(
-            "Parts submission complete — Created: %d | Updated: %d | Errors: %d",
-            len(results["created"]),
-            len(results["updated"]),
-            len(results["errors"]),
+            "batch_submit_parts complete — created: %d, skipped: %d, "
+            "total parts: %d, errors: %d",
+            len(results["item_categories_created"]),
+            len(results["item_categories_skipped"]),
+            results["total_parts_submitted"],
+            len(results["errors"])
         )
         return overall_success, results
 
