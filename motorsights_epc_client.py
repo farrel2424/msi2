@@ -200,7 +200,6 @@ class MotorsightsEPCClient:
 
         def _request():
             r = self.session.post(url, json=data, headers=self._get_headers(), timeout=30)
-            # Handle 409 conflict (duplicate category name) gracefully
             if r.status_code == 409:
                 self.logger.warning(
                     f"Category already exists (409): "
@@ -262,12 +261,6 @@ class MotorsightsEPCClient:
         Examples:
           • No existing parts → 1   (first part gets T001)
           • Last part is T029 → 30  (next part gets T030)
-
-        Args:
-            item_category_id: UUID of the item_category to inspect.
-
-        Returns:
-            int — the index to pass as target_id_start to the extractor.
         """
         success, data = self.get_item_category_by_id(item_category_id)
         if not success or not data:
@@ -315,35 +308,18 @@ class MotorsightsEPCClient:
         Hierarchy routing (per API docs):
           • If type_category_id provided → 3-level (subtype present)
           • Else if category_id provided → 2-level (no subtype)
-
-        Args:
-            master_category_id:         UUID of master category.
-            category_id:                UUID of category (2-level fallback).
-            type_category_id:           UUID of type/subtype category (preferred).
-            item_category_name_en:      English name (usually == subtype name).
-            item_category_name_cn:      Chinese name.
-            item_category_description:  Description string (may be empty).
-            dokumen_name:               Document/partbook name.
-            parts:                      List of part dicts:
-                                          target_id, part_number,
-                                          catalog_item_name_en, catalog_item_name_ch,
-                                          quantity, description, unit
-
-        Returns:
-            Tuple (success: bool, response_data: Optional[Dict])
         """
         url = f"{self.base_url}/item_category/create"
 
         if not type_category_id and not category_id:
-            raise ValueError(
-                "Either type_category_id or category_id must be provided"
-            )
+            raise ValueError("Either type_category_id or category_id must be provided")
 
         # Build data_items JSON array (the parts rows)
         data_items = []
         for p in parts:
             data_items.append({
                 "target_id":            p.get("target_id", ""),
+                "diagram_serial_number": p.get("diagram_serial_number", ""),
                 "part_number":          p.get("part_number", ""),
                 "catalog_item_name_en": p.get("catalog_item_name_en", ""),
                 "catalog_item_name_ch": p.get("catalog_item_name_ch", ""),
@@ -353,8 +329,7 @@ class MotorsightsEPCClient:
             })
 
         # Build multipart form fields
-        # NOTE: requests multipart format is {field: (filename, value, content_type)}
-        # For text fields use (None, value) — no filename, no content_type.
+        # requests multipart format: {field: (filename, value)} — None filename for text fields
         form_data = {
             "dokumen_name":              (None, dokumen_name),
             "master_category_id":        (None, master_category_id),
@@ -379,8 +354,8 @@ class MotorsightsEPCClient:
             )
 
         def _request():
-            # Multipart: do NOT send Content-Type manually —
-            # requests sets it with the boundary automatically.
+            # Do NOT send Content-Type manually —
+            # requests sets it with the boundary automatically for multipart.
             headers = {"Authorization": f"Bearer {self._get_bearer_token()}"}
             r = self.session.post(url, files=form_data, headers=headers, timeout=60)
             r.raise_for_status()
@@ -426,11 +401,8 @@ class MotorsightsEPCClient:
         master_category_name_en: Optional[str] = None
     ) -> Tuple[bool, Dict]:
         """
-        Batch create categories WITH nested type categories (Cabin & Chassis /
-        Axle Drive).
-
-        3-level hierarchy:  Master Category → Category → Type Category (subtype)
-
+        Batch create categories WITH nested type categories (Cabin & Chassis / Axle Drive).
+        3-level hierarchy: Master Category → Category → Type Category (subtype)
         409 conflicts are skipped gracefully and counted separately.
         """
         if not master_category_id:
@@ -444,28 +416,24 @@ class MotorsightsEPCClient:
         }
 
         for pdf_category in catalog_data.get("categories", []):
-            data_type = [
-                {
-                    "type_category_name_en":  tc.get("type_category_name_en", ""),
-                    "type_category_name_cn":  tc.get("type_category_name_cn", ""),
-                    "type_category_description": tc.get("type_category_description", ""),
-                }
-                for tc in pdf_category.get("data_type", [])
-            ]
+            nested_types = pdf_category.get("data_type", [])
 
             category_request = {
-                "master_category_id":   master_category_id,
+                "master_category_id":      master_category_id,
                 "master_category_name_en": master_category_name_en or "",
-                "category_name_en":     pdf_category.get("category_name_en", ""),
-                "category_name_cn":     pdf_category.get("category_name_cn", ""),
-                "category_description": pdf_category.get(
-                    "category_description",
-                    f"Category for {pdf_category.get('category_name_en', '')}"
-                ),
-                "data_type": data_type
+                "category_name_en":        pdf_category.get("category_name_en", ""),
+                "category_name_cn":        pdf_category.get("category_name_cn", ""),
+                "category_description":    pdf_category.get("category_description", ""),
+                "data_type": [
+                    {
+                        "type_category_name_en":     tc.get("type_category_name_en", ""),
+                        "type_category_name_cn":     tc.get("type_category_name_cn", ""),
+                        "type_category_description": tc.get("type_category_description", ""),
+                    }
+                    for tc in nested_types
+                ]
             }
 
-            self.logger.debug(f"Creating category: {category_request}")
             success, cat_response, was_skipped = self.create_category(category_request)
 
             if success and was_skipped:
@@ -473,16 +441,14 @@ class MotorsightsEPCClient:
                     "category_name_en": pdf_category.get("category_name_en", ""),
                     "message":          cat_response.get("message", "Already exists")
                 })
-                self.logger.info(
-                    "Skipped existing category '%s'",
-                    pdf_category.get("category_name_en", "")
-                )
+                self.logger.info("Skipped '%s'", pdf_category.get("category_name_en", ""))
             elif success:
                 results["categories_created"].append(cat_response.get("data", {}))
-                nested_types = cat_response.get("data", {}).get("data_type", [])
-                results["type_categories_created"].extend(nested_types)
+                results["type_categories_created"].extend(
+                    (cat_response.get("data") or {}).get("data_type", [])
+                )
                 self.logger.info(
-                    "Created category '%s' with %d type categories",
+                    "Created '%s' with %d type categories",
                     pdf_category.get("category_name_en", ""), len(nested_types)
                 )
             else:
@@ -510,7 +476,6 @@ class MotorsightsEPCClient:
     ) -> Tuple[bool, Dict]:
         """
         Batch create flat categories WITHOUT type categories (Engine / Transmission).
-
         2-level hierarchy: Master Category → Category
         """
         if not master_category_id:
@@ -525,12 +490,12 @@ class MotorsightsEPCClient:
 
         for cat in catalog_data.get("categories", []):
             category_request = {
-                "master_category_id":    master_category_id,
+                "master_category_id":      master_category_id,
                 "master_category_name_en": master_category_name_en or "",
-                "category_name_en":      cat.get("category_name_en", ""),
-                "category_name_cn":      cat.get("category_name_cn", ""),
-                "category_description":  cat.get("category_description", ""),
-                "data_type":             []
+                "category_name_en":        cat.get("category_name_en", ""),
+                "category_name_cn":        cat.get("category_name_cn", ""),
+                "category_description":    cat.get("category_description", ""),
+                "data_type":               []
             }
 
             success, cat_response, was_skipped = self.create_category(category_request)
@@ -562,82 +527,40 @@ class MotorsightsEPCClient:
         )
         return overall_success, results
 
-# =========================================================================
+    # =========================================================================
     # BATCH OPERATIONS — PARTS MANAGEMENT
     # =========================================================================
 
-    def resolve_category_id_by_name(
+    def resolve_ids_by_subtype_name(
         self,
-        category_name_en: str,
-        master_category_id: Optional[str] = None,
-    ) -> Optional[str]:
-        """Look up category_id by English name."""
-        url = f"{self.base_url}/categories/get"
-        # Per API docs, master_category_id is a supported filter field.
-        # Passing it scopes results to that master category — required to get results.
-        payload = {
-            "page": 1,
-            "limit": 500,
-            "search": "",
-            "master_category_id": master_category_id,  # null = all, UUID = scoped
-        }
-
-        def _request():
-            r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
-            r.raise_for_status()
-            return True, r.json()
-        try:
-            success, result = self._handle_401_retry(_request)
-            if not success or not result:
-                return None
-        except requests.exceptions.RequestException as e:
-            self.logger.error("resolve_category_id_by_name failed: %s", e)
-            return None
-
-        data  = result.get("data", []) if isinstance(result, dict) else result
-        items = data.get("items", [])  if isinstance(data, dict)   else data
-        if not isinstance(items, list):
-            items = []
-
-        self.logger.debug(
-            "resolve_category_id_by_name('%s'): %d categories returned",
-            category_name_en, len(items)
-        )
-
-        for item in items:
-            en = (item.get("category_name_en") or "").strip().lower()
-            if en == category_name_en.strip().lower():
-                if master_category_id is None or item.get("master_category_id") == master_category_id:
-                    return item.get("category_id")
-
-        self.logger.warning(
-            "resolve_category_id_by_name: '%s' not found among %d categories. "
-            "Available: %s",
-            category_name_en,
-            len(items),
-            [i.get("category_name_en") for i in items[:20]],
-        )
-        return None
-
-    def resolve_type_category_id_by_name(
-        self,
-        type_category_name_en: str,
-        category_id: Optional[str] = None,
+        subtype_name_en: str,
         subtype_code: Optional[str] = None,
-    ) -> Optional[str]:
-        """Look up type_category_id by English name, with code-prefix fallback."""
-        candidates = [type_category_name_en.strip()]
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Resolve (type_category_id, category_id) in ONE call to /type_category/get.
+
+        The UI never calls /categories/get — it goes straight to /type_category/get.
+        Each type_category item already contains category_id, so we get both IDs
+        from a single request.
+
+        Match priority:
+          1. "<subtype_code> subtype_name_en" (code-prefixed, as stored in DB)
+          2. Plain "subtype_name_en"
+
+        Returns:
+            (type_category_id, category_id) — both None if not found.
+        """
+        candidates = []
         if subtype_code:
-            candidates.append(f"{subtype_code} {type_category_name_en}".strip())
+            candidates.append(f"{subtype_code} {subtype_name_en}".strip())
+        candidates.append(subtype_name_en.strip())
 
         url = f"{self.base_url}/type_category/get"
-        # Per API docs, category_id is a supported filter field.
-        # Passing it scopes results to that category's subtypes.
         payload = {
             "page": 1,
             "limit": 500,
             "search": "",
-            "category_id": category_id,  # null = all, UUID = scoped
+            "sort_order": "desc",
         }
 
         def _request():
@@ -647,10 +570,10 @@ class MotorsightsEPCClient:
         try:
             success, result = self._handle_401_retry(_request)
             if not success or not result:
-                return None
+                return None, None
         except requests.exceptions.RequestException as e:
-            self.logger.error("resolve_type_category_id_by_name failed: %s", e)
-            return None
+            self.logger.error("resolve_ids_by_subtype_name failed: %s", e)
+            return None, None
 
         data  = result.get("data", []) if isinstance(result, dict) else result
         items = data.get("items", [])  if isinstance(data, dict)   else data
@@ -658,60 +581,28 @@ class MotorsightsEPCClient:
             items = []
 
         self.logger.debug(
-            "resolve_type_category_id_by_name('%s'): %d type categories returned",
-            type_category_name_en, len(items)
+            "resolve_ids_by_subtype_name('%s'): %d type categories fetched",
+            subtype_name_en, len(items)
         )
 
         for item in items:
             en = (item.get("type_category_name_en") or "").strip()
             if any(en.lower() == c.lower() for c in candidates):
-                if category_id is None or item.get("category_id") == category_id:
-                    return item.get("type_category_id")
+                type_cat_id = item.get("type_category_id")
+                cat_id      = item.get("category_id")
+                self.logger.info(
+                    "Resolved '%s' → type_category_id=%s, category_id=%s",
+                    subtype_name_en, type_cat_id, cat_id
+                )
+                return type_cat_id, cat_id
 
         self.logger.warning(
-            "resolve_type_category_id_by_name: '%s' not found among %d type categories. "
-            "Available: %s",
-            type_category_name_en,
+            "resolve_ids_by_subtype_name: '%s' not found among %d items. Available: %s",
+            subtype_name_en,
             len(items),
             [i.get("type_category_name_en") for i in items[:20]],
         )
-        return None
-
-    def resolve_type_category_id_by_name(
-        self,
-        type_category_name_en: str,
-        category_id: Optional[str] = None,
-        subtype_code: Optional[str] = None,
-    ) -> Optional[str]:
-        """Look up type_category_id by English name, with code-prefix fallback."""
-        candidates = [type_category_name_en.strip()]
-        if subtype_code:
-            candidates.append(f"{subtype_code} {type_category_name_en}".strip())
-        url = f"{self.base_url}/type_category/get"
-        def _request():
-            r = self.session.post(
-                url,
-                json={"page": 1, "limit": 200, "search": type_category_name_en},
-                headers=self._get_headers(),
-                timeout=30,
-            )
-            r.raise_for_status()
-            return True, r.json()
-        try:
-            success, result = self._handle_401_retry(_request)
-            if not success or not isinstance(result, dict):
-                return None
-        except requests.exceptions.RequestException as e:
-            self.logger.error("resolve_type_category_id_by_name failed: %s", e)
-            return None
-        if not success or not result:
-            return None
-        for item in result.get("data", {}).get("items", []):
-            en = (item.get("type_category_name_en") or "").strip()
-            if any(en.lower() == c.lower() for c in candidates):
-                if category_id is None or item.get("category_id") == category_id:
-                    return item.get("type_category_id")
-        return None
+        return None, None
 
     def batch_submit_parts(
         self,
@@ -725,84 +616,49 @@ class MotorsightsEPCClient:
         Submit all parts groups from extract_cabin_chassis_parts() to the API.
 
         For each subtype group:
-          1. Resolve type_category_id — first via subtype_id_map, then by
-             looking up category_name_en → category_id → type_category_id
-             from the DB (supports plain name AND code-prefixed name).
+          1. Resolve type_category_id + category_id via resolve_ids_by_subtype_name()
+             (single /type_category/get call — mirrors exactly what the UI does).
           2. Call create_item_category_with_parts().
           3. Track results (created / skipped / errors).
-
-        Args:
-            parts_data:        List of subtype groups from the extractor.
-            master_category_id: UUID of the master category.
-            dokumen_name:       Document name passed to the API.
-            category_id:        UUID of the Category (2-level fallback).
-            subtype_id_map:     Optional map subtype_code/name → type_category_id.
-
-        Returns:
-            Tuple (overall_success: bool, results: Dict)
         """
         results = {
-            "created": [],
-            "skipped": [],
+            "created":               [],
+            "skipped":               [],
+            "updated":               [],
+            "errors":                [],
             "total_parts_submitted": 0,
-            "errors":                []
         }
 
-        # Cache category_id lookups — many subtypes share the same parent category
-        category_id_cache: Dict[str, Optional[str]] = {}
-
         for group in parts_data:
-            subtype_code    = group.get("subtype_code", "")
-            subtype_name_en = group.get("subtype_name_en", "")
-            subtype_name_cn = group.get("subtype_name_cn", "")
-            cat_en          = (group.get("category_name_en") or "").strip()
+            subtype_code    = (group.get("subtype_code")    or "").strip()
+            subtype_name_en = (group.get("subtype_name_en") or "").strip()
+            subtype_name_cn = (group.get("subtype_name_cn") or "").strip()
             parts           = group.get("parts", [])
 
             if not parts:
-                self.logger.info("Subtype '%s': no parts, skipping", subtype_name_en)
+                self.logger.debug("Skipping empty group '%s'", subtype_name_en)
                 continue
 
-            # ── Step 1: resolve type_category_id ─────────────────────────
-            type_cat_id = None
+            # ── Step 1: resolve type_category_id + category_id ───────────
+            type_cat_id: Optional[str] = None
+            resolved_category_id: Optional[str] = category_id
 
             # 1a. Explicit map (highest priority)
             if subtype_id_map:
                 type_cat_id = (
                     subtype_id_map.get(subtype_code)
                     or subtype_id_map.get(subtype_name_en)
-                    or subtype_id_map.get(subtype_name_cn)
                 )
 
-            # ✅ FIX Bug 1: use a per-iteration local variable instead of
-            #    overwriting the function parameter `category_id`.
-            resolved_category_id: Optional[str] = category_id
-
-            # 1b. Resolve via category_name_en → category_id → type_category_id
-            if not type_cat_id and cat_en:
-                resolved_cat_id = category_id_cache.get(cat_en)
-                if resolved_cat_id is None:
-                    resolved_cat_id = self.resolve_category_id_by_name(
-                        cat_en, master_category_id=master_category_id
-                    )
-                    category_id_cache[cat_en] = resolved_cat_id
-
-                if resolved_cat_id:
-                    type_cat_id = self.resolve_type_category_id_by_name(
-                        subtype_name_en,
-                        category_id=resolved_cat_id,
-                        subtype_code=subtype_code,
-                    )
-                    # ✅ FIX: store into local var, NOT into the parameter
-                    if not resolved_category_id:
-                        resolved_category_id = resolved_cat_id
-                else:
-                    self.logger.warning(
-                        "Category '%s' not found in DB for subtype '%s'",
-                        cat_en, subtype_name_en,
-                    )
+            # 1b. Single /type_category/get call — gets both IDs at once
+            if not type_cat_id:
+                type_cat_id, resolved_cat_id = self.resolve_ids_by_subtype_name(
+                    subtype_name_en, subtype_code=subtype_code
+                )
+                if resolved_cat_id and not resolved_category_id:
+                    resolved_category_id = resolved_cat_id
 
             # ── Step 2: guard — must have at least one ID ─────────────────
-            # ✅ FIX: check resolved_category_id, not category_id
             if not type_cat_id and not resolved_category_id:
                 self.logger.error(
                     "Cannot resolve type_category_id or category_id for '%s' — skipped",
@@ -820,7 +676,6 @@ class MotorsightsEPCClient:
             )
 
             # ── Step 3: submit ────────────────────────────────────────────
-            # ✅ FIX: pass resolved_category_id (per-iteration local), not category_id
             success, response = self.create_item_category_with_parts(
                 master_category_id        = master_category_id,
                 category_id               = resolved_category_id,
