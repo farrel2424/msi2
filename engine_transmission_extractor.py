@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from pdf_utils import (
+    extract_response_text,
     extract_zip_pdf,
     image_to_base64,
     is_zip_pdf,
@@ -67,7 +68,7 @@ def _vision_call(b64_image: str, system_prompt: str, user_text: str,
             max_tokens=max_tokens,
             timeout=60,
         )
-        return response.choices[0].message.content.strip()
+        return extract_response_text(response)
     except Exception as e:
         logger.warning("Vision call failed: %s", e)
         return None

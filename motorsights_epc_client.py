@@ -573,29 +573,108 @@ class MotorsightsEPCClient:
     ) -> Optional[str]:
         """Look up category_id by English name."""
         url = f"{self.base_url}/categories/get"
+        # Per API docs, master_category_id is a supported filter field.
+        # Passing it scopes results to that master category — required to get results.
+        payload = {
+            "page": 1,
+            "limit": 500,
+            "search": "",
+            "master_category_id": master_category_id,  # null = all, UUID = scoped
+        }
+
         def _request():
-            r = self.session.post(
-                url,
-                json={"page": 1, "limit": 200, "search": category_name_en},
-                headers=self._get_headers(),
-                timeout=30,
-            )
+            r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
             r.raise_for_status()
             return True, r.json()
         try:
             success, result = self._handle_401_retry(_request)
-            if not success or not isinstance(result, dict):
+            if not success or not result:
                 return None
         except requests.exceptions.RequestException as e:
             self.logger.error("resolve_category_id_by_name failed: %s", e)
             return None
-        if not success or not result:
-            return None
-        for item in result.get("data", {}).get("items", []):
+
+        data  = result.get("data", []) if isinstance(result, dict) else result
+        items = data.get("items", [])  if isinstance(data, dict)   else data
+        if not isinstance(items, list):
+            items = []
+
+        self.logger.debug(
+            "resolve_category_id_by_name('%s'): %d categories returned",
+            category_name_en, len(items)
+        )
+
+        for item in items:
             en = (item.get("category_name_en") or "").strip().lower()
             if en == category_name_en.strip().lower():
                 if master_category_id is None or item.get("master_category_id") == master_category_id:
                     return item.get("category_id")
+
+        self.logger.warning(
+            "resolve_category_id_by_name: '%s' not found among %d categories. "
+            "Available: %s",
+            category_name_en,
+            len(items),
+            [i.get("category_name_en") for i in items[:20]],
+        )
+        return None
+
+    def resolve_type_category_id_by_name(
+        self,
+        type_category_name_en: str,
+        category_id: Optional[str] = None,
+        subtype_code: Optional[str] = None,
+    ) -> Optional[str]:
+        """Look up type_category_id by English name, with code-prefix fallback."""
+        candidates = [type_category_name_en.strip()]
+        if subtype_code:
+            candidates.append(f"{subtype_code} {type_category_name_en}".strip())
+
+        url = f"{self.base_url}/type_category/get"
+        # Per API docs, category_id is a supported filter field.
+        # Passing it scopes results to that category's subtypes.
+        payload = {
+            "page": 1,
+            "limit": 500,
+            "search": "",
+            "category_id": category_id,  # null = all, UUID = scoped
+        }
+
+        def _request():
+            r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
+            r.raise_for_status()
+            return True, r.json()
+        try:
+            success, result = self._handle_401_retry(_request)
+            if not success or not result:
+                return None
+        except requests.exceptions.RequestException as e:
+            self.logger.error("resolve_type_category_id_by_name failed: %s", e)
+            return None
+
+        data  = result.get("data", []) if isinstance(result, dict) else result
+        items = data.get("items", [])  if isinstance(data, dict)   else data
+        if not isinstance(items, list):
+            items = []
+
+        self.logger.debug(
+            "resolve_type_category_id_by_name('%s'): %d type categories returned",
+            type_category_name_en, len(items)
+        )
+
+        for item in items:
+            en = (item.get("type_category_name_en") or "").strip()
+            if any(en.lower() == c.lower() for c in candidates):
+                if category_id is None or item.get("category_id") == category_id:
+                    return item.get("type_category_id")
+
+        self.logger.warning(
+            "resolve_type_category_id_by_name: '%s' not found among %d type categories. "
+            "Available: %s",
+            type_category_name_en,
+            len(items),
+            [i.get("type_category_name_en") for i in items[:20]],
+        )
         return None
 
     def resolve_type_category_id_by_name(

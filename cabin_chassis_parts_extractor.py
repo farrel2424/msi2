@@ -114,7 +114,9 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple
 
-import fitz  # PyMuPDF
+import fitz
+
+from pdf_utils import extract_response_text  # PyMuPDF
 
 logger = logging.getLogger(__name__)
 
@@ -313,7 +315,8 @@ def _call_vision(b64: str, sumopod_client, detail: str = "high") -> Optional[Dic
             max_tokens=4096,
             timeout=120,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = extract_response_text(resp)
+
         if raw.startswith("```"):
             raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw)
@@ -361,7 +364,7 @@ def _call_category_vision(b64: str, sumopod_client) -> Optional[Dict]:
             max_tokens=1024,
             timeout=60,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = extract_response_text(resp)
         if raw.startswith("```"):
             raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw)

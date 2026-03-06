@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from pdf_utils import (
+    extract_response_text,
     extract_zip_pdf,
     image_to_base64,
     is_zip_pdf,
@@ -140,7 +141,7 @@ def _extract_title_from_b64(b64: str, sumopod_client) -> Optional[str]:
             max_tokens=200,
             timeout=60,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = extract_response_text(resp)
         logger.debug("Vision response: %s", raw[:300])
         return parse_llm_json(raw).get("raw_title")
     except Exception as e:
@@ -166,7 +167,7 @@ def _translate_titles(cn_titles: List[str], sumopod_client) -> List[Dict]:
             max_tokens=1000,
             timeout=60,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = extract_response_text(resp)
         logger.debug("Translation response: %s", raw[:300])
         return parse_llm_json(raw).get("translations", [])
     except Exception as e:

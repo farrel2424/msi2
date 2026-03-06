@@ -113,7 +113,7 @@ Do NOT include type_category_code or categories_code."""
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
-            response_text = response.choices[0].message.content.strip()
+            response_text = self._extract_content(response)
             self.logger.debug("Sumopod response: %s...", response_text[:200])
 
             extracted_data = self._parse_json(response_text)
@@ -143,6 +143,50 @@ Do NOT include type_category_code or categories_code."""
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _extract_content(self, response) -> str:
+        """
+        Robustly extract text content from an API response.
+
+        Handles three possible return shapes from the Sumopod gateway:
+          1. Standard OpenAI object  — response.choices[0].message.content
+          2. List of choice dicts    — response[0]["message"]["content"]
+          3. Dict with choices key   — response["choices"][0]["message"]["content"]
+        """
+        # Shape 1: standard OpenAI SDK object
+        if hasattr(response, "choices"):
+            return response.choices[0].message.content.strip()
+
+        # Shape 2: raw list — items may be ChatCompletion objects OR dicts
+        if isinstance(response, list):
+            if not response:
+                raise ValueError("Sumopod returned an empty list response.")
+            first = response[0]
+            # List of ChatCompletion objects (e.g. openai.types.chat.chat_completion.ChatCompletion)
+            if hasattr(first, "choices"):
+                return first.choices[0].message.content.strip()
+            # List of dicts
+            if isinstance(first, dict):
+                if "message" in first:
+                    return first["message"]["content"].strip()
+                if "content" in first:
+                    return first["content"].strip()
+                if "text" in first:
+                    return first["text"].strip()
+            self.logger.warning("Unexpected list item type from Sumopod: %s", type(first))
+            raise ValueError(f"Cannot extract content from list item of type {type(first)}: {first!r}")
+
+        # Shape 3: plain dict
+        if isinstance(response, dict):
+            choices = response.get("choices", [])
+            if choices:
+                return choices[0]["message"]["content"].strip()
+            if "content" in response:
+                return response["content"].strip()
+
+        raise ValueError(
+            f"Cannot extract content from Sumopod response of type {type(response)}: {response!r}"
+        )
 
     @staticmethod
     def _parse_json(text: str) -> Dict:
@@ -225,7 +269,7 @@ Do NOT include type_category_code or categories_code."""
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
-            extracted_data = self._parse_json(response.choices[0].message.content.strip())
+            extracted_data = self._parse_json(self._extract_content(response))
             retry_errors = self._validate(extracted_data)
 
             if not retry_errors:
