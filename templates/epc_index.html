@@ -646,7 +646,7 @@ Return ONLY valid JSON in this structure:
         const resp = await fetch(`/api/start-parts/${currentJobId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dokumen_name: '', target_id_start: 1 })
+            body: JSON.stringify({ dokumen_name: document.getElementById('dokumenName').value.trim(), target_id_start: 1 })
         });
         if (resp.ok) {
             startPolling(); // resume polling → will hit parts_review → openPartsReview()

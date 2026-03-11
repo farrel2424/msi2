@@ -296,7 +296,6 @@ def api_approve_structure(job_id: str):
 
 @app.route("/api/start-parts/<job_id>", methods=["POST"])
 def api_start_parts(job_id: str):
-    
     with job_lock:
         job = job_status.get(job_id)
     if not job:
@@ -304,7 +303,10 @@ def api_start_parts(job_id: str):
 
     body = request.get_json(force=True) or {}
     target_id_start = int(body.get("target_id_start", 1))
-    dokumen_name    = body.get("dokumen_name", Path(job["pdf_path"]).stem)
+    dokumen_name    = body.get("dokumen_name") or Path(job["pdf_path"]).stem
+
+    with job_lock:
+        job_status[job_id]["dokumen_name"] = dokumen_name
 
     threading.Thread(
         target=_run_stage2,
@@ -344,7 +346,7 @@ def api_approve_parts(job_id: str):
         if isinstance(parts_data, dict):
             parts_data = parts_data.get("subtypes") or parts_data.get("parts_data") or []
     
-        dokumen_name  = body.get("dokumen_name", Path(job["pdf_path"]).stem)
+        dokumen_name = body.get("dokumen_name") or job.get("dokumen_name") or Path(job["pdf_path"]).stem
         config_params = job["config_params"]
         config = EPCAutomationConfig(**config_params)
         automation = EPCPDFAutomation(config)
@@ -393,7 +395,7 @@ def api_approve_parts_single(job_id: str):
 
         # Wrap the single subtype as a one-item list — reuses batch_submit_parts
         parts_data    = [subtype]
-        dokumen_name  = body.get("dokumen_name", Path(job["pdf_path"]).stem)
+        dokumen_name = body.get("dokumen_name") or job.get("dokumen_name") or Path(job["pdf_path"]).stem
         config_params = job["config_params"]
 
         config     = EPCAutomationConfig(**config_params)

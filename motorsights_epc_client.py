@@ -531,37 +531,13 @@ class MotorsightsEPCClient:
     # BATCH OPERATIONS — PARTS MANAGEMENT
     # =========================================================================
 
-    def resolve_ids_by_subtype_name(
-        self,
-        subtype_name_en: str,
-        subtype_code: Optional[str] = None,
-    ) -> Tuple[Optional[str], Optional[str]]:
+    def _get_dokumen_id_by_name(self, dokumen_name: str) -> Optional[str]:
         """
-        Resolve (type_category_id, category_id) in ONE call to /type_category/get.
-
-        The UI never calls /categories/get — it goes straight to /type_category/get.
-        Each type_category item already contains category_id, so we get both IDs
-        from a single request.
-
-        Match priority:
-          1. "<subtype_code> subtype_name_en" (code-prefixed, as stored in DB)
-          2. Plain "subtype_name_en"
-
-        Returns:
-            (type_category_id, category_id) — both None if not found.
+        Look up dokumen_id by dokumen_name via POST /item_category/get.
+        Returns the dokumen_id UUID or None if not found.
         """
-        candidates = []
-        if subtype_code:
-            candidates.append(f"{subtype_code} {subtype_name_en}".strip())
-        candidates.append(subtype_name_en.strip())
-
-        url = f"{self.base_url}/type_category/get"
-        payload = {
-            "page": 1,
-            "limit": 500,
-            "search": "",
-            "sort_order": "desc",
-        }
+        url = f"{self.base_url}/item_category/get"
+        payload = {"page": 1, "limit": 1, "dokumen_name": dokumen_name}
 
         def _request():
             r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
@@ -570,39 +546,127 @@ class MotorsightsEPCClient:
         try:
             success, result = self._handle_401_retry(_request)
             if not success or not result:
-                return None, None
+                return None
         except requests.exceptions.RequestException as e:
-            self.logger.error("resolve_ids_by_subtype_name failed: %s", e)
-            return None, None
+            self.logger.error("_get_dokumen_id_by_name failed: %s", e)
+            return None
 
-        data  = result.get("data", []) if isinstance(result, dict) else result
-        items = data.get("items", [])  if isinstance(data, dict)   else data
-        if not isinstance(items, list):
-            items = []
+        # Response: {"data": {"items": [{"dokumen_id": ..., "master_categories": [...]}]}}
+        items = (result.get("data") or {}).get("items") or []
+        if not items:
+            self.logger.warning("No dokumen found with name '%s'", dokumen_name)
+            return None
 
-        self.logger.debug(
-            "resolve_ids_by_subtype_name('%s'): %d type categories fetched",
-            subtype_name_en, len(items)
+        # dokumen_id is on the first item inside master_categories → items
+        for doc in items:
+            for master in (doc.get("master_categories") or []):
+                for item in (master.get("items") or []):
+                    dokumen_id = item.get("dokumen_id")
+                    if dokumen_id:
+                        self.logger.info("Resolved dokumen_id=%s for '%s'", dokumen_id, dokumen_name)
+                        return dokumen_id
+        return None
+
+    def _get_all_item_categories_for_dokumen(
+        self, dokumen_id: str
+    ) -> Dict[str, str]:
+        """
+        Fetch ALL item_categories for a dokumen via GET /item_category/dokumen/{id}.
+        Returns a dict mapping type_category_name_en (lowered) → item_category_id.
+        Handles pagination automatically.
+        """
+        mapping: Dict[str, str] = {}
+        page = 1
+        limit = 100
+
+        while True:
+            url = f"{self.base_url}/item_category/dokumen/{dokumen_id}?page={page}&limit={limit}"
+
+            def _request(u=url):
+                r = self.session.get(u, headers=self._get_headers(), timeout=30)
+                r.raise_for_status()
+                return True, r.json()
+            try:
+                success, result = self._handle_401_retry(_request)
+                if not success or not result:
+                    break
+            except requests.exceptions.RequestException as e:
+                self.logger.error("_get_all_item_categories_for_dokumen page %d failed: %s", page, e)
+                break
+
+            data  = result.get("data") or {}
+            items = data.get("items") or []
+
+            for item in items:
+                name = (item.get("type_category_name_en") or "").strip()
+                iid  = item.get("item_category_id")
+                if name and iid:
+                    mapping[name.lower()] = iid
+
+            pagination  = data.get("pagination") or {}
+            total_pages = pagination.get("totalPages", 1)
+            if page >= total_pages:
+                break
+            page += 1
+
+        self.logger.info(
+            "Loaded %d item_categories from dokumen %s", len(mapping), dokumen_id
         )
+        return mapping
 
-        for item in items:
-            en = (item.get("type_category_name_en") or "").strip()
-            if any(en.lower() == c.lower() for c in candidates):
-                type_cat_id = item.get("type_category_id")
-                cat_id      = item.get("category_id")
-                self.logger.info(
-                    "Resolved '%s' → type_category_id=%s, category_id=%s",
-                    subtype_name_en, type_cat_id, cat_id
-                )
-                return type_cat_id, cat_id
+    def update_item_category_with_parts(
+        self,
+        item_category_id: str,
+        master_category_id: str,
+        category_id: Optional[str],
+        type_category_id: Optional[str],
+        dokumen_name: str,
+        parts: List[Dict],
+    ) -> Tuple[bool, Optional[Dict]]:
+        """
+        PUT /item_category/{item_category_id} with updated parts rows.
+        This is what the UI does — it updates an existing item_category, not creates.
+        """
+        url = f"{self.base_url}/item_category/{item_category_id}"
 
-        self.logger.warning(
-            "resolve_ids_by_subtype_name: '%s' not found among %d items. Available: %s",
-            subtype_name_en,
-            len(items),
-            [i.get("type_category_name_en") for i in items[:20]],
-        )
-        return None, None
+        data_items = []
+        for p in parts:
+            data_items.append({
+                "target_id":             p.get("target_id", ""),
+                "diagram_serial_number": p.get("diagram_serial_number", ""),
+                "part_number":           p.get("part_number", ""),
+                "catalog_item_name_en":  p.get("catalog_item_name_en", ""),
+                "catalog_item_name_ch":  p.get("catalog_item_name_ch", ""),
+                "description":           p.get("description", ""),
+                "quantity":              int(p.get("quantity", 1)),
+            })
+
+        form_data = {
+            "dokumen_name":       (None, dokumen_name),
+            "master_category_id": (None, master_category_id),
+            "data_items":         (None, json.dumps(data_items, ensure_ascii=False)),
+        }
+        if type_category_id:
+            form_data["type_category_id"] = (None, type_category_id)
+        if category_id:
+            form_data["category_id"] = (None, category_id)
+
+        def _request():
+            headers = {"Authorization": f"Bearer {self._get_bearer_token()}"}
+            r = self.session.put(url, files=form_data, headers=headers, timeout=60)
+            r.raise_for_status()
+            return True, r.json()
+
+        try:
+            return self._handle_401_retry(_request)
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response else "?"
+            body   = e.response.text[:500]  if e.response else ""
+            self.logger.error("update_item_category_with_parts HTTP %s: %s", status, body)
+            return False, {"error": f"HTTP {status}: {body}"}
+        except Exception as e:
+            self.logger.error("update_item_category_with_parts failed: %s", e)
+            return False, {"error": str(e)}
 
     def batch_submit_parts(
         self,
@@ -613,13 +677,14 @@ class MotorsightsEPCClient:
         subtype_id_map: Optional[Dict[str, str]] = None,
     ) -> Tuple[bool, Dict]:
         """
-        Submit all parts groups from extract_cabin_chassis_parts() to the API.
+        Submit all parts groups to the API by PUTting to existing item_categories.
 
-        For each subtype group:
-          1. Resolve type_category_id + category_id via resolve_ids_by_subtype_name()
-             (single /type_category/get call — mirrors exactly what the UI does).
-          2. Call create_item_category_with_parts().
-          3. Track results (created / skipped / errors).
+        Flow (mirrors exactly what the UI does):
+          1. Look up dokumen_id from dokumen_name via POST /item_category/get
+          2. Fetch ALL item_categories for that dokumen via GET /item_category/dokumen/{id}
+          3. Build lookup: type_category_name_en → item_category_id
+          4. For each parts group, match by "<subtype_code> <subtype_name_en>"
+          5. PUT /item_category/{item_category_id} with the parts rows
         """
         results = {
             "created":               [],
@@ -629,6 +694,26 @@ class MotorsightsEPCClient:
             "total_parts_submitted": 0,
         }
 
+        # ── Step 1: resolve dokumen_id ────────────────────────────────────
+        dokumen_id = self._get_dokumen_id_by_name(dokumen_name)
+        if not dokumen_id:
+            self.logger.error(
+                "Cannot find dokumen_id for '%s' — aborting batch_submit_parts", dokumen_name
+            )
+            results["errors"].append({
+                "error": f"Dokumen '{dokumen_name}' not found in DB"
+            })
+            return False, results
+
+        # ── Step 2: fetch all item_categories for this dokumen ────────────
+        # mapping: type_category_name_en.lower() → item_category_id
+        item_cat_map = self._get_all_item_categories_for_dokumen(dokumen_id)
+        if not item_cat_map:
+            self.logger.error("No item_categories found for dokumen_id=%s", dokumen_id)
+            results["errors"].append({"error": "No item_categories found for this dokumen"})
+            return False, results
+
+        # ── Step 3: process each parts group ─────────────────────────────
         for group in parts_data:
             subtype_code    = (group.get("subtype_code")    or "").strip()
             subtype_name_en = (group.get("subtype_name_en") or "").strip()
@@ -639,85 +724,69 @@ class MotorsightsEPCClient:
                 self.logger.debug("Skipping empty group '%s'", subtype_name_en)
                 continue
 
-            # ── Step 1: resolve type_category_id + category_id ───────────
-            type_cat_id: Optional[str] = None
-            resolved_category_id: Optional[str] = category_id
+            # Build candidates: code-prefixed first (as stored in DB), then plain name
+            candidates = []
+            if subtype_code:
+                candidates.append(f"{subtype_code} {subtype_name_en}".lower())
+            candidates.append(subtype_name_en.lower())
 
-            # 1a. Explicit map (highest priority)
-            if subtype_id_map:
-                type_cat_id = (
-                    subtype_id_map.get(subtype_code)
-                    or subtype_id_map.get(subtype_name_en)
-                )
+            # Find the matching item_category_id
+            item_category_id: Optional[str] = None
+            for candidate in candidates:
+                item_category_id = item_cat_map.get(candidate)
+                if item_category_id:
+                    break
 
-            # 1b. Single /type_category/get call — gets both IDs at once
-            if not type_cat_id:
-                type_cat_id, resolved_cat_id = self.resolve_ids_by_subtype_name(
-                    subtype_name_en, subtype_code=subtype_code
-                )
-                if resolved_cat_id and not resolved_category_id:
-                    resolved_category_id = resolved_cat_id
-
-            # ── Step 2: guard — must have at least one ID ─────────────────
-            if not type_cat_id and not resolved_category_id:
+            if not item_category_id:
                 self.logger.error(
-                    "Cannot resolve type_category_id or category_id for '%s' — skipped",
+                    "No item_category found for '%s' (candidates: %s). "
+                    "Available keys (first 20): %s",
                     subtype_name_en,
+                    candidates,
+                    list(item_cat_map.keys())[:20],
                 )
                 results["errors"].append({
                     "subtype_name_en": subtype_name_en,
-                    "error": "Could not resolve type_category_id or category_id from DB",
+                    "error": "No matching item_category found in dokumen",
                 })
                 continue
 
             self.logger.info(
-                "Submitting '%s' (%s): %d parts …",
-                subtype_name_en, subtype_code, len(parts)
+                "Updating '%s' (%s): item_category_id=%s, %d parts …",
+                subtype_name_en, subtype_code, item_category_id, len(parts)
             )
 
-            # ── Step 3: submit ────────────────────────────────────────────
-            success, response = self.create_item_category_with_parts(
-                master_category_id        = master_category_id,
-                category_id               = resolved_category_id,
-                type_category_id          = type_cat_id,
-                item_category_name_en     = subtype_name_en,
-                item_category_name_cn     = subtype_name_cn,
-                item_category_description = "",
-                dokumen_name              = dokumen_name,
-                parts                     = parts
+            # ── Step 4: PUT with parts ────────────────────────────────────
+            success, response = self.update_item_category_with_parts(
+                item_category_id  = item_category_id,
+                master_category_id = master_category_id,
+                category_id       = category_id,
+                type_category_id  = None,  # already linked via item_category_id
+                dokumen_name      = dokumen_name,
+                parts             = parts,
             )
 
             if success:
-                data = (response or {}).get("data", {})
-                results["created"].append({
-                    "subtype_code":     subtype_code,
-                    "subtype_name_en":  subtype_name_en,
-                    "parts_count":      len(parts),
-                    "item_category_id": data.get("item_category_id", ""),
+                results["updated"].append({
+                    "subtype_code":      subtype_code,
+                    "subtype_name_en":   subtype_name_en,
+                    "parts_count":       len(parts),
+                    "item_category_id":  item_category_id,
                 })
                 results["total_parts_submitted"] += len(parts)
-                self.logger.info("✓ '%s': %d parts submitted", subtype_name_en, len(parts))
+                self.logger.info("✓ '%s': %d parts updated", subtype_name_en, len(parts))
             else:
                 err = str((response or {}).get("error", ""))
-                if "409" in err or "duplicate" in err.lower() or "already" in err.lower():
-                    results["skipped"].append({
-                        "subtype_name_en": subtype_name_en,
-                        "reason":          "Already exists (409)"
-                    })
-                    self.logger.info("⚠ '%s': already exists, skipped", subtype_name_en)
-                else:
-                    results["errors"].append({
-                        "subtype_name_en": subtype_name_en,
-                        "error":           err
-                    })
-                    self.logger.error("✗ '%s': %s", subtype_name_en, err)
+                results["errors"].append({
+                    "subtype_name_en": subtype_name_en,
+                    "error":           err,
+                })
+                self.logger.error("✗ '%s': %s", subtype_name_en, err)
 
         overall_success = len(results["errors"]) == 0
         self.logger.info(
-            "batch_submit_parts complete — created: %d, skipped: %d, "
-            "total parts: %d, errors: %d",
-            len(results["created"]),
-            len(results["skipped"]),
+            "batch_submit_parts complete — updated: %d, total parts: %d, errors: %d",
+            len(results["updated"]),
             results["total_parts_submitted"],
             len(results["errors"])
         )
