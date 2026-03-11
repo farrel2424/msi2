@@ -188,6 +188,52 @@ class MotorsightsEPCClient:
             self.logger.error(f"Failed to get categories: {e}")
             return False, None
 
+
+    def resolve_type_category_id_by_name(
+        self,
+        type_category_name_en: str,
+        category_id: Optional[str] = None,
+        subtype_code: Optional[str] = None,
+    ) -> Optional[str]:
+        candidates = [type_category_name_en.strip()]
+        if subtype_code:
+            candidates.append(f"{subtype_code} {type_category_name_en}".strip())
+
+        url = f"{self.base_url}/type_category/get"
+        payload = {"page": 1, "limit": 200, "search": type_category_name_en}
+
+        def _request():
+            r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
+            r.raise_for_status()
+            return True, r.json()
+
+        try:
+            success, result = self._handle_401_retry(_request)
+        except requests.exceptions.RequestException as e:
+            self.logger.error("resolve_type_category_id_by_name failed: %s", e)
+            return None
+
+        if not success or not result:
+            return None
+
+        self.logger.debug(
+            "resolve_type_category_id_by_name: result type=%s", type(result).__name__
+        )
+
+        if isinstance(result, list):
+            items = result
+        elif isinstance(result, dict):
+            items = result.get("data", {}).get("items", [])
+        else:
+            return None
+
+        for item in items:
+            en = (item.get("type_category_name_en") or "").strip()
+            if any(en.lower() == c.lower() for c in candidates):
+                if category_id is None or item.get("category_id") == category_id:
+                    return item.get("type_category_id")
+        return None
+
     def _get_category_id_by_name(
         self, category_name_en: str, master_category_id: str
     ) -> Optional[str]:
@@ -823,16 +869,52 @@ class MotorsightsEPCClient:
                     break
 
             if not item_category_id:
-                self.logger.error(
-                    "No item_category found for '%s' (candidates: %s). "
-                    "Available keys (first 20): %s",
-                    subtype_name_en,
-                    candidates,
-                    list(item_cat_map.keys())[:20],
+                self.logger.warning(
+                    "No existing item_category for '%s' — attempting to create via POST",
+                    subtype_name_en
                 )
-                results["errors"].append({
+
+    # Resolve type_category_id dari DB
+                type_cat_id = self.resolve_type_category_id_by_name(
+                    subtype_name_en,
+                    subtype_code=subtype_code,
+                )
+                if not type_cat_id:
+                    self.logger.error(
+                        "Cannot resolve type_category_id for '%s' — skipped", subtype_name_en
+                    )
+                    results["errors"].append({
+                        "subtype_name_en": subtype_name_en,
+                        "error": "type_category not found in DB — run Stage 1 first",
+                    })
+                    continue
+
+    # Buat item_category baru via POST
+                ok, resp = self.create_item_category_with_parts(
+                    master_category_id        = master_category_id,
+                    category_id               = category_id,
+                    type_category_id          = type_cat_id,
+                    item_category_name_en     = subtype_name_en,
+                    item_category_name_cn     = subtype_name_cn,
+                    item_category_description = "",
+                    dokumen_name              = dokumen_name,
+                    parts                     = parts,
+                )
+                if ok:
+                    results["updated"].append({
+                        "subtype_name_en": subtype_name_en,
+                        "parts_count":     len(parts),
+                        "action":          "created",
+                    })
+                    results["total_parts_submitted"] += len(parts)
+                    self.logger.info(
+                        "✓ Created new item_category + %d parts for '%s'",
+                        len(parts), subtype_name_en
+                    )
+                else:
+                    results["errors"].append({
                     "subtype_name_en": subtype_name_en,
-                    "error": "No matching item_category found in dokumen",
+                    "error": str((resp or {}).get("error", "create failed")),
                 })
                 continue
 
