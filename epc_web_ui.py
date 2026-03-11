@@ -94,6 +94,7 @@ def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
     with job_lock:
         job_status[job_id]["status"]  = "processing"
         job_status[job_id]["message"] = "Extracting category structure …"
+        job_status[job_id]["progress"] = 5
 
     try:
         config = EPCAutomationConfig(**config_params)
@@ -109,6 +110,7 @@ def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
             job_status[job_id]["extracted_data"]   = result.get("extracted_data", {})
             job_status[job_id]["code_to_category"] = result.get("code_to_category", {})  # ← ADD
             job_status[job_id]["stage"]            = "structure"
+            job_status[job_id]["progress"]         = 50
 
     except Exception as e:
         with job_lock:
@@ -122,7 +124,7 @@ def _run_stage2(job_id: str, pdf_path: str, config_params: dict,
     with job_lock:
         job_status[job_id]["status"]  = "processing_parts"
         job_status[job_id]["message"] = "Extracting parts rows from tables …"
-
+        job_status[job_id]["progress"] = 65
     try:
 
         with job_lock:
@@ -144,6 +146,7 @@ def _run_stage2(job_id: str, pdf_path: str, config_params: dict,
             job_status[job_id]["message"]    = "Parts extracted — awaiting review"
             job_status[job_id]["parts_data"] = {"subtypes": result.get("parts_data", [])}
             job_status[job_id]["stage"]      = "parts"
+            job_status[job_id]["progress"]   = 90
 
     except Exception as e:
         with job_lock:
@@ -230,6 +233,7 @@ def api_upload():
             "partbook_type":    partbook_type,
             "config_params":    config_params,
             "stage":            "structure",
+            "progress":         2,
             "created_at":       datetime.now().isoformat(),
         }
 
@@ -253,6 +257,7 @@ def api_status(job_id: str):
         "message":        job.get("message"),
         "stage":          job.get("stage"),
         "partbook_type":  job.get("partbook_type"),
+        "progress":       job.get("progress", 0),
         "extracted_data": job.get("extracted_data"),
         "parts_data":     job.get("parts_data"),
         "submission_result": job.get("submission_result"),
@@ -284,8 +289,9 @@ def api_approve_structure(job_id: str):
 
     with job_lock:
         job_status[job_id]["submission_result"] = epc_results
-        job_status[job_id]["status"] = "structure_submitted" if success else "error"
-        job_status[job_id]["message"] = (
+        job_status[job_id]["status"]   = "structure_submitted" if success else "error"
+        job_status[job_id]["progress"] = 55 if success else job_status[job_id].get("progress", 50)
+        job_status[job_id]["message"]  = (
             "Structure submitted — ready for Parts Management"
             if success else
             f"Submission errors: {len(epc_results.get('errors', []))}"
@@ -307,6 +313,7 @@ def api_start_parts(job_id: str):
 
     with job_lock:
         job_status[job_id]["dokumen_name"] = dokumen_name
+        job_status[job_id]["progress"]     = 60
 
     threading.Thread(
         target=_run_stage2,
@@ -360,6 +367,7 @@ def api_approve_parts(job_id: str):
         with job_lock:
             job_status[job_id]["parts_submission_result"] = epc_results
             job_status[job_id]["status"]  = "completed" if success else "parts_error"
+            job_status[job_id]["progress"] = 100 if success else job_status[job_id].get("progress", 90)
             job_status[job_id]["message"] = (
                 f"✓ Parts submitted — "
                 f"{len(epc_results.get('created', []))} created, "
@@ -436,6 +444,7 @@ def api_re_extract(job_id: str):
             job_status[job_id]["message"]        = "Re-extraction queued"
             job_status[job_id]["extracted_data"] = None
             job_status[job_id]["config_params"]  = config_params
+            job_status[job_id]["progress"]       = 2
 
         threading.Thread(
             target=_run_stage1,

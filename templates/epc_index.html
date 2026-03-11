@@ -142,8 +142,16 @@
     .status-error          { background: var(--danger-lt); color: var(--danger); }
 
     /* ── Progress bar ────────────────────────────────────────────────── */
-    .progress { height: 5px; background: var(--border); border-radius: 3px; margin-top: 14px; overflow: hidden; }
-    .progress__fill { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.4s ease; }
+    .progress-wrap { margin-top: 14px; }
+    .progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; font-size: 12px; color: var(--text-3); }
+    .progress-label { font-weight: 500; }
+    .progress-pct { font-weight: 600; color: var(--primary); }
+    .progress { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .progress__fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.6s ease; }
+    .progress__fill--complete { background: var(--success); }
+    .progress__fill--error    { background: var(--danger); }
+    .progress__fill--active   { background: linear-gradient(90deg, var(--primary), #60a5fa, var(--primary)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
     /* ── JSON editor ─────────────────────────────────────────────────── */
     .json-editor { width: 100%; min-height: 380px; max-height: 560px; background: #0f1420; color: #e2e8f0; padding: 18px; border-radius: var(--radius-sm); font-family: var(--mono); font-size: 13px; line-height: 1.6; border: 1px solid var(--border); resize: vertical; tab-size: 2; white-space: pre; overflow: auto; display: block; }
@@ -366,8 +374,15 @@ Return ONLY valid JSON in this structure:
                 <span class="status-row__label">Stage</span>
                 <span id="statusStage">—</span>
             </div>
-            <div class="progress">
-                <div class="progress__fill" id="progressFill" style="width:0%"></div>
+            <!-- Progress bar -->
+            <div class="progress-wrap">
+                <div class="progress-header">
+                    <span class="progress-label" id="progressLabel">Waiting…</span>
+                    <span class="progress-pct" id="progressPct">0%</span>
+                </div>
+                <div class="progress">
+                    <div class="progress__fill" id="progressFill" style="width:0%"></div>
+                </div>
             </div>
         </div>
 
@@ -377,6 +392,13 @@ Return ONLY valid JSON in this structure:
             <p class="text-sm" style="margin-bottom:14px;">Edit the JSON below before submitting. Duplicate categories are automatically skipped — no need to remove them.</p>
 
             <textarea class="json-editor" id="jsonEditor" spellcheck="false"></textarea>
+
+            <!-- Document Name — shown only for partbook types that need Parts Management -->
+            <div class="form-group hidden" id="dokumenNameGroup" style="max-width:440px; margin-top:16px;">
+                <label>Document Name <span style="color:var(--danger)">*</span></label>
+                <input type="text" id="dokumenName" placeholder="e.g. PX122604">
+                <small>Must match an existing dokumen in the EPC database</small>
+            </div>
 
             <div class="btn-group">
                 <button class="btn btn--ghost" id="downloadBtn">💾 Download JSON</button>
@@ -413,39 +435,31 @@ Return ONLY valid JSON in this structure:
                 <span class="info-box__icon">ℹ️</span>
                 <div>
                     Parts are grouped by <strong>Subtype Category</strong>.
-                    Review the table below, enter the parent Category name, then click
-                    <strong>Submit Parts</strong> to populate Parts Management.
+                    You can submit all at once or submit each group individually.
                 </div>
             </div>
 
-            <!-- Category name input -->
-            <div class="form-group" style="max-width:440px;">
-                <label>Parent Category Name (English) <span style="color:var(--danger)">*</span></label>
-                <input type="text" id="partsCategoryName" placeholder="e.g. Frame System">
-                <small>Must exactly match a Category already in the EPC database</small>
-            </div>
-
-            <!-- Parts summary table -->
+            <!-- Parts overview table -->
             <div style="overflow-x:auto; margin-bottom:16px;">
-                <table class="parts-table" id="partsPreviewTable">
+                <table class="parts-table">
                     <thead>
                         <tr>
-                            <th>Subtype / 型号</th>
+                            <th>Subtype</th>
                             <th style="text-align:center">Parts</th>
-                            <th>Preview (first 3)</th>
-                            <th style="text-align:center;width:100px">Status</th>
-                            <th style="text-align:center;width:110px">Action</th>
+                            <th>Preview</th>
+                            <th style="text-align:center">Status</th>
+                            <th style="text-align:center">Action</th>
                         </tr>
                     </thead>
                     <tbody id="partsTableBody"></tbody>
                 </table>
             </div>
 
-            <!-- Expanded detail panel -->
-            <div id="partsDetailPanel" class="hidden" style="background:#f8fafc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;overflow-x:auto;">
+            <!-- Parts detail panel (expandable) -->
+            <div class="hidden" id="partsDetailPanel" style="background:#fafbfc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;overflow-x:auto;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-                    <strong id="partsDetailTitle">—</strong>
-                    <button class="btn btn--sm btn--ghost" onclick="closePartsDetail()">✕ Close</button>
+                    <strong id="partsDetailTitle" style="font-size:14px;"></strong>
+                    <button class="btn btn--ghost btn--sm" onclick="closePartsDetail()">✕ Close</button>
                 </div>
                 <table class="parts-table" id="partsDetailTable">
                     <thead>
@@ -482,22 +496,15 @@ Return ONLY valid JSON in this structure:
     const rePromptSection = document.getElementById('rePromptSection');
     const jsonEditor      = document.getElementById('jsonEditor');
 
-    let currentJobId    = null;
-    let statusInterval  = null;
-    let editorPopulated = false;
-    let partsPopulated = false;
-    let currentPartsData = null;
+    let currentJobId         = null;
+    let currentPartbookType  = null;   // ← tracks partbook type for button guards
+    let statusInterval       = null;
+    let editorPopulated      = false;
+    let partsPopulated       = false;
+    let currentPartsData     = null;
 
-    const PROGRESS_MAP = {
-        queued: 5, processing: 25, extracting: 60,
-        review: 90,              // ← was "pending_review"
-        pending_review: 90,      // ← keep for safety
-        processing_parts: 70,
-        parts_review: 90,
-        structure_submitted: 95,
-        submitting: 95,
-        completed: 100, error: 100, failed: 100
-    };
+    // Partbook types that require Parts Management (add others here when ready)
+    const PARTS_MGMT_TYPES = ['cabin_chassis'];
 
     const PARTBOOK_META = {
         engine:        { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)', cls: 'badge-engine' },
@@ -513,44 +520,51 @@ Return ONLY valid JSON in this structure:
         axle_drive:    'ZIP/JPEG vision extraction — 1 AI call per table page + 1 translation call.'
     };
 
-    // ── Master categories ──────────────────────────────────────────────────
+    // ── Master Categories ──────────────────────────────────────────────────
     async function loadMasterCategories() {
         try {
-            const { categories } = await fetch('/api/master-categories').then(r => r.json());
-            const select = document.getElementById('masterCategory');
-            select.innerHTML = '<option value="">Select Master Category…</option>';
-            categories.forEach(cat => {
-                const opt = new Option(`${cat.name_en} / ${cat.name_cn}`, cat.id);
-                opt.dataset.partbookType = cat.partbook_type || 'cabin_chassis';
-                select.add(opt);
+            const resp = await fetch('/api/master-categories');
+            const data = await resp.json();
+            const sel  = document.getElementById('masterCategory');
+            (data.categories || []).forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value       = cat.id;
+                opt.textContent = cat.display;
+                opt.dataset.partbookType = cat.partbook_type;
+                sel.appendChild(opt);
             });
-            if (!categories.length) showAlert('No master categories configured. Set UUIDs in .env.', 'warning');
         } catch (err) {
-            showAlert('Could not load master categories: ' + err.message, 'error');
+            console.error('Failed to load master categories:', err);
         }
     }
 
     function onMasterCategoryChange() {
         const sel  = document.getElementById('masterCategory');
         const opt  = sel.options[sel.selectedIndex];
-        const ptype = opt?.dataset?.partbookType;
-        const badge = document.getElementById('partbookBadge');
-        const group = document.getElementById('partbookBadgeGroup');
-        const info  = document.getElementById('strategyInfo');
+        const type = opt?.dataset?.partbookType;
 
-        if (ptype && PARTBOOK_META[ptype]) {
-            badge.textContent  = PARTBOOK_META[ptype].label;
-            badge.className    = 'partbook-badge ' + PARTBOOK_META[ptype].cls;
-            group.classList.remove('hidden');
-            document.getElementById('strategyText').textContent = STRATEGY_TEXT[ptype] || '';
-            info.classList.toggle('hidden', ptype !== 'cabin_chassis');
+        const badgeGroup = document.getElementById('partbookBadgeGroup');
+        const badge      = document.getElementById('partbookBadge');
+        const strategyInfo = document.getElementById('strategyInfo');
+        const strategyText = document.getElementById('strategyText');
+
+        if (type && PARTBOOK_META[type]) {
+            badge.textContent = PARTBOOK_META[type].label;
+            badge.className   = `partbook-badge ${PARTBOOK_META[type].cls}`;
+            badgeGroup.classList.remove('hidden');
         } else {
-            group.classList.add('hidden');
-            info.classList.add('hidden');
+            badgeGroup.classList.add('hidden');
+        }
+
+        if (type && STRATEGY_TEXT[type]) {
+            strategyText.textContent = STRATEGY_TEXT[type];
+            strategyInfo.classList.remove('hidden');
+        } else {
+            strategyInfo.classList.add('hidden');
         }
     }
 
-    // ── Drag & drop / click upload ─────────────────────────────────────────
+    // ── Upload ─────────────────────────────────────────────────────────────
     uploadArea.addEventListener('click', () => fileInput.click());
     uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
     uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
@@ -565,7 +579,7 @@ Return ONLY valid JSON in this structure:
     });
 
     function handleFile(file) {
-        if (!file.name.endsWith('.pdf')) { showAlert('Only PDF files are accepted.', 'error'); return; }
+        if (!file.name.endsWith('.pdf')) { showAlert('Please upload a PDF file.', 'error'); return; }
         const mc = document.getElementById('masterCategory').value;
         if (!mc) { showAlert('Please select a Master Category first.', 'error'); return; }
         uploadFile(file, mc, document.getElementById('aiModel').value, document.getElementById('extractionPrompt').value);
@@ -589,9 +603,11 @@ Return ONLY valid JSON in this structure:
             const resp = await fetch('/api/upload', { method: 'POST', body: fd });
             const data = await resp.json();
             if (resp.ok) {
-                currentJobId    = data.job_id;
-                editorPopulated = false;
-                currentPartsData = null;
+                currentJobId        = data.job_id;
+                currentPartbookType = null;
+                editorPopulated     = false;
+                partsPopulated      = false;
+                currentPartsData    = null;
                 showAlert('File uploaded. Processing started…', 'success');
                 statusCard.classList.remove('hidden');
                 reviewSection.classList.add('hidden');
@@ -620,53 +636,87 @@ Return ONLY valid JSON in this structure:
     }
 
     async function checkStatus() {
-    if (!currentJobId) return;
-    try {
-        const resp = await fetch('/api/status/' + currentJobId);
-        if (!resp.ok) return;
-        const job = await resp.json();
-        renderStatus(job);
-        if (['completed', 'error', 'failed', 'review', 'parts_review'].includes(job.status)) stopPolling();
-        if (job.status === 'review' && !editorPopulated) openReview(job);
-        if (job.status === 'parts_review' && !partsPopulated) openPartsReview(job);
+        if (!currentJobId) return;
+        try {
+            const resp = await fetch('/api/status/' + currentJobId);
+            if (!resp.ok) return;
+            const job = await resp.json();
+            renderStatus(job);
+            if (['completed', 'error', 'failed', 'review', 'parts_review'].includes(job.status)) stopPolling();
+            if (job.status === 'review' && !editorPopulated) openReview(job);
+            if (job.status === 'parts_review' && !partsPopulated) openPartsReview(job);
 
-        if (job.status === 'structure_submitted' && job.partbook_type === 'cabin_chassis') {
-            stopPolling();
-            await startPartsExtraction();
+            if (job.status === 'structure_submitted' && job.partbook_type === 'cabin_chassis') {
+                stopPolling();
+                await startPartsExtraction();
+            }
+        } catch (err) {
+            console.error('Status check error:', err);
         }
-
-    } catch (err) {
-        console.error('Status check error:', err);
     }
-}
 
     async function startPartsExtraction() {
-    showAlert('Structure submitted — starting Parts extraction…', 'info');
-    try {
-        const resp = await fetch(`/api/start-parts/${currentJobId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ dokumen_name: document.getElementById('dokumenName').value.trim(), target_id_start: 1 })
-        });
-        if (resp.ok) {
-            startPolling(); // resume polling → will hit parts_review → openPartsReview()
-        } else {
-            const d = await resp.json();
-            showAlert('Failed to start parts extraction: ' + (d.error || 'Unknown'), 'error');
+        showAlert('Structure submitted — starting Parts extraction…', 'info');
+        try {
+            const resp = await fetch(`/api/start-parts/${currentJobId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    dokumen_name: document.getElementById('dokumenName').value.trim(),
+                    target_id_start: 1
+                })
+            });
+            if (resp.ok) {
+                startPolling();
+            } else {
+                const d = await resp.json();
+                showAlert('Failed to start parts extraction: ' + (d.error || 'Unknown'), 'error');
+            }
+        } catch (err) {
+            showAlert('Network error: ' + err.message, 'error');
         }
-    } catch (err) {
-        showAlert('Network error: ' + err.message, 'error');
     }
-}
 
+    // ── renderStatus ───────────────────────────────────────────────────────
     function renderStatus(job) {
         document.getElementById('statusFilename').textContent = job.filename || '—';
         document.getElementById('statusPartbookType').textContent =
             job.partbook_type ? (PARTBOOK_META[job.partbook_type]?.label || job.partbook_type) : '—';
         document.getElementById('statusStage').textContent = job.stage || '—';
         document.getElementById('statusBadge').innerHTML =
-            `<span class="status-badge status-${job.status}">${job.status.replace('_', ' ').toUpperCase()}</span>`;
-        document.getElementById('progressFill').style.width = (PROGRESS_MAP[job.status] || 0) + '%';
+            `<span class="status-badge status-${job.status}">${job.status.replace(/_/g, ' ').toUpperCase()}</span>`;
+
+        // Store partbook type for button guards
+        currentPartbookType = job.partbook_type;
+
+        // Progress bar
+        const pct  = job.progress || 0;
+        const fill = document.getElementById('progressFill');
+        const ACTIVE_STATUSES = ['processing', 'processing_parts', 'structure_submitted'];
+        const PROGRESS_LABELS = {
+            queued:              'Queued…',
+            processing:          'Step 1 — Extracting categories…',
+            review:              'Step 1 — Awaiting review',
+            structure_submitted: 'Step 1 — Submitted, starting parts…',
+            processing_parts:    'Step 2 — Extracting parts…',
+            parts_review:        'Step 2 — Awaiting review',
+            completed:           'All done ✓',
+            error:               'Error',
+            parts_error:         'Parts submission error',
+        };
+
+        fill.style.width = pct + '%';
+        document.getElementById('progressPct').textContent   = pct + '%';
+        document.getElementById('progressLabel').textContent = PROGRESS_LABELS[job.status] || job.status;
+
+        fill.className = 'progress__fill';
+        if (job.status === 'completed')
+            fill.classList.add('progress__fill--complete');
+        else if (job.status === 'error' || job.status === 'parts_error' || job.status === 'failed')
+            fill.classList.add('progress__fill--error');
+        else if (ACTIVE_STATUSES.includes(job.status))
+            fill.classList.add('progress__fill--active');
+
         if (job.status === 'error' || job.status === 'failed') {
             showAlert('Error: ' + (job.message || job.error || 'Unknown error'), 'error');
             stopPolling();
@@ -680,9 +730,14 @@ Return ONLY valid JSON in this structure:
         jsonEditor.value = JSON.stringify(job.extracted_data, null, 2);
         reviewSection.classList.remove('hidden');
         document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
+
+        // Show dokumen name field only for partbook types that need Parts Management
+        document.getElementById('dokumenNameGroup').classList.toggle(
+            'hidden', !PARTS_MGMT_TYPES.includes(job.partbook_type)
+        );
+
         showAlert('Extraction complete. Review the data below, then approve to submit.', 'success');
 
-        // Populate parts section if available (cabin_chassis only)
         if (job.parts_data && job.parts_data.subtypes?.length) {
             populatePartsSection(job.parts_data);
         }
@@ -694,7 +749,7 @@ Return ONLY valid JSON in this structure:
         stopPolling();
         populatePartsSection(job.parts_data);
         showAlert('Parts extraction complete. Review and approve to submit.', 'success');
-}
+    }
 
     // ── Download JSON ──────────────────────────────────────────────────────
     document.getElementById('downloadBtn').addEventListener('click', () => {
@@ -738,6 +793,16 @@ Return ONLY valid JSON in this structure:
 
     // ── Approve & Submit categories ────────────────────────────────────────
     document.getElementById('approveBtn').addEventListener('click', async () => {
+        // Guard: require dokumen name for cabin_chassis (and future PARTS_MGMT_TYPES)
+        if (PARTS_MGMT_TYPES.includes(currentPartbookType)) {
+            const dokumenName = document.getElementById('dokumenName').value.trim();
+            if (!dokumenName) {
+                showAlert('Please enter the Document Name before submitting.', 'error');
+                document.getElementById('dokumenName').focus();
+                return;
+            }
+        }
+
         if (!confirm('Submit categories to EPC database?\n\nDuplicate categories will be skipped automatically.')) return;
 
         let editedData;
@@ -748,10 +813,10 @@ Return ONLY valid JSON in this structure:
 
         try {
             const resp = await fetch('/api/approve-structure/' + currentJobId, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ extracted_data: editedData })
-                        });
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ extracted_data: editedData })
+            });
             const text = await resp.text();
             let result;
             try { result = JSON.parse(text); }
@@ -759,27 +824,30 @@ Return ONLY valid JSON in this structure:
 
             if (resp.ok && result.success) {
                 renderSubmissionResult(result.epc_results);
+                showAlert('Categories submitted successfully!', 'success');
                 startPolling();
             } else {
                 showAlert('Submission failed: ' + (result.error || 'Unknown error'), 'error');
             }
-        } catch (err) { showAlert('Network error: ' + err.message, 'error'); }
-});
+        } catch (err) {
+            showAlert('Network error: ' + err.message, 'error');
+        }
+    });
 
     function renderSubmissionResult(r) {
-        const created  = r.categories_created?.length  || 0;
-        const skipped  = r.categories_skipped?.length  || 0;
-        const typeCats = r.type_categories_created?.length || 0;
-        const errors   = r.errors?.length || 0;
+        const created  = Array.isArray(r.created)  ? r.created.length  : (r.created  || 0);
+        const skipped  = Array.isArray(r.skipped)  ? r.skipped.length  : (r.skipped  || 0);
+        const errors   = Array.isArray(r.errors)   ? r.errors.length   : (r.errors   || 0);
+        const typeCats = r.type_categories_created || 0;
         const el = document.getElementById('submissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
             <div class="submission-summary">
-                <div class="submission-summary__title">✅ Categories Submission Complete</div>
+                <div class="submission-summary__title">✅ Submission Complete</div>
                 <div class="summary-row"><span class="summary-row__label">Categories Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
-                <div class="summary-row"><span class="summary-row__label">Skipped (duplicates)</span><span class="summary-row__value summary-row__value--skipped">${skipped}</span></div>
+                <div class="summary-row"><span class="summary-row__label">Categories Skipped (duplicates)</span><span class="summary-row__value summary-row__value--skipped">${skipped}</span></div>
                 ${typeCats ? `<div class="summary-row"><span class="summary-row__label">Type Categories Created</span><span class="summary-row__value summary-row__value--created">${typeCats}</span></div>` : ''}
-                ${errors   ? `<div class="summary-row"><span class="summary-row__label">Errors</span><span class="summary-row__value summary-row__value--error">${errors}</span></div>` : ''}
+                ${errors ? `<div class="summary-row"><span class="summary-row__label">Errors</span><span class="summary-row__value summary-row__value--error">${errors}</span></div>` : ''}
             </div>`;
         showAlert(
             errors ? `Completed with ${errors} error(s). Check summary.` :
@@ -793,97 +861,97 @@ Return ONLY valid JSON in this structure:
     // ═══════════════════════════════════════════════════════════════════════
 
     function populatePartsSection(partsData) {
-    if (!partsData || !partsData.subtypes?.length) return;
-    currentPartsData = partsData;
+        if (!partsData || !partsData.subtypes?.length) return;
+        currentPartsData = partsData;
 
-    const tbody = document.getElementById('partsTableBody');
-    tbody.innerHTML = '';
+        const tbody = document.getElementById('partsTableBody');
+        tbody.innerHTML = '';
 
-    partsData.subtypes.forEach((subtype, idx) => {
-        const parts   = subtype.parts || [];
-        const preview = parts.slice(0, 3)
-            .map(p => `<span style="font-size:11px;color:var(--text-3)">${p.target_id}</span> ${p.name_en || p.catalog_item_name_en || ''}`)
-            .join('<br>');
-        const more = parts.length > 3
-            ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} more…</em>` : '';
+        partsData.subtypes.forEach((subtype, idx) => {
+            const parts   = subtype.parts || [];
+            const preview = parts.slice(0, 3)
+                .map(p => `<span style="font-size:11px;color:var(--text-3)">${p.target_id}</span> ${p.name_en || p.catalog_item_name_en || ''}`)
+                .join('<br>');
+            const more = parts.length > 3
+                ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} more…</em>` : '';
 
-        const tr = document.createElement('tr');
-        tr.id = `subtype-row-${idx}`;
-        tr.innerHTML = `
-            <td>
-                <strong>${subtype.subtype_name_en}</strong><br>
-                <span style="font-size:12px;color:var(--text-3)">${subtype.subtype_name_cn || ''}</span>
-            </td>
-            <td style="text-align:center">
-                <span class="parts-count-badge">${parts.length}</span>
-            </td>
-            <td>
-                ${preview}${more}
-                <br>
-                <button class="parts-expand-btn" style="margin-top:5px"
-                        onclick="expandPartsDetail(${idx})">View all</button>
-            </td>
-            <td style="text-align:center" id="subtype-status-${idx}">
-                <span style="font-size:12px;color:var(--text-3)">—</span>
-            </td>
-            <td style="text-align:center">
-                <button class="btn btn--sm btn--primary" id="subtype-btn-${idx}"
-                        onclick="submitSingleSubtype(${idx})">
-                    Submit
-                </button>
-            </td>`;
-        tbody.appendChild(tr);
-    });
-
-    document.getElementById('partsSection').classList.remove('hidden');
-}
-
-    async function submitSingleSubtype(idx) {
-    if (!currentPartsData) return;
-
-    const subtype   = currentPartsData.subtypes[idx];
-    const btn       = document.getElementById(`subtype-btn-${idx}`);
-    const statusEl  = document.getElementById(`subtype-status-${idx}`);
-
-    if (!confirm(`Submit "${subtype.subtype_name_en}" to EPC?`)) return;
-
-    btn.disabled    = true;
-    btn.textContent = '…';
-    statusEl.innerHTML = `<span style="font-size:12px;color:var(--warning)">Submitting…</span>`;
-
-    try {
-        const resp = await fetch(`/api/approve-parts-single/${currentJobId}`, {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ subtype }),
+            const tr = document.createElement('tr');
+            tr.id = `subtype-row-${idx}`;
+            tr.innerHTML = `
+                <td>
+                    <strong>${subtype.subtype_name_en}</strong><br>
+                    <span style="font-size:12px;color:var(--text-3)">${subtype.subtype_name_cn || ''}</span>
+                </td>
+                <td style="text-align:center">
+                    <span class="parts-count-badge">${parts.length}</span>
+                </td>
+                <td>
+                    ${preview}${more}
+                    <br>
+                    <button class="parts-expand-btn" style="margin-top:5px"
+                            onclick="expandPartsDetail(${idx})">View all</button>
+                </td>
+                <td style="text-align:center" id="subtype-status-${idx}">
+                    <span style="font-size:12px;color:var(--text-3)">—</span>
+                </td>
+                <td style="text-align:center">
+                    <button class="btn btn--sm btn--primary" id="subtype-btn-${idx}"
+                            onclick="submitSingleSubtype(${idx})">
+                        Submit
+                    </button>
+                </td>`;
+            tbody.appendChild(tr);
         });
 
-        const text = await resp.text();
-        let result;
-        try { result = JSON.parse(text); }
-        catch (_) {
-            statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">⚠ Server error</span>`;
-            btn.disabled = false;
-            btn.textContent = 'Retry';
-            return;
-        }
-
-        if (resp.ok && result.success) {
-            statusEl.innerHTML = `<span style="font-size:12px;color:var(--success)">✓ Done</span>`;
-            btn.textContent    = '✓ Done';
-            btn.classList.replace('btn--primary', 'btn--ghost');
-        } else {
-            const msg = result.error || 'Failed';
-            statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${msg}">✗ Error</span>`;
-            btn.disabled = false;
-            btn.textContent = 'Retry';
-        }
-    } catch (err) {
-        statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">✗ Network error</span>`;
-        btn.disabled = false;
-        btn.textContent = 'Retry';
+        document.getElementById('partsSection').classList.remove('hidden');
     }
-}
+
+    async function submitSingleSubtype(idx) {
+        if (!currentPartsData) return;
+
+        const subtype  = currentPartsData.subtypes[idx];
+        const btn      = document.getElementById(`subtype-btn-${idx}`);
+        const statusEl = document.getElementById(`subtype-status-${idx}`);
+
+        if (!confirm(`Submit "${subtype.subtype_name_en}" to EPC?`)) return;
+
+        btn.disabled       = true;
+        btn.textContent    = '…';
+        statusEl.innerHTML = `<span style="font-size:12px;color:var(--warning)">Submitting…</span>`;
+
+        try {
+            const resp = await fetch(`/api/approve-parts-single/${currentJobId}`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ subtype }),
+            });
+
+            const text = await resp.text();
+            let result;
+            try { result = JSON.parse(text); }
+            catch (_) {
+                statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">⚠ Server error</span>`;
+                btn.disabled    = false;
+                btn.textContent = 'Retry';
+                return;
+            }
+
+            if (resp.ok && result.success) {
+                statusEl.innerHTML = `<span style="font-size:12px;color:var(--success)">✓ Done</span>`;
+                btn.textContent    = '✓ Done';
+                btn.classList.replace('btn--primary', 'btn--ghost');
+            } else {
+                const msg = result.error || 'Failed';
+                statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${msg}">✗ Error</span>`;
+                btn.disabled    = false;
+                btn.textContent = 'Retry';
+            }
+        } catch (err) {
+            statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">✗ Network error</span>`;
+            btn.disabled    = false;
+            btn.textContent = 'Retry';
+        }
+    }
 
     function expandPartsDetail(idx) {
         const sub = currentPartsData.subtypes[idx];
@@ -924,59 +992,54 @@ Return ONLY valid JSON in this structure:
         URL.revokeObjectURL(url);
     });
 
-    // Submit Parts
+    // Submit All Parts
     document.getElementById('approvePartsBtn').addEventListener('click', async () => {
-    if (!currentPartsData) {
-        showAlert('No parts data available.', 'error');
-        return;
-    }
-    if (!confirm('Submit parts to the EPC database?')) return;
+        if (!currentPartsData) { showAlert('No parts data available.', 'error'); return; }
+        if (!confirm('Submit all parts to the EPC database?')) return;
 
-    document.getElementById('approvePartsBtn').disabled = true;
-    showAlert('Submitting parts to EPC…', 'info');
+        document.getElementById('approvePartsBtn').disabled = true;
+        showAlert('Submitting parts to EPC…', 'info');
 
-    try {
-        const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ parts_data: currentPartsData })  // ← was "data:"
-        });
-
-        // Always parse as text first to avoid the <!doctype crash
-        const text = await resp.text();
-        let result;
         try {
-            result = JSON.parse(text);
-        } catch (_) {
-            showAlert('Server error (non-JSON response). Check Flask logs.', 'error');
-            document.getElementById('approvePartsBtn').disabled = false;
-            return;
-        }
+            const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ parts_data: currentPartsData })
+            });
 
-        if (resp.ok && result.success) {
-            renderPartsSubmissionResult(result.epc_results);  // ← was result.parts_results
-            showAlert('Parts submitted successfully!', 'success');
-        } else {
-            showAlert('Parts submission failed: ' + (result.error || 'Unknown error'), 'error');
+            const text = await resp.text();
+            let result;
+            try { result = JSON.parse(text); }
+            catch (_) {
+                showAlert('Server error (non-JSON response). Check Flask logs.', 'error');
+                document.getElementById('approvePartsBtn').disabled = false;
+                return;
+            }
+
+            if (resp.ok && result.success) {
+                renderPartsSubmissionResult(result.epc_results);
+                showAlert('Parts submitted successfully!', 'success');
+            } else {
+                showAlert('Parts submission failed: ' + (result.error || 'Unknown error'), 'error');
+                document.getElementById('approvePartsBtn').disabled = false;
+            }
+        } catch (err) {
+            showAlert('Network error: ' + err.message, 'error');
             document.getElementById('approvePartsBtn').disabled = false;
         }
-    } catch (err) {
-        showAlert('Network error: ' + err.message, 'error');
-        document.getElementById('approvePartsBtn').disabled = false;
-    }
-});
+    });
 
     function renderPartsSubmissionResult(r) {
-        const created = r.created?.length  || 0;
-        const skipped = r.skipped?.length  || 0;
-        const errors  = r.errors?.length   || 0;
+        const created = Array.isArray(r.created) ? r.created.length : (r.created || 0);
+        const skipped = Array.isArray(r.skipped) ? r.skipped.length : (r.skipped || 0);
+        const errors  = Array.isArray(r.errors)  ? r.errors.length  : (r.errors  || 0);
         const el = document.getElementById('partsSubmissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
             <div class="submission-summary">
                 <div class="submission-summary__title">🔩 Parts Submission Complete</div>
                 <div class="summary-row"><span class="summary-row__label">Subtypes Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
-                <div class="summary-row"><span class="summary-row__label">Subtypes Skipped (duplicates)</span><span class="summary-row__value summary-row__value--created">${skipped}</span></div>
+                <div class="summary-row"><span class="summary-row__label">Subtypes Skipped (duplicates)</span><span class="summary-row__value summary-row__value--skipped">${skipped}</span></div>
                 ${errors ? `<div class="summary-row">
                     <span class="summary-row__label">Errors</span>
                     <span class="summary-row__value summary-row__value--error">${errors}</span>
@@ -990,7 +1053,7 @@ Return ONLY valid JSON in this structure:
     // ── Alert utility ──────────────────────────────────────────────────────
     function showAlert(message, type = 'info') {
         const div = document.createElement('div');
-        div.className = `alert alert--${type}`;
+        div.className   = `alert alert--${type}`;
         div.textContent = message;
         alertContainer.innerHTML = '';
         alertContainer.appendChild(div);

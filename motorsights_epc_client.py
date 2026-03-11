@@ -188,6 +188,33 @@ class MotorsightsEPCClient:
             self.logger.error(f"Failed to get categories: {e}")
             return False, None
 
+    def _get_category_id_by_name(
+        self, category_name_en: str, master_category_id: str
+    ) -> Optional[str]:
+        """Look up an existing category_id by name."""
+        url = f"{self.base_url}/categories/get"
+        payload = {
+            "page": 1, "limit": 10,
+            "master_category_id": master_category_id,
+            "category_name_en": category_name_en,
+        }
+        def _request():
+            r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
+            r.raise_for_status()
+            return True, r.json()
+        try:
+            success, result = self._handle_401_retry(_request)
+            if not success or not result:
+                return None
+            items = (result.get("data") or {}).get("items") or []
+            for item in items:
+                if item.get("category_name_en", "").lower() == category_name_en.lower():
+                    return item.get("category_id")
+            return None
+        except Exception as e:
+            self.logger.error("_get_category_id_by_name failed: %s", e)
+            return None
+
     def create_category(self, data: Dict) -> Tuple[bool, Optional[Dict], bool]:
         """
         Create a category with optional type categories.
@@ -441,7 +468,36 @@ class MotorsightsEPCClient:
                     "category_name_en": pdf_category.get("category_name_en", ""),
                     "message":          cat_response.get("message", "Already exists")
                 })
-                self.logger.info("Skipped '%s'", pdf_category.get("category_name_en", ""))
+                self.logger.info("Skipped '%s' — submitting its type categories individually", pdf_category.get("category_name_en", ""))
+
+                if nested_types:
+                    category_id = self._get_category_id_by_name(
+                        pdf_category.get("category_name_en", ""), master_category_id
+                    )
+                    if category_id:
+                        for tc in nested_types:
+                            tc_data = {
+                                "master_category_id":        master_category_id,
+                                "category_id":               category_id,
+                                "type_category_name_en":     tc.get("type_category_name_en", ""),
+                                "type_category_name_cn":     tc.get("type_category_name_cn", ""),
+                                "type_category_description": tc.get("type_category_description", ""),
+                            }
+                            tc_success, tc_response = self.create_type_category(tc_data)
+                            if tc_success:
+                                results["type_categories_created"].append(
+                                    (tc_response or {}).get("data", {})
+                                )
+                                self.logger.info("  Created type category: %s",
+                                                tc.get("type_category_name_en", ""))
+                            else:
+                                self.logger.warning("  Skipped/failed type category: %s",
+                                        tc.get("type_category_name_en", ""))
+                    else:
+                        self.logger.warning(
+                            "Could not resolve category_id for '%s' — type categories not submitted",
+                            pdf_category.get("category_name_en", ""))
+
             elif success:
                 results["categories_created"].append(cat_response.get("data", {}))
                 results["type_categories_created"].extend(
@@ -559,12 +615,10 @@ class MotorsightsEPCClient:
 
         # dokumen_id is on the first item inside master_categories → items
         for doc in items:
-            for master in (doc.get("master_categories") or []):
-                for item in (master.get("items") or []):
-                    dokumen_id = item.get("dokumen_id")
-                    if dokumen_id:
-                        self.logger.info("Resolved dokumen_id=%s for '%s'", dokumen_id, dokumen_name)
-                        return dokumen_id
+            dokumen_id = doc.get("dokumen_id")
+            if dokumen_id:
+                self.logger.info("Resolved dokumen_id=%s for '%s'", dokumen_id, dokumen_name)
+                return dokumen_id
         return None
 
     def _get_all_item_categories_for_dokumen(
