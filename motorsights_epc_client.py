@@ -465,38 +465,52 @@ class MotorsightsEPCClient:
 
             if success and was_skipped:
                 results["categories_skipped"].append({
-                    "category_name_en": pdf_category.get("category_name_en", ""),
-                    "message":          cat_response.get("message", "Already exists")
+                "category_name_en": pdf_category.get("category_name_en", ""),
+                "message":          cat_response.get("message", "Already exists")
                 })
-                self.logger.info("Skipped '%s' — submitting its type categories individually", pdf_category.get("category_name_en", ""))
+                self.logger.info(
+                    "Skipped '%s' — updating via PUT /categories/{id}",
+                    pdf_category.get("category_name_en", "")
+                )
 
                 if nested_types:
                     category_id = self._get_category_id_by_name(
                         pdf_category.get("category_name_en", ""), master_category_id
                     )
                     if category_id:
-                        for tc in nested_types:
-                            tc_data = {
-                                "master_category_id":        master_category_id,
-                                "category_id":               category_id,
-                                "type_category_name_en":     tc.get("type_category_name_en", ""),
-                                "type_category_name_cn":     tc.get("type_category_name_cn", ""),
-                                "type_category_description": tc.get("type_category_description", ""),
-                            }
-                            tc_success, tc_response = self.create_type_category(tc_data)
-                            if tc_success:
-                                results["type_categories_created"].append(
-                                    (tc_response or {}).get("data", {})
-                                )
-                                self.logger.info("  Created type category: %s",
-                                                tc.get("type_category_name_en", ""))
-                            else:
-                                self.logger.warning("  Skipped/failed type category: %s",
-                                        tc.get("type_category_name_en", ""))
+                        # ✅ Gunakan PUT, bukan loop POST /type_category/create
+                        put_payload = {
+                            "master_category_id":      master_category_id,
+                            "master_category_name_en": master_category_name_en or "",
+                            "category_name_cn":        pdf_category.get("category_name_cn", ""),
+                            "category_description":    pdf_category.get("category_description", ""),
+                            "data_type": [
+                                {
+                                    "type_category_name_en":     tc.get("type_category_name_en", ""),
+                                    "type_category_name_cn":     tc.get("type_category_name_cn", ""),
+                                    "type_category_description": tc.get("type_category_description", ""),
+                                }
+                                for tc in nested_types
+                            ]
+                        }
+                        put_success, put_response = self.update_category(category_id, put_payload)
+                        if put_success:
+                            updated_types = (put_response.get("data") or {}).get("data_type", [])
+                            results["type_categories_created"].extend(updated_types)
+                            self.logger.info(
+                                "  Updated '%s' with %d type categories via PUT",
+                                pdf_category.get("category_name_en", ""), len(nested_types)
+                            )
+                        else:
+                            self.logger.error(
+                                "  Failed to update '%s' via PUT",
+                                pdf_category.get("category_name_en", "")
+                            )
                     else:
                         self.logger.warning(
-                            "Could not resolve category_id for '%s' — type categories not submitted",
-                            pdf_category.get("category_name_en", ""))
+                            "Could not resolve category_id for '%s'",
+                            pdf_category.get("category_name_en", "")
+                        )
 
             elif success:
                 results["categories_created"].append(cat_response.get("data", {}))
@@ -523,6 +537,23 @@ class MotorsightsEPCClient:
             len(results["errors"])
         )
         return overall_success, results
+    
+    def update_category(self, category_id: str, data: Dict) -> Tuple[bool, Optional[Dict]]:
+        url = f"{self.base_url}/categories/{category_id}"
+
+        def _request():
+            r = self.session.put(url, json=data, headers=self._get_headers(), timeout=30)
+            r.raise_for_status()
+            result = r.json()
+            return True, result
+
+        try:
+            return self._handle_401_retry(_request)
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Failed to update category {category_id}: {e}")
+            if hasattr(e, "response") and e.response is not None:
+                self.logger.error(f"Response: {e.response.text}")
+            return False, None
 
     def batch_create_flat_categories(
         self,

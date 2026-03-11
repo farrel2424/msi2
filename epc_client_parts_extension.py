@@ -45,8 +45,7 @@ class _PartsManagementMixin:
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         headers = {"Authorization": f"Bearer {self._get_bearer_token()}"}
-
-        files = {}
+        files = {key: (None, val) for key, val in form_data.items()}
         if file_path:
             files["file_foto"] = open(file_path, "rb")
 
@@ -54,8 +53,7 @@ class _PartsManagementMixin:
             resp = self.session.request(
                 method,
                 url,
-                data=form_data,
-                files=files if files else None,
+                files=files,
                 headers=headers,
                 timeout=60,
             )
