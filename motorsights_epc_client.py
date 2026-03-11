@@ -196,7 +196,7 @@ class MotorsightsEPCClient:
         payload = {
             "page": 1, "limit": 10,
             "master_category_id": master_category_id,
-            "category_name_en": category_name_en,
+            "search": category_name_en,
         }
         def _request():
             r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
