@@ -194,13 +194,15 @@ class MotorsightsEPCClient:
         type_category_name_en: str,
         category_id: Optional[str] = None,
         subtype_code: Optional[str] = None,
-    ) -> Optional[str]:
+    ) -> Tuple[Optional[str], Optional[str]]:
         candidates = [type_category_name_en.strip()]
         if subtype_code:
-            candidates.append(f"{subtype_code} {type_category_name_en}".strip())
+            candidates.append(f"{subtype_code} {type_category_name_en}".strip().lower())
+        else:
+            candidates.append(type_category_name_en.strip().lower())
 
         url = f"{self.base_url}/type_category/get"
-        payload = {"page": 1, "limit": 200, "search": type_category_name_en}
+        payload = {"page": 1, "limit": 100, "search": type_category_name_en}
 
         def _request():
             r = self.session.post(url, json=payload, headers=self._get_headers(), timeout=30)
@@ -220,18 +222,32 @@ class MotorsightsEPCClient:
             "resolve_type_category_id_by_name: result type=%s", type(result).__name__
         )
 
+        self.logger.info(
+            "resolve_type_category raw result: %s",
+            str(result)[:500]
+        )
+
         if isinstance(result, list):
             items = result
         elif isinstance(result, dict):
-            items = result.get("data", {}).get("items", [])
+            data = result.get("data", [])
+            if isinstance(data, list):
+                items = data                      # ← data langsung list
+            else:
+                items = data.get("items", [])     # ← data adalah dict dengan key items
         else:
             return None
 
         for item in items:
             en = (item.get("type_category_name_en") or "").strip()
+
+            self.logger.info(   # ← tambahkan ini
+                "resolve: checking DB item='%s' vs candidates=%s",
+                en, candidates
+            )
             if any(en.lower() == c.lower() for c in candidates):
                 if category_id is None or item.get("category_id") == category_id:
-                    return item.get("type_category_id")
+                    return item.get("type_category_id"), item.get("category_id")
         return None
 
     def _get_category_id_by_name(
@@ -867,12 +883,28 @@ class MotorsightsEPCClient:
                 item_category_id = item_cat_map.get(candidate)
                 if item_category_id:
                     break
+                
+            self.logger.info(
+                "Group: subtype_name_en='%s' subtype_code='%s'",
+                subtype_name_en, subtype_code
+            )
 
             if not item_category_id:
                 self.logger.warning(
                     "No existing item_category for '%s' — attempting to create via POST",
                     subtype_name_en
                 )
+
+                if not subtype_code:
+                    self.logger.error(
+                        "subtype_code kosong untuk '%s' — tidak bisa resolve secara unik, skipped",
+                        subtype_name_en
+                    )
+                    results["errors"].append({
+                        "subtype_name_en": subtype_name_en,
+                        "error": "subtype_code missing — cannot uniquely resolve type_category",
+                    })
+                    continue
 
     # Resolve type_category_id dari DB
                 type_cat_id = self.resolve_type_category_id_by_name(

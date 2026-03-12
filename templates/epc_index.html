@@ -835,10 +835,10 @@ Return ONLY valid JSON in this structure:
     });
 
     function renderSubmissionResult(r) {
-        const created  = Array.isArray(r.created)  ? r.created.length  : (r.created  || 0);
-        const skipped  = Array.isArray(r.skipped)  ? r.skipped.length  : (r.skipped  || 0);
+        const created  = Array.isArray(r.categories_created)  ? r.categories_created.length  : (r.categories_created  || 0);
+        const skipped  = Array.isArray(r.categories_skipped)  ? r.categories_skipped.length  : (r.categories_skipped  || 0);
         const errors   = Array.isArray(r.errors)   ? r.errors.length   : (r.errors   || 0);
-        const typeCats = r.type_categories_created || 0;
+        const typeCats = Array.isArray(r.type_categories_created) ? r.type_categories_created.length : (r.type_categories_created || 0);
         const el = document.getElementById('submissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
