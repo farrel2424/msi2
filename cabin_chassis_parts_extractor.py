@@ -413,7 +413,7 @@ def _merge_parts(raw_parts: List[Dict]) -> List[Dict]:
                 "catalog_item_name_ch": cn,
                 "quantity":             qty,
                 "description":          (p.get("remarks") or "").strip(),
-                "unit":                 "pcs",
+                "unit":                 "",
             }
 
     return list(merged.values())
@@ -781,7 +781,6 @@ def extract_cabin_chassis_parts(
             continue
 
         merged    = _assign_target_ids(merged, start=t_cursor)
-        t_cursor += len(merged)
 
         output.append({
             "category_name_en": grp["category_name_en"],

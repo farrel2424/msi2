@@ -414,7 +414,7 @@ class MotorsightsEPCClient:
                 "catalog_item_name_ch": p.get("catalog_item_name_ch", ""),
                 "description":          p.get("description", ""),
                 "quantity":             int(p.get("quantity", 1)),
-                "unit":                 p.get("unit", "pcs"),
+                "unit":                 p.get("unit", ""),
             })
 
         # Build multipart form fields
@@ -431,6 +431,9 @@ class MotorsightsEPCClient:
         # Route hierarchy
         if type_category_id:
             form_data["type_category_id"] = (None, type_category_id)
+            if category_id:
+                form_data["category_id"] = (None, category_id)
+
             self.logger.debug(
                 "create_item_category_with_parts: type_category_id=%s (3-level)",
                 type_category_id
@@ -906,11 +909,16 @@ class MotorsightsEPCClient:
                     })
                     continue
 
-    # Resolve type_category_id dari DB
-                type_cat_id = self.resolve_type_category_id_by_name(
+                # Resolve type_category_id dari DB
+                type_cat_id, resolved_cat_id = self.resolve_type_category_id_by_name(
                     subtype_name_en,
                     subtype_code=subtype_code,
                 )
+                self.logger.info(
+                    "Resolved: type_cat_id=%s, resolved_cat_id=%s",
+                    type_cat_id, resolved_cat_id
+                ) 
+                
                 if not type_cat_id:
                     self.logger.error(
                         "Cannot resolve type_category_id for '%s' — skipped", subtype_name_en
@@ -924,7 +932,7 @@ class MotorsightsEPCClient:
     # Buat item_category baru via POST
                 ok, resp = self.create_item_category_with_parts(
                     master_category_id        = master_category_id,
-                    category_id               = category_id,
+                    category_id               = resolved_cat_id,
                     type_category_id          = type_cat_id,
                     item_category_name_en     = subtype_name_en,
                     item_category_name_cn     = subtype_name_cn,
