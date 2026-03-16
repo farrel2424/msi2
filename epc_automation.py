@@ -53,7 +53,7 @@ from cabin_chassis_parts_extractor import (
     extract_cabin_chassis_categories,
 )
 
-
+from transmission_parts_extractor import extract_transmission_parts
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
@@ -498,20 +498,27 @@ class EPCPDFAutomation:
                 pdf_path.name, target_id_start
             )
 
-            if self.config.partbook_type != "cabin_chassis":
-                raise ValueError(
-                    f"process_parts() only supports cabin_chassis partbooks. "
-                    f"Got partbook_type='{self.config.partbook_type}'"
+            ptype = self.config.partbook_type
+            if ptype == "cabin_chassis":
+                parts_data = extract_cabin_chassis_parts(
+                    pdf_path         = str(pdf_path),
+                    sumopod_client   = self.sumopod,
+                    target_id_start  = target_id_start,
+                    code_to_category = code_to_category or {},
                 )
-
-            # Pass code_to_category so each group gets the correct
-            # category_name_en tag (e.g. "Frame System", "Brake System")
-            parts_data = extract_cabin_chassis_parts(
-                pdf_path         = str(pdf_path),
-                sumopod_client   = self.sumopod,
-                target_id_start  = target_id_start,
-                code_to_category = code_to_category or {},
-            )
+            elif ptype == "transmission":
+                parts_data = extract_transmission_parts(
+                    pdf_path         = str(pdf_path),
+                    sumopod_client   = self.sumopod,
+                    target_id_start  = target_id_start,
+                    category_map     = code_to_category or {},
+                )
+            else:
+                raise ValueError(
+                    f"process_parts() does not support partbook_type='{ptype}'. "
+                    f"Supported: 'cabin_chassis', 'transmission'"
+                )
+        
 
             result["parts_data"] = parts_data
             total_parts = sum(len(g["parts"]) for g in parts_data)

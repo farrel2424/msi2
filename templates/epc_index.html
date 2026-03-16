@@ -503,7 +503,7 @@ Return ONLY valid JSON in this structure:
     let currentPartsData     = null;
 
     // Partbook types that require Parts Management (add others here when ready)
-    const PARTS_MGMT_TYPES = ['cabin_chassis'];
+    const PARTS_MGMT_TYPES = ['cabin_chassis', 'transmission'];
 
     const PARTBOOK_META = {
         engine:        { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)', cls: 'badge-engine' },
@@ -645,7 +645,7 @@ Return ONLY valid JSON in this structure:
             if (job.status === 'review' && !editorPopulated) openReview(job);
             if (job.status === 'parts_review' && !partsPopulated) openPartsReview(job);
 
-            if (job.status === 'structure_submitted' && job.partbook_type === 'cabin_chassis') {
+            if (job.status === 'structure_submitted' && PARTS_MGMT_TYPES.includes(job.partbook_type)) {
                 stopPolling();
                 await startPartsExtraction();
             }
