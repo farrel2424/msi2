@@ -439,7 +439,8 @@ class MotorsightsEPCClient:
                 type_category_id
             )
         else:
-            form_data["category_id"] = (None, category_id)
+            if category_id:
+                form_data["category_id"] = (None, category_id)
             self.logger.debug(
                 "create_item_category_with_parts: category_id=%s (2-level)",
                 category_id

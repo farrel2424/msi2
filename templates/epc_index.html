@@ -793,14 +793,6 @@ Return ONLY valid JSON in this structure:
     // ── Approve & Submit categories ────────────────────────────────────────
     document.getElementById('approveBtn').addEventListener('click', async () => {
         // Guard: require dokumen name for cabin_chassis (and future PARTS_MGMT_TYPES)
-        if (PARTS_MGMT_TYPES.includes(currentPartbookType)) {
-            const dokumenName = document.getElementById('dokumenName').value.trim();
-            if (!dokumenName) {
-                showAlert('Please enter the Document Name before submitting.', 'error');
-                document.getElementById('dokumenName').focus();
-                return;
-            }
-        }
 
         if (!confirm('Submit categories to EPC database?\n\nDuplicate categories will be skipped automatically.')) return;
 
@@ -908,6 +900,13 @@ Return ONLY valid JSON in this structure:
     async function submitSingleSubtype(idx) {
         if (!currentPartsData) return;
 
+        const dokumenName = document.getElementById('dokumenName').value.trim();
+        if (!dokumenName) {
+            showAlert('Please enter the Document Name before submitting.', 'error');
+            document.getElementById('dokumenName').focus();
+            return;
+        }
+
         const subtype  = currentPartsData.subtypes[idx];
         const btn      = document.getElementById(`subtype-btn-${idx}`);
         const statusEl = document.getElementById(`subtype-status-${idx}`);
@@ -922,7 +921,7 @@ Return ONLY valid JSON in this structure:
             const resp = await fetch(`/api/approve-parts-single/${currentJobId}`, {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({ subtype }),
+                body:    JSON.stringify({ subtype, dokumen_name: document.getElementById('dokumenName').value.trim(), }),
             });
 
             const text = await resp.text();
@@ -993,6 +992,14 @@ Return ONLY valid JSON in this structure:
 
     // Submit All Parts
     document.getElementById('approvePartsBtn').addEventListener('click', async () => {
+
+        const dokumenName = document.getElementById('dokumenName').value.trim();
+        if (!dokumenName) {
+            showAlert('Please enter the Document Name before submitting.', 'error');
+            document.getElementById('dokumenName').focus();
+            return;
+        }
+
         if (!currentPartsData) { showAlert('No parts data available.', 'error'); return; }
         if (!confirm('Submit all parts to the EPC database?')) return;
 
@@ -1003,7 +1010,7 @@ Return ONLY valid JSON in this structure:
             const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ parts_data: currentPartsData })
+                body: JSON.stringify({ parts_data: currentPartsData, dokumen_name: document.getElementById('dokumenName').value.trim(), })
             });
 
             const text = await resp.text();
