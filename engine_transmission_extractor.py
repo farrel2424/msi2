@@ -29,6 +29,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
+
 from pdf_utils import (
     extract_response_text,
     extract_zip_pdf,
@@ -294,7 +295,7 @@ def _translate_toc_text(toc_text: str, sumopod_client) -> Dict:
         max_tokens=2000,
         timeout=60,
     )
-    extracted = parse_llm_json(resp.choices[0].message.content.strip())
+    extracted = parse_llm_json(extract_response_text(resp))
     for cat in extracted.get("categories", []):
         cat.setdefault("category_description", "")
     logger.info("Transmission (text): extracted %d categories",
