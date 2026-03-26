@@ -461,13 +461,20 @@ class MotorsightsEPCClient:
 
         try:
             return self._handle_401_retry(_request)
+        
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "?"
             body   = e.response.text[:500] if e.response else ""
+            if status == 400 and "sudah ada di database" in body:
+                self.logger.info(
+                    "Parts already exist in DB — treated as skipped"
+                )
+                return True, {"skipped": True, "message": body}
             self.logger.error(
                 "create_item_category_with_parts HTTP %s: %s", status, body
             )
             return False, {"error": f"HTTP {status}: {body}"}
+        
         except Exception as e:
             self.logger.error("create_item_category_with_parts failed: %s", e)
             return False, {"error": str(e)}
@@ -818,6 +825,12 @@ class MotorsightsEPCClient:
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "?"
             body   = e.response.text[:500]  if e.response else ""
+            if status == 400 and "sudah ada di database" in body:
+                self.logger.info(
+                    "Parts already exist in DB — treated as skipped: %s", body[:200]
+                )
+                return True, {"skipped": True, "message": "Parts already exist"}
+            
             self.logger.error("update_item_category_with_parts HTTP %s: %s", status, body)
             return False, {"error": f"HTTP {status}: {body}"}
         except Exception as e:
@@ -991,7 +1004,13 @@ class MotorsightsEPCClient:
                     dokumen_name              = dokumen_name,
                     parts                     = parts,
                 )
-                if ok:
+                if ok and (resp or {}).get("skipped"):
+                    results["skipped"].append({
+                        "subtype_name_en": subtype_name_en,
+                        "reason": "Parts already exist in DB",
+                    })
+                    self.logger.info("↷ '%s': already exists, skipped", subtype_name_en)
+                elif ok:
                     results["created"].append({
                         "subtype_name_en": subtype_name_en,
                         "parts_count":     len(parts),
@@ -1043,7 +1062,14 @@ class MotorsightsEPCClient:
                 dokumen_name              = dokumen_name,
                 parts                     = parts,
             )
-            if ok:
+            
+            if ok and (resp or {}).get("skipped"):
+                results["skipped"].append({
+                    "subtype_name_en": subtype_name_en,
+                    "reason": "Parts already exist in DB",
+                })
+                self.logger.info("↷ '%s': already exists, skipped", subtype_name_en)
+            elif ok:
                 results["created"].append({
                     "subtype_name_en": subtype_name_en,
                     "parts_count":     len(parts),
