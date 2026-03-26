@@ -55,6 +55,13 @@ logger = logging.getLogger(__name__)
 
 _PART_NUMBER_PREFIX = "BS"
 
+def _is_valid_section_header(raw: str) -> bool:
+    """
+    A real section header must contain the Chinese enumeration mark 、(U+3001)
+    e.g. "一、离合器和变速器壳体总成" or "十五、QH50 取力器总成"
+    Anything without 、 is a misread bold part name, not a section title.
+    """
+    return "\u3001" in raw
 # ─────────────────────────────────────────────────────────────────────────────
 # Vision AI system prompt
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,10 +79,12 @@ PAGE TYPES:
    section title header and/or an exploded-view diagram.
 
 SECTION HEADER (marks a new category):
-  A large bold centered title in the format:
-    <number>、<Chinese section name>
+  A large bold CENTERED title ABOVE the table columns, in the format:
+    <Chinese/number ordinal><、><Chinese section name>
   Examples: "一、离合器和变速器壳体总成", "十五、QH50 取力器总成"
-  If present, extract it verbatim (include the leading number and 、).
+  CRITICAL: The 、character MUST be present. Bold rows INSIDE the table
+  (assembly headers with a part number) are NOT section headers — return
+  section_header: null for those.
   If not present, set section_header to null.
 
 TABLE STRUCTURE (4 columns, left to right):
@@ -317,7 +326,7 @@ def _assign_target_ids(
     return tagged, counter
 
 
-def _build_output_part(part: Dict) -> Dict:
+def _build_output_part(part: Dict, cn_to_en: Optional[Dict[str, str]] = None) -> Dict:
     """
     Map an internal part dict (with target_id) to the canonical EPC output
     schema.
@@ -325,16 +334,122 @@ def _build_output_part(part: Dict) -> Dict:
     Input keys  : target_id, part_number, name_cn, quantity, serial_no
     Output keys : target_id, part_number, catalog_item_name_en,
                   catalog_item_name_ch, quantity, description, unit
+
+    Args:
+        part:       Internal part dict (with target_id already assigned).
+        cn_to_en:   Translation lookup built by _translate_part_names().
+                    When provided, catalog_item_name_en is filled from it.
     """
+    name_cn = part.get("name_cn") or ""
+    name_en = (cn_to_en or {}).get(name_cn, "")
     return {
         "target_id": part["target_id"],
         "part_number": _add_prefix(part["part_number"]),
-        "catalog_item_name_en": "",          # no EN name in this partbook
-        "catalog_item_name_ch": part.get("name_cn") or "",
+        "catalog_item_name_en": name_en,
+        "catalog_item_name_ch": name_cn,
         "quantity": part.get("quantity"),
         "description": "",                   # no remarks column
         "unit": "",                          # no unit column
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Batch name translation
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PARTS_TRANSLATION_PROMPT = """\
+You are a professional automotive parts catalog translator (Chinese → English).
+Translate each Chinese part name into clear, concise English.
+These are spare part names from a heavy-truck transmission parts catalog.
+
+Return ONLY valid JSON — no markdown, no explanation:
+{
+  "translations": [
+    { "cn": "<original Chinese>", "en": "<English translation>" }
+  ]
+}
+
+Rules:
+- Same order and count as the input list.
+- Use standard automotive / mechanical terminology.
+- Keep abbreviations where widely accepted (e.g. "O-Ring", "Bolt M10×1.25").
+- Do NOT add explanations or parenthetical notes unless they were in the original.
+- Do NOT skip any item; every cn must have an en.
+"""
+
+
+def _translate_part_names(
+    cn_names: List[str],
+    sumopod_client,
+    batch_size: int = 120,
+) -> Dict[str, str]:
+    """
+    Translate a list of unique Chinese part names to English in one or more
+    batched API calls.
+
+    Args:
+        cn_names:       Deduplicated list of Chinese name strings.
+        sumopod_client: Initialised SumopodClient.
+        batch_size:     Max items per API call (default 120 keeps well inside
+                        4 k token budget per request).
+
+    Returns:
+        Dict mapping cn → en.  Falls back to the original cn on any error.
+    """
+    if not cn_names:
+        return {}
+
+    cn_to_en: Dict[str, str] = {}
+
+    # Split into batches so very large catalogs don't hit token limits.
+    for i in range(0, len(cn_names), batch_size):
+        batch = cn_names[i : i + batch_size]
+        user_msg = (
+            "Translate these Chinese transmission part names to English:\n\n"
+            + json.dumps(batch, ensure_ascii=False, indent=2)
+        )
+        try:
+            resp = sumopod_client.client.chat.completions.create(
+                model=sumopod_client.model,
+                messages=[
+                    {"role": "system", "content": _PARTS_TRANSLATION_PROMPT},
+                    {"role": "user",   "content": user_msg},
+                ],
+                temperature=0.1,
+                max_tokens=4096,
+                timeout=120,
+            )
+            raw = extract_response_text(resp)
+            if raw.startswith("```"):
+                raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+                raw = re.sub(r"\n?```$", "", raw)
+
+            translations = json.loads(raw.strip()).get("translations", [])
+            for item in translations:
+                cn = (item.get("cn") or "").strip()
+                en = (item.get("en") or "").strip()
+                if cn:
+                    cn_to_en[cn] = en
+
+            logger.debug(
+                "Translation batch %d–%d: %d items translated.",
+                i + 1, i + len(batch), len(translations),
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "Translation batch %d–%d failed (%s) — falling back to CN names.",
+                i + 1, i + len(batch), exc,
+            )
+            # Fallback: use the Chinese name as-is so no data is lost.
+            for cn in batch:
+                cn_to_en.setdefault(cn, cn)
+
+    # Guarantee every input name has a mapping (in case the model skipped some).
+    for cn in cn_names:
+        cn_to_en.setdefault(cn, cn)
+
+    return cn_to_en
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -426,6 +541,25 @@ def extract_transmission_parts(
 
     logger.info("All Vision AI calls complete.")
 
+    # ── Diagnostic: print per-page classification summary ────────────────────
+    _type_counts: Dict[str, int] = {}
+    for _r in page_results.values():
+        _pt = (_r or {}).get("page_type", "error/none")
+        _type_counts[_pt] = _type_counts.get(_pt, 0) + 1
+    logger.info(
+        "Page classification summary: %s",
+        ", ".join(f"{k}={v}" for k, v in sorted(_type_counts.items())),
+    )
+    for _idx in sorted(page_results):
+        _r  = page_results[_idx]
+        _pt = (_r or {}).get("page_type", "none")
+        _hd = (_r or {}).get("section_header") or ""
+        _np = len((_r or {}).get("parts") or [])
+        logger.info(
+            "  pg %03d | %-8s | header=%-45s | parts=%d",
+            _idx + 1, _pt, (repr(_hd) if _hd else "-"), _np,
+        )
+
     # ── 3. Sequential pass: stateful category tracking ───────────────────────
     #   We process pages in document order so that a section header on page N
     #   correctly governs all content pages that follow until the next header.
@@ -446,7 +580,7 @@ def extract_transmission_parts(
 
         # Skip non-content pages immediately.
         if page_type in ("cover", "toc"):
-            logger.debug("Page %d: %s — skipped.", page_idx + 1, page_type)
+            logger.info("Page %d: %s — skipped.", page_idx + 1, page_type)
             continue
 
         if page_type != "content":
@@ -458,11 +592,23 @@ def extract_transmission_parts(
         # ── 3a. Update current category if a new section header is present ──
         raw_header = result.get("section_header")
         if raw_header:
+            # GUARD: reject headers that don't match the expected pattern
+            # (Chinese ordinal + 、). Bold part names in the table can be
+            # misread as section headers — we filter them out here.
+            if not _is_valid_section_header(raw_header):
+                logger.warning(
+                    "Page %d: section_header '%s' rejected — "
+                    "missing 、 mark, likely a misread bold table row.",
+                    page_idx + 1, raw_header
+                )
+                raw_header = None   # treat as no header change
+
+        if raw_header:
             current_category_cn = _strip_section_number(raw_header)
             # Ensure the category bucket exists even if this page has no parts.
             if current_category_cn not in category_parts:
                 category_parts[current_category_cn] = []
-            logger.debug(
+            logger.info(
                 "Page %d: new section → '%s'", page_idx + 1, current_category_cn
             )
 
@@ -482,54 +628,111 @@ def extract_transmission_parts(
         # ── 3b. Accumulate parts into the current category bucket ────────────
         parts_on_page: List[Dict] = result.get("parts") or []
         category_parts[current_category_cn].extend(parts_on_page)
-        logger.debug(
-            "Page %d: accumulated %d parts into '%s'.",
+        logger.info(
+            "Page %d: +%d parts → '%s' (total %d)",
             page_idx + 1,
             len(parts_on_page),
             current_category_cn,
+            len(category_parts[current_category_cn]),
         )
 
     logger.info(
-        "Sequential pass complete: %d category/categories found.",
+        "Sequential pass complete: %d categories found: %s",
         len(category_parts),
+        list(category_parts.keys()),
     )
 
     # ── 4. Deduplicate, assign T-IDs, and build final output ─────────────────
     output: List[Dict] = []
     global_counter = target_id_start   # sequential T-ID counter across the whole doc
 
+    # Collect all tagged parts across every category first, so we can run
+    # a single batch translation call for all unique CN names at once.
+    # This is cheaper (1 API call total) than translating per-category.
+    staged: List[Tuple[str, str, List[Dict]]] = []   # (category_cn, category_en, tagged_parts)
+
     for category_cn, raw_parts in category_parts.items():
         if not raw_parts:
-            logger.debug("Category '%s' has 0 parts — skipping.", category_cn)
-            continue
+            # Keep 0-part categories in staged so they appear in the output
+            # (avoids the "missing category" symptom when Vision AI extracts
+            # the header but no rows — e.g. diagram-heavy pages).
+            logger.warning(
+                "Category '%s' has 0 parts — included with empty parts list.", category_cn
+            )
 
         # Step A: deduplicate within this category.
-        merged = _merge_parts(raw_parts)
+        merged = _merge_parts(raw_parts) if raw_parts else []
 
-        # Step B: assign T-IDs.
-        #   Note: counter resets to target_id_start *per category*, not
-        #   globally, because the spec says "sequential and reset per category."
-        #   We still accept target_id_start as the starting point for the
-        #   first category (append mode), then reset to 1 for subsequent ones.
+        # Step B: assign T-IDs (per-category reset after the first group).
         tagged, _ = _assign_target_ids(merged, counter_start=global_counter)
-        # Per-category reset: after the first category, sequential IDs restart
-        # at 1 (T001) for every new category.
         global_counter = 1   # reset for next category
 
-        # Step C: map to output schema (add BS prefix, rename fields).
-        output_parts = [_build_output_part(p) for p in tagged]
-
-        # Step D: look up the English name from Stage 1 category_map.
+        # Step D: look up the English category name from Stage 1 category_map.
+        # Try exact match first, then normalised (strip & lower) as fallback.
         category_en = category_map.get(category_cn, "")
         if not category_en:
-            logger.debug(
-                "No EN translation found in category_map for '%s'.", category_cn
+            # Normalised fallback — handles minor whitespace / encoding drift
+            # between what Stage 1 stored and what Vision AI returned.
+            _norm = category_cn.strip()
+            for k, v in category_map.items():
+                if k.strip() == _norm:
+                    category_en = v
+                    break
+        if not category_en:
+            logger.warning(
+                "No EN mapping in category_map for '%s' — will auto-translate.", category_cn
             )
+
+        staged.append((category_cn, category_en, tagged))
+
+    # ── 5. Batch-translate all unique CN names in one API call ────────────────
+    #   Two groups of CN strings to translate:
+    #     (a) Part names  — fills catalog_item_name_en on every part row.
+    #     (b) Category names with no EN mapping from Stage 1 — fills
+    #         category_name_en / subtype_name_en so the frontend shows English.
+    all_part_cn_names: List[str] = list({
+        part.get("name_cn") or ""
+        for _, _, tagged in staged
+        for part in tagged
+        if part.get("name_cn")
+    })
+    missing_cat_cn: List[str] = [
+        cat_cn for cat_cn, cat_en, _ in staged if not cat_en
+    ]
+
+    strings_to_translate = list(dict.fromkeys(all_part_cn_names + missing_cat_cn))
+    logger.info(
+        "Translating %d unique strings (%d part names + %d category names without EN mapping) …",
+        len(strings_to_translate), len(all_part_cn_names), len(missing_cat_cn),
+    )
+    cn_to_en: Dict[str, str] = _translate_part_names(strings_to_translate, sumopod_client)
+    logger.info("Translation complete.")
+
+    # Back-fill category_en for any that were missing from Stage 1 map.
+    staged = [
+        (cat_cn, cat_en or cn_to_en.get(cat_cn, cat_cn), tagged)
+        for cat_cn, cat_en, tagged in staged
+    ]
+
+    # ── 6. Build final output using the translation lookup ────────────────────
+    for category_cn, category_en, tagged in staged:
+        # Step C: map to output schema (add BS prefix, fill EN name, rename fields).
+        output_parts = [_build_output_part(p, cn_to_en=cn_to_en) for p in tagged]
 
         output.append(
             {
+                # ── Primary keys (transmission-native) ──────────────────
                 "category_name_cn": category_cn,
                 "category_name_en": category_en,
+                # ── Alias keys (cabin_chassis-compatible) ───────────────
+                # The frontend (populatePartsSection) and batch_submit_parts()
+                # both read subtype_name_en / subtype_name_cn / subtype_code.
+                # Transmission has no subtype level, so we alias the category
+                # fields into those keys so every downstream consumer works
+                # without a schema branch.
+                "subtype_name_en":  category_en,
+                "subtype_name_cn":  category_cn,
+                "subtype_code":     "",   # no code in transmission partbooks
                 "parts": output_parts,
             }
         )
