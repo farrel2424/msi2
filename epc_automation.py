@@ -52,8 +52,8 @@ from cabin_chassis_parts_extractor import (
     extract_cabin_chassis_parts,
     extract_cabin_chassis_categories,
 )
-
 from transmission_parts_extractor import extract_transmission_parts
+from engine_parts_extractor import extract_engine_parts
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────────────────────────────────────
@@ -513,12 +513,18 @@ class EPCPDFAutomation:
                     target_id_start  = target_id_start,
                     category_map     = code_to_category or {},
                 )
+            elif ptype == "engine":
+                parts_data = extract_engine_parts(
+                    pdf_path        = str(pdf_path),
+                    sumopod_client  = self.sumopod,
+                    target_id_start = target_id_start,
+                )
+
             else:
                 raise ValueError(
                     f"process_parts() does not support partbook_type='{ptype}'. "
-                    f"Supported: 'cabin_chassis', 'transmission'"
+                    f"Supported: 'cabin_chassis', 'transmission', 'engine'"
                 )
-        
 
             result["parts_data"] = parts_data
             total_parts = sum(len(g["parts"]) for g in parts_data)
