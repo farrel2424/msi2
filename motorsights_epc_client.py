@@ -75,7 +75,7 @@ class MotorsightsEPCClient:
         try:
             return func(*args, **kwargs)
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 401 and self.auth_client:
+            if e.response is not None and e.response.status_code == 401 and self.auth_client:
                 self.logger.warning("Got 401, refreshing bearer token and retrying…")
                 self.auth_client.invalidate_token()
                 return func(*args, **kwargs)
@@ -412,8 +412,8 @@ class MotorsightsEPCClient:
                 "part_number":          p.get("part_number", ""),
                 "catalog_item_name_en": p.get("catalog_item_name_en", ""),
                 "catalog_item_name_ch": p.get("catalog_item_name_ch", ""),
-                "description":          p.get("description", ""),
-                "quantity":             int(p.get("quantity", 1)),
+                "description":          p.get("description") or "-",
+                "quantity":             int(p.get("quantity") or 1),
                 "unit":                 p.get("unit", ""),
             })
 
@@ -451,6 +451,11 @@ class MotorsightsEPCClient:
             # requests sets it with the boundary automatically for multipart.
             headers = {"Authorization": f"Bearer {self._get_bearer_token()}"}
             r = self.session.post(url, files=form_data, headers=headers, timeout=60)
+            if not r.ok:
+                self.logger.error(
+                    "Server rejected POST /item_category/create [%s]: %s",
+                    r.status_code, r.text[:1000]
+                )
             r.raise_for_status()
             return True, r.json()
 
@@ -788,8 +793,8 @@ class MotorsightsEPCClient:
                 "part_number":           p.get("part_number", ""),
                 "catalog_item_name_en":  p.get("catalog_item_name_en", ""),
                 "catalog_item_name_ch":  p.get("catalog_item_name_ch", ""),
-                "description":           p.get("description", ""),
-                "quantity":              int(p.get("quantity", 1)),
+                "description":           p.get("description") or "-",
+                "quantity":              int(p.get("quantity") or 1),
             })
 
         form_data = {

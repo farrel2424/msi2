@@ -589,32 +589,20 @@ def extract_transmission_parts(
             )
             continue
 
-        # ── 3a. Update current category if a new section header is present ──
+        # ── 3a. Validate section header (but don't apply it yet) ─────────────
         raw_header = result.get("section_header")
         if raw_header:
-            # GUARD: reject headers that don't match the expected pattern
-            # (Chinese ordinal + 、). Bold part names in the table can be
-            # misread as section headers — we filter them out here.
             if not _is_valid_section_header(raw_header):
                 logger.warning(
                     "Page %d: section_header '%s' rejected — "
                     "missing 、 mark, likely a misread bold table row.",
                     page_idx + 1, raw_header
                 )
-                raw_header = None   # treat as no header change
+                raw_header = None
 
-        if raw_header:
-            current_category_cn = _strip_section_number(raw_header)
-            # Ensure the category bucket exists even if this page has no parts.
-            if current_category_cn not in category_parts:
-                category_parts[current_category_cn] = []
-            logger.info(
-                "Page %d: new section → '%s'", page_idx + 1, current_category_cn
-            )
-
-        # Guard: if we've never seen a section header yet, we can't assign
-        # parts to any category.  Log and skip.
-        if current_category_cn is None:
+        # Guard: if we've never seen a section header yet AND there's no new
+        # header on this page, we can't assign parts to any category.
+        if current_category_cn is None and not raw_header:
             parts_on_page = result.get("parts") or []
             if parts_on_page:
                 logger.warning(
@@ -625,16 +613,29 @@ def extract_transmission_parts(
                 )
             continue
 
-        # ── 3b. Accumulate parts into the current category bucket ────────────
+        # ── 3b. Accumulate parts FIRST under the CURRENT category ────────────
+        # Parts on this page belong to the section that was active BEFORE
+        # this page's header — e.g. page has section 三's table at the top
+        # and section 四's header at the bottom: parts go to 三, not 四.
         parts_on_page: List[Dict] = result.get("parts") or []
-        category_parts[current_category_cn].extend(parts_on_page)
-        logger.info(
-            "Page %d: +%d parts → '%s' (total %d)",
-            page_idx + 1,
-            len(parts_on_page),
-            current_category_cn,
-            len(category_parts[current_category_cn]),
-        )
+        if current_category_cn is not None and parts_on_page:
+            category_parts[current_category_cn].extend(parts_on_page)
+            logger.info(
+                "Page %d: +%d parts → '%s' (total %d)",
+                page_idx + 1,
+                len(parts_on_page),
+                current_category_cn,
+                len(category_parts[current_category_cn]),
+            )
+
+        # ── 3c. NOW update section pointer for the NEXT page's parts ─────────
+        if raw_header:
+            current_category_cn = _strip_section_number(raw_header)
+            if current_category_cn not in category_parts:
+                category_parts[current_category_cn] = []
+            logger.info(
+                "Page %d: new section → '%s'", page_idx + 1, current_category_cn
+            )
 
     logger.info(
         "Sequential pass complete: %d categories found: %s",
