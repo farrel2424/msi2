@@ -828,14 +828,22 @@ class MotorsightsEPCClient:
         subtype_id_map: Optional[Dict[str, str]] = None,
     ) -> Tuple[bool, Dict]:
         """
-        Submit all parts groups to the API by PUTting to existing item_categories.
-
-        Flow (mirrors exactly what the UI does):
-          1. Look up dokumen_id from dokumen_name via POST /item_category/get
-          2. Fetch ALL item_categories for that dokumen via GET /item_category/dokumen/{id}
-          3. Build lookup: type_category_name_en → item_category_id
-          4. For each parts group, match by "<subtype_code> <subtype_name_en>"
-          5. PUT /item_category/{item_category_id} with the parts rows
+        Submit all parts groups to the API.
+ 
+        Supports two hierarchy modes automatically:
+          • 3-level (Cabin & Chassis): Master → Category → TypeCategory → ItemCategory
+            subtype_code is non-empty; looks up existing item_categories by type_category_name
+            and PUTs into them.
+          • 2-level (Transmission): Master → Category → ItemCategory
+            subtype_code is ""; resolves category_id by category_name_en and POSTs
+            a new item_category directly under the Category.
+ 
+        FIX 1: No longer aborts when item_cat_map is empty.
+               Empty map is normal for Transmission (Stage 1 creates only flat
+               Categories, never item_categories). The per-group fallback handles it.
+        FIX 2: When subtype_code is "" (Transmission) the fallback now resolves
+               category_id by category_name_en and creates via POST (2-level path)
+               instead of erroring out.
         """
         results = {
             "created":               [],
@@ -844,7 +852,7 @@ class MotorsightsEPCClient:
             "errors":                [],
             "total_parts_submitted": 0,
         }
-
+ 
         # ── Step 1: resolve dokumen_id ────────────────────────────────────
         dokumen_id = self._get_dokumen_id_by_name(dokumen_name)
         if not dokumen_id:
@@ -855,86 +863,123 @@ class MotorsightsEPCClient:
                 "error": f"Dokumen '{dokumen_name}' not found in DB"
             })
             return False, results
-
-        # ── Step 2: fetch all item_categories for this dokumen ────────────
-        # mapping: type_category_name_en.lower() → item_category_id
+ 
+        # ── Step 2: fetch existing item_categories for this dokumen ───────
+        # For Cabin & Chassis: this returns the item_categories created in Stage 1
+        # For Transmission:    this returns {} (empty) — that is OK, handled per-group
         item_cat_map = self._get_all_item_categories_for_dokumen(dokumen_id)
+        # FIX 1: removed early-return when item_cat_map is empty.
+        # Transmission has no pre-existing item_categories; the per-group logic
+        # will create them via POST (2-level path).
         if not item_cat_map:
-            self.logger.error("No item_categories found for dokumen_id=%s", dokumen_id)
-            results["errors"].append({"error": "No item_categories found for this dokumen"})
-            return False, results
-
+            self.logger.info(
+                "No existing item_categories found for dokumen_id=%s — "
+                "will create all groups from scratch (Transmission / first run).",
+                dokumen_id,
+            )
+ 
         # ── Step 3: process each parts group ─────────────────────────────
         for group in parts_data:
             subtype_code    = (group.get("subtype_code")    or "").strip()
             subtype_name_en = (group.get("subtype_name_en") or "").strip()
             subtype_name_cn = (group.get("subtype_name_cn") or "").strip()
+            # category_name_en is populated by transmission_parts_extractor
+            # (equals subtype_name_en for transmission; separate for cabin_chassis)
+            group_cat_en    = (group.get("category_name_en") or "").strip()
             parts           = group.get("parts", [])
-
+ 
             if not parts:
                 self.logger.debug("Skipping empty group '%s'", subtype_name_en)
                 continue
-
-            # Build candidates: code-prefixed first (as stored in DB), then plain name
+ 
+            # Build lookup candidates for existing item_cat_map
             candidates = []
             if subtype_code:
                 candidates.append(f"{subtype_code} {subtype_name_en}".lower())
             candidates.append(subtype_name_en.lower())
-
-            # Find the matching item_category_id
+ 
             item_category_id: Optional[str] = None
             for candidate in candidates:
                 item_category_id = item_cat_map.get(candidate)
                 if item_category_id:
                     break
-                
+ 
             self.logger.info(
-                "Group: subtype_name_en='%s' subtype_code='%s'",
-                subtype_name_en, subtype_code
+                "Group: subtype_name_en='%s' subtype_code='%s' → item_category_id=%s",
+                subtype_name_en, subtype_code, item_category_id or "not found",
             )
-
-            if not item_category_id:
-                self.logger.warning(
-                    "No existing item_category for '%s' — attempting to create via POST",
-                    subtype_name_en
-                )
-
-                if not subtype_code:
-                    self.logger.error(
-                        "subtype_code kosong untuk '%s' — tidak bisa resolve secara unik, skipped",
-                        subtype_name_en
-                    )
-                    results["errors"].append({
-                        "subtype_name_en": subtype_name_en,
-                        "error": "subtype_code missing — cannot uniquely resolve type_category",
-                    })
-                    continue
-
-                # Resolve type_category_id dari DB
-                type_cat_id, resolved_cat_id = self.resolve_type_category_id_by_name(
-                    subtype_name_en,
-                    subtype_code=subtype_code,
-                )
+ 
+            # ── Path A: existing item_category found → PUT ────────────────
+            if item_category_id:
                 self.logger.info(
-                    "Resolved: type_cat_id=%s, resolved_cat_id=%s",
-                    type_cat_id, resolved_cat_id
-                ) 
-                
-                if not type_cat_id:
+                    "Updating '%s' (%s): item_category_id=%s, %d parts …",
+                    subtype_name_en, subtype_code, item_category_id, len(parts),
+                )
+                success, response = self.update_item_category_with_parts(
+                    item_category_id  = item_category_id,
+                    master_category_id = master_category_id,
+                    category_id       = category_id,
+                    type_category_id  = None,
+                    dokumen_name      = dokumen_name,
+                    parts             = parts,
+                )
+                if success:
+                    results["updated"].append({
+                        "subtype_code":     subtype_code,
+                        "subtype_name_en":  subtype_name_en,
+                        "parts_count":      len(parts),
+                        "item_category_id": item_category_id,
+                    })
+                    results["total_parts_submitted"] += len(parts)
+                    self.logger.info("✓ '%s': %d parts updated", subtype_name_en, len(parts))
+                else:
+                    err = str((response or {}).get("error", ""))
+                    results["errors"].append({"subtype_name_en": subtype_name_en, "error": err})
+                    self.logger.error("✗ '%s': %s", subtype_name_en, err)
+                continue
+ 
+            # ── Path B: no existing item_category → POST (create new) ─────
+            self.logger.warning(
+                "No existing item_category for '%s' — attempting to create via POST.",
+                subtype_name_en,
+            )
+ 
+            # ------------------------------------------------------------------
+            # FIX 2: TRANSMISSION branch (subtype_code is "")
+            # Hierarchy: Master Category → Category → Item Category  (2-level)
+            # Resolve category_id by category_name_en; no type_category needed.
+            # ------------------------------------------------------------------
+            if not subtype_code:
+                # category_name_en == subtype_name_en for transmission (same field aliased)
+                lookup_name = group_cat_en or subtype_name_en
+                self.logger.info(
+                    "Transmission 2-level path: looking up category_id for '%s'", lookup_name
+                )
+                resolved_cat_id = self._get_category_id_by_name(lookup_name, master_category_id)
+ 
+                if not resolved_cat_id:
                     self.logger.error(
-                        "Cannot resolve type_category_id for '%s' — skipped", subtype_name_en
+                        "Cannot resolve category_id for '%s' — "
+                        "make sure Stage 1 (category submission) ran first.",
+                        lookup_name,
                     )
                     results["errors"].append({
                         "subtype_name_en": subtype_name_en,
-                        "error": "type_category not found in DB — run Stage 1 first",
+                        "error": (
+                            f"category '{lookup_name}' not found in DB — "
+                            "run Stage 1 first"
+                        ),
                     })
                     continue
-
-    # Buat item_category baru via POST
+ 
+                self.logger.info(
+                    "Resolved category_id=%s for '%s' — creating item_category (2-level)",
+                    resolved_cat_id, lookup_name,
+                )
                 ok, resp = self.create_item_category_with_parts(
                     master_category_id        = master_category_id,
                     category_id               = resolved_cat_id,
-                    type_category_id          = type_cat_id,
+                    type_category_id          = None,   # ← no subtype for Transmission
                     item_category_name_en     = subtype_name_en,
                     item_category_name_cn     = subtype_name_cn,
                     item_category_description = "",
@@ -942,60 +987,81 @@ class MotorsightsEPCClient:
                     parts                     = parts,
                 )
                 if ok:
-                    results["updated"].append({
+                    results["created"].append({
                         "subtype_name_en": subtype_name_en,
                         "parts_count":     len(parts),
-                        "action":          "created",
+                        "action":          "created (2-level / transmission)",
                     })
                     results["total_parts_submitted"] += len(parts)
                     self.logger.info(
-                        "✓ Created new item_category + %d parts for '%s'",
-                        len(parts), subtype_name_en
+                        "✓ Created item_category + %d parts for '%s' (transmission)",
+                        len(parts), subtype_name_en,
                     )
                 else:
                     results["errors"].append({
+                        "subtype_name_en": subtype_name_en,
+                        "error": str((resp or {}).get("error", "create failed")),
+                    })
+                continue
+ 
+            # ------------------------------------------------------------------
+            # CABIN & CHASSIS branch (subtype_code is present)
+            # Hierarchy: Master → Category → TypeCategory → ItemCategory (3-level)
+            # Resolve type_category_id from DB, then POST.
+            # ------------------------------------------------------------------
+            type_cat_id, resolved_cat_id = self.resolve_type_category_id_by_name(
+                subtype_name_en,
+                subtype_code=subtype_code,
+            )
+            self.logger.info(
+                "Resolved: type_cat_id=%s, resolved_cat_id=%s",
+                type_cat_id, resolved_cat_id,
+            )
+ 
+            if not type_cat_id:
+                self.logger.error(
+                    "Cannot resolve type_category_id for '%s' — skipped", subtype_name_en
+                )
+                results["errors"].append({
+                    "subtype_name_en": subtype_name_en,
+                    "error": "type_category not found in DB — run Stage 1 first",
+                })
+                continue
+ 
+            ok, resp = self.create_item_category_with_parts(
+                master_category_id        = master_category_id,
+                category_id               = resolved_cat_id,
+                type_category_id          = type_cat_id,
+                item_category_name_en     = subtype_name_en,
+                item_category_name_cn     = subtype_name_cn,
+                item_category_description = "",
+                dokumen_name              = dokumen_name,
+                parts                     = parts,
+            )
+            if ok:
+                results["created"].append({
+                    "subtype_name_en": subtype_name_en,
+                    "parts_count":     len(parts),
+                    "action":          "created (3-level / cabin-chassis)",
+                })
+                results["total_parts_submitted"] += len(parts)
+                self.logger.info(
+                    "✓ Created new item_category + %d parts for '%s'",
+                    len(parts), subtype_name_en,
+                )
+            else:
+                results["errors"].append({
                     "subtype_name_en": subtype_name_en,
                     "error": str((resp or {}).get("error", "create failed")),
                 })
-                continue
-
-            self.logger.info(
-                "Updating '%s' (%s): item_category_id=%s, %d parts …",
-                subtype_name_en, subtype_code, item_category_id, len(parts)
-            )
-
-            # ── Step 4: PUT with parts ────────────────────────────────────
-            success, response = self.update_item_category_with_parts(
-                item_category_id  = item_category_id,
-                master_category_id = master_category_id,
-                category_id       = category_id,
-                type_category_id  = None,  # already linked via item_category_id
-                dokumen_name      = dokumen_name,
-                parts             = parts,
-            )
-
-            if success:
-                results["updated"].append({
-                    "subtype_code":      subtype_code,
-                    "subtype_name_en":   subtype_name_en,
-                    "parts_count":       len(parts),
-                    "item_category_id":  item_category_id,
-                })
-                results["total_parts_submitted"] += len(parts)
-                self.logger.info("✓ '%s': %d parts updated", subtype_name_en, len(parts))
-            else:
-                err = str((response or {}).get("error", ""))
-                results["errors"].append({
-                    "subtype_name_en": subtype_name_en,
-                    "error":           err,
-                })
-                self.logger.error("✗ '%s': %s", subtype_name_en, err)
-
+ 
         overall_success = len(results["errors"]) == 0
         self.logger.info(
-            "batch_submit_parts complete — updated: %d, total parts: %d, errors: %d",
+            "batch_submit_parts complete — created: %d, updated: %d, "
+            "total parts: %d, errors: %d",
+            len(results["created"]),
             len(results["updated"]),
             results["total_parts_submitted"],
-            len(results["errors"])
+            len(results["errors"]),
         )
         return overall_success, results
