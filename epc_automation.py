@@ -223,11 +223,33 @@ class EPCPDFAutomation:
                 )
 
         elif ptype in ("engine", "transmission"):
-            return extract_engine_or_transmission(
+            result = extract_engine_or_transmission(
                 pdf_path=str(pdf_path),
                 partbook_type=ptype,
                 sumopod_client=self.sumopod
             )
+
+            # ── FIX OPSI 1 ────────────────────────────────────────────────────
+            # Bangun peta CN → EN dari hasil ekstraksi Tahap 1.
+            # Peta ini akan disimpan di job_status["code_to_category"] dan
+            # di-override lagi oleh api_approve_structure() dengan data yang
+            # sudah diedit/diapprove user — sehingga Tahap 2 SELALU memakai
+            # nama yang persis sama dengan yang sudah masuk database.
+            code_to_category = {}
+            for cat in result.get("categories", []):
+                cn = cat.get("category_name_cn", "")
+                en = cat.get("category_name_en", "")
+                if cn and en:
+                    code_to_category[cn] = en   # key: CN name  → value: EN name
+                if en:
+                    code_to_category[en] = en   # key: EN name  → value: EN name (exact-match fallback)
+            result["code_to_category"] = code_to_category
+            self.logger.info(
+                "_extract_data (%s): built code_to_category with %d entries",
+                ptype, len(code_to_category),
+            )
+            return result
+            # ─────────────────────────────────────────────────────────────────
 
         elif ptype == "axle_drive":
             return extract_axle_drive_categories(
@@ -330,7 +352,7 @@ class EPCPDFAutomation:
                 master_category_name_en = master_category_name_en
             )
 
-    # ── Stage 2: Parts Management — NOW WITH custom_prompt ──────────────────
+    # ── Stage 2: Parts Management ────────────────────────────────────────────
 
     def process_parts(
         self,
@@ -340,17 +362,18 @@ class EPCPDFAutomation:
         target_id_start: int = 1,
         auto_submit: bool = True,
         code_to_category: Optional[Dict[str, str]] = None,
-        custom_prompt: Optional[str] = None,          # ← NEW
+        custom_prompt: Optional[str] = None,
     ) -> Dict:
         """
         Stage 2 — Extract parts rows and optionally submit to EPC.
 
         Args:
-            custom_prompt: Optional override for the Vision AI system prompt used
-                           during parts table extraction.  When provided, this
-                           replaces the built-in prompt for the selected extractor,
-                           allowing users to fine-tune extraction behaviour from
-                           the web UI without touching Python source code.
+            code_to_category: Peta CN → EN (atau EN → EN) yang dibangun dari
+                               data Tahap 1 yang sudah diapprove.  Dikirim dari
+                               api_approve_structure() di epc_web_ui.py sehingga
+                               nama kategori di Tahap 2 SELALU sama dengan yang
+                               sudah tersimpan di database.
+            custom_prompt:    Optional override untuk Vision AI system prompt.
         """
         pdf_path = Path(pdf_path)
         result: Dict = {"success": False, "stage": "init", "pdf": str(pdf_path)}
@@ -366,8 +389,11 @@ class EPCPDFAutomation:
         try:
             result["stage"] = "extracting_parts"
             self.logger.info(
-                "Stage 2 - Parts extraction from '%s' (start T%03d, custom_prompt=%s)",
-                pdf_path.name, target_id_start, "yes" if custom_prompt else "no"
+                "Stage 2 - Parts extraction from '%s' (start T%03d, custom_prompt=%s, "
+                "code_to_category entries=%d)",
+                pdf_path.name, target_id_start,
+                "yes" if custom_prompt else "no",
+                len(code_to_category) if code_to_category else 0,
             )
 
             ptype = self.config.partbook_type
@@ -378,7 +404,7 @@ class EPCPDFAutomation:
                     sumopod_client   = self.sumopod,
                     target_id_start  = target_id_start,
                     code_to_category = code_to_category or {},
-                    custom_prompt    = custom_prompt,     # ← PASS THROUGH
+                    custom_prompt    = custom_prompt,
                 )
             elif ptype == "transmission":
                 parts_data = extract_transmission_parts(
@@ -386,14 +412,14 @@ class EPCPDFAutomation:
                     sumopod_client   = self.sumopod,
                     target_id_start  = target_id_start,
                     category_map     = code_to_category or {},
-                    custom_prompt    = custom_prompt,     # ← PASS THROUGH
+                    custom_prompt    = custom_prompt,
                 )
             elif ptype == "engine":
                 parts_data = extract_engine_parts(
                     pdf_path        = str(pdf_path),
                     sumopod_client  = self.sumopod,
                     target_id_start = target_id_start,
-                    custom_prompt   = custom_prompt,      # ← PASS THROUGH
+                    custom_prompt   = custom_prompt,
                 )
             else:
                 raise ValueError(

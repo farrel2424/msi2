@@ -265,6 +265,16 @@ def api_approve_structure(job_id: str):
 
     body        = request.get_json(force=True) or {}
     edited_data = body.get("extracted_data") or job.get("extracted_data", {})
+    approved_map = {}
+    for cat in edited_data.get("categories", []):
+        cn = cat.get("category_name_cn", "")
+        en = cat.get("category_name_en", "")
+        if cn and en:
+            approved_map[cn] = en
+        if en:
+            approved_map[en] = en
+    with job_lock:
+        job_status[job_id]["code_to_category"] = approved_map
 
     config_params = job["config_params"]
     config        = EPCAutomationConfig(**config_params)
