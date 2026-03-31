@@ -131,7 +131,8 @@ OUTPUT FORMAT (cover or toc):
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _call_vision(b64: str, sumopod_client, detail: str = "high") -> Optional[Dict]:
+def _call_vision(b64: str, sumopod_client, detail: str = "high",
+                 system_prompt: Optional[str] = None) -> Optional[Dict]:
     """
     Send one PDF page (as base64 JPEG) to Vision AI and parse the result.
 
@@ -144,11 +145,12 @@ def _call_vision(b64: str, sumopod_client, detail: str = "high") -> Optional[Dic
         Parsed dict from the model, or None if parsing / API call fails.
     """
     raw = ""
+    _prompt = system_prompt or _PARTS_SYSTEM_PROMPT
     try:
         resp = sumopod_client.client.chat.completions.create(
             model=sumopod_client.model,
             messages=[
-                {"role": "system", "content": _PARTS_SYSTEM_PROMPT},
+                {"role": "system", "content": _prompt},
                 {
                     "role": "user",
                     "content": [
@@ -463,6 +465,7 @@ def extract_transmission_parts(
     dpi: int = 150,
     category_map: Optional[Dict[str, str]] = None,
     vision_detail: str = "high",
+    custom_prompt: Optional[str] = None,
 ) -> List[Dict]:
     """
     Extract all parts from a Transmission partbook PDF.
@@ -524,7 +527,7 @@ def extract_transmission_parts(
     def _process_page(page_idx: int) -> Tuple[int, Optional[Dict]]:
         """Render page and call Vision AI.  Returns (page_idx, result)."""
         b64 = pdf_page_to_base64(pdf_path, page_idx, dpi=dpi)
-        result = _call_vision(b64, sumopod_client, detail=vision_detail)
+        result = _call_vision(b64, sumopod_client, detail=vision_detail, system_prompt=custom_prompt)
         return page_idx, result
 
     logger.info("Launching parallel Vision AI calls (max_workers=5) …")

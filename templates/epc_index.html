@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Motorsights EPC — PDF Automation</title>
 <style>
-    /* ── Reset & variables ───────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -47,8 +46,7 @@
         background: var(--surface); border: 1px solid var(--border);
         border-radius: var(--radius); padding: 16px 24px;
         margin-bottom: 20px; box-shadow: var(--shadow);
-        display: flex; align-items: center;
-        justify-content: space-between;
+        display: flex; align-items: center; justify-content: space-between;
         flex-wrap: wrap; gap: 16px;
     }
     .site-header__brand  { display: flex; align-items: center; gap: 14px; }
@@ -86,6 +84,70 @@
     .form-group textarea { font-family: var(--mono); font-size: 13px; min-height: 160px; resize: vertical; }
     .form-group small { display: block; margin-top: 5px; font-size: 12px; color: var(--text-3); }
 
+    /* ── Collapsible prompt boxes ────────────────────────────────────── */
+    .prompt-collapsible {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        margin-bottom: 16px;
+        overflow: hidden;
+    }
+    .prompt-collapsible summary {
+        padding: 11px 16px;
+        cursor: pointer;
+        font-size: 13.5px;
+        font-weight: 500;
+        color: var(--text-2);
+        background: #fafbfc;
+        user-select: none;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .prompt-collapsible summary::-webkit-details-marker { display: none; }
+    .prompt-collapsible summary::before { content: '›'; font-size: 18px; line-height: 1; transition: transform 0.2s; flex-shrink: 0; }
+    .prompt-collapsible[open] summary::before { transform: rotate(90deg); }
+    .prompt-collapsible summary:hover { background: var(--primary-lt); color: var(--primary); }
+    .prompt-collapsible summary .prompt-badge {
+        margin-left: auto;
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--warning-lt);
+        color: var(--warning);
+        border: 1px solid #fde68a;
+        padding: 2px 8px;
+        border-radius: 999px;
+    }
+    .prompt-collapsible__body {
+        padding: 16px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+    }
+    .prompt-collapsible__body textarea {
+        width: 100%;
+        min-height: 240px;
+        background: #0f1420;
+        color: #e2e8f0;
+        padding: 14px;
+        border-radius: var(--radius-sm);
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.6;
+        border: 1px solid var(--border);
+        resize: vertical;
+        tab-size: 2;
+    }
+    .prompt-collapsible__body textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+    .prompt-collapsible__note {
+        font-size: 12px;
+        color: var(--text-3);
+        margin-top: 8px;
+    }
+
     /* ── Credentials collapsible ─────────────────────────────────────── */
     .credentials-details { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 18px; overflow: hidden; }
     .credentials-details summary { padding: 12px 16px; cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--text-2); background: #fafbfc; user-select: none; list-style: none; display: flex; align-items: center; gap: 8px; }
@@ -95,13 +157,6 @@
     .credentials-details summary:hover { background: var(--primary-lt); color: var(--primary); }
     .credentials-content { padding: 18px 16px; border-top: 1px solid var(--border); }
     .credentials-content h4 { font-size: 13px; font-weight: 500; color: var(--text-3); margin: 12px 0 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-
-    /* ── Partbook type badge ─────────────────────────────────────────── */
-    .partbook-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 500; border: 1px solid; }
-    .badge-engine        { background: var(--success-lt); color: var(--success);  border-color: #bbf7d0; }
-    .badge-transmission  { background: var(--primary-lt); color: var(--primary);  border-color: #bfdbfe; }
-    .badge-cabin_chassis { background: var(--warning-lt); color: var(--warning);  border-color: #fde68a; }
-    .badge-axle_drive    { background: #faf5ff;           color: var(--accent);   border-color: #e9d5ff; }
 
     /* ── Upload area ─────────────────────────────────────────────────── */
     .upload-area { border: 2px dashed var(--border-mid); border-radius: var(--radius); padding: 52px 24px; text-align: center; cursor: pointer; transition: all 0.2s; background: #fafbfc; margin-top: 18px; }
@@ -120,6 +175,8 @@
     .btn--success:hover { background: #15803d; }
     .btn--warning { background: var(--warning); color: #fff; border-color: var(--warning); }
     .btn--warning:hover { background: #b45309; }
+    .btn--danger  { background: var(--danger);  color: #fff; border-color: var(--danger); }
+    .btn--danger:hover  { background: #b91c1c; }
     .btn--ghost { background: transparent; color: var(--text-2); border-color: var(--border-mid); }
     .btn--ghost:hover { background: var(--bg); }
     .btn--sm { padding: 5px 12px; font-size: 13px; }
@@ -133,13 +190,12 @@
     .status-row:last-of-type { border-bottom: none; }
     .status-row__label { color: var(--text-3); font-weight: 500; }
     .status-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.2px; }
-    .status-queued         { background: #fef9c3; color: #713f12; }
-    .status-processing     { background: var(--primary-lt); color: var(--primary); }
-    .status-pending_review { background: var(--warning-lt); color: var(--warning); }
+    .status-queued, .status-structure_submitted { background: #fef9c3; color: #713f12; }
+    .status-processing, .status-processing_parts { background: var(--primary-lt); color: var(--primary); }
+    .status-pending_review, .status-parts_review, .status-review { background: var(--warning-lt); color: var(--warning); }
     .status-submitting     { background: #faf5ff; color: var(--accent); }
     .status-completed      { background: var(--success-lt); color: var(--success); }
-    .status-failed,
-    .status-error          { background: var(--danger-lt); color: var(--danger); }
+    .status-failed, .status-error, .status-parts_error { background: var(--danger-lt); color: var(--danger); }
 
     /* ── Progress bar ────────────────────────────────────────────────── */
     .progress-wrap { margin-top: 14px; }
@@ -172,67 +228,31 @@
     .submission-summary__title { font-weight: 600; color: var(--success); margin-bottom: 10px; font-size: 14px; }
     .summary-row { border-bottom: 1px solid #d1fae5; }
     .summary-row:last-child { border-bottom: none; }
-
-    /* ── Clickable summary row trigger ──────────────────────────────── */
-    .summary-row__trigger {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 7px 0; font-size: 13.5px;
-    }
-    .summary-row--clickable .summary-row__trigger {
-        cursor: pointer;
-        border-radius: 4px;
-        padding: 7px 6px;
-        margin: 0 -6px;
-        transition: background 0.15s;
-    }
-    .summary-row--clickable .summary-row__trigger:hover {
-        background: rgba(22,163,74,0.08);
-    }
+    .summary-row__trigger { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; font-size: 13.5px; }
+    .summary-row--clickable .summary-row__trigger { cursor: pointer; border-radius: 4px; padding: 7px 6px; margin: 0 -6px; transition: background 0.15s; }
+    .summary-row--clickable .summary-row__trigger:hover { background: rgba(22,163,74,0.08); }
     .summary-row__label { color: var(--text-2); font-weight: 500; display: flex; align-items: center; gap: 6px; }
     .summary-row__value { font-weight: 600; }
     .summary-row__value--created { color: var(--success); }
+    .summary-row__value--updated { color: var(--info); }
     .summary-row__value--skipped { color: var(--warning); }
     .summary-row__value--error   { color: var(--danger); }
-
-    .summary-row__chevron {
-        font-size: 12px; color: var(--text-3);
-        transition: transform 0.2s;
-        display: inline-block;
-    }
+    .summary-row__chevron { font-size: 12px; color: var(--text-3); transition: transform 0.2s; display: inline-block; }
     .summary-row--open .summary-row__chevron { transform: rotate(90deg); }
 
-    /* ── Category detail list (expandable) ──────────────────────────── */
-    .summary-detail {
-        overflow: hidden;
-        max-height: 0;
-        transition: max-height 0.3s ease, padding 0.2s ease;
-    }
-    .summary-detail--open {
-        max-height: 800px;
-    }
-    .summary-detail__inner {
-        padding: 4px 0 10px 6px;
-    }
-    .summary-detail__list {
-        list-style: none;
-        margin: 0; padding: 0;
-        display: flex; flex-direction: column; gap: 4px;
-    }
-    .summary-detail__item {
-        display: flex; align-items: flex-start; gap: 8px;
-        font-size: 12.5px; padding: 5px 10px;
-        background: rgba(255,255,255,0.6);
-        border: 1px solid rgba(22,163,74,0.15);
-        border-radius: 5px;
-    }
-    .summary-detail__item--skipped {
-        background: rgba(255,251,235,0.7);
-        border-color: rgba(217,119,6,0.18);
-    }
-    .summary-detail__item-icon { flex-shrink: 0; margin-top: 1px; }
-    .summary-detail__item-name { font-weight: 500; color: var(--text-1); }
-    .summary-detail__item-cn   { color: var(--text-3); font-size: 11.5px; margin-top: 1px; }
-    .summary-detail__item-msg  { color: var(--text-3); font-size: 11.5px; }
+    /* ── Detail expand list ──────────────────────────────────────────── */
+    .summary-detail { overflow: hidden; max-height: 0; transition: max-height 0.3s ease, padding 0.2s ease; }
+    .summary-detail--open { max-height: 800px; }
+    .summary-detail__inner { padding: 4px 0 10px 6px; }
+    .summary-detail__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .summary-detail__item { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; padding: 5px 10px; background: rgba(255,255,255,0.6); border: 1px solid rgba(22,163,74,0.15); border-radius: 5px; }
+    .summary-detail__item--skipped { background: rgba(255,251,235,0.7); border-color: rgba(217,119,6,0.18); }
+    .summary-detail__item--error   { background: rgba(254,242,242,0.8); border-color: rgba(220,38,38,0.18); }
+    .summary-detail__item-icon  { flex-shrink: 0; margin-top: 1px; }
+    .summary-detail__item-name  { font-weight: 500; color: var(--text-1); }
+    .summary-detail__item-cn    { color: var(--text-3); font-size: 11.5px; margin-top: 1px; }
+    .summary-detail__item-msg   { color: var(--text-3); font-size: 11.5px; }
+    .summary-detail__item-error { color: var(--danger); font-size: 11.5px; margin-top: 2px; }
 
     /* ── Parts table ─────────────────────────────────────────────────── */
     .parts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -247,6 +267,7 @@
     .hidden { display: none !important; }
     .mt-4 { margin-top: 16px; }
     .text-sm { font-size: 13px; color: var(--text-3); }
+    hr.divider { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
 </style>
 </head>
 <body>
@@ -281,28 +302,27 @@
 
         <div class="info-box info-box--blue">
             <span class="info-box__icon">ℹ️</span>
-            <div><strong>Workflow:</strong> Upload PDF → AI Extraction → Review &amp; Edit → Approve → Submit to Database</div>
+            <div><strong>Alur Kerja:</strong> Upload PDF → Ekstraksi AI → Review &amp; Edit → Setujui → Submit ke Database</div>
         </div>
 
-        <!-- Credentials -->
+        <!-- Credentials collapsible -->
         <details class="credentials-details">
-            <summary>🔑 API Credentials (optional — defaults to .env)</summary>
+            <summary>🔑 API Credentials (opsional — default dari .env)</summary>
             <div class="credentials-content">
                 <div class="form-group">
                     <label>Sumopod API Key</label>
-                    <input type="password" id="sumopodApiKey" placeholder="sk-... (leave empty to use .env)">
-                    <small>Only required if not set in .env</small>
+                    <input type="password" id="sumopodApiKey" placeholder="sk-... (kosongkan jika sudah di .env)">
+                    <small>Hanya diperlukan jika belum diset di .env</small>
                 </div>
                 <h4>SSO Credentials</h4>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Email</label>
                         <input type="email" id="ssoEmail" placeholder="user@motorsights.net">
-                        <small>Required for bearer token generation</small>
                     </div>
                     <div class="form-group">
                         <label>Password</label>
-                        <input type="password" id="ssoPassword" placeholder="Leave empty to use .env">
+                        <input type="password" id="ssoPassword" placeholder="Kosongkan jika sudah di .env">
                     </div>
                 </div>
             </div>
@@ -313,32 +333,46 @@
             <div class="form-group">
                 <label>Master Category <span style="color:var(--danger)">*</span></label>
                 <select id="masterCategory" onchange="onMasterCategoryChange()" required>
-                    <option value="">Select Master Category…</option>
+                    <option value="">Pilih Master Category…</option>
                 </select>
-                <small>Determines extraction strategy</small>
+                <small>Menentukan strategi ekstraksi</small>
             </div>
             <div class="form-group">
                 <label>AI Model <span style="color:var(--danger)">*</span></label>
                 <select id="aiModel" required>
-                    <option value="gpt-4o">GPT-4o — Best Quality</option>
-                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet — High Quality</option>
-                    <option value="claude-3-5-haiku">Claude 3.5 Haiku — Fast</option>
+                    <option value="gpt-4o">GPT-4o — Kualitas Terbaik</option>
+                    <option value="claude-3-5-sonnet">Claude 3.5 Sonnet — Kualitas Tinggi</option>
+                    <option value="claude-3-5-haiku">Claude 3.5 Haiku — Cepat</option>
                     <option value="gpt-4-turbo">GPT-4 Turbo — Legacy</option>
                 </select>
             </div>
         </div>
 
-        <!-- Extraction Prompt — hidden until Master Category is selected -->
-        <div class="form-group hidden" id="promptGroup">
-            <label>Extraction Prompt</label>
-            <textarea id="extractionPrompt"></textarea>
+        <!-- Stage 1 Prompt — COLLAPSIBLE (hidden until category selected) -->
+        <div id="promptGroup" class="hidden">
+            <details class="prompt-collapsible" id="stage1PromptDetails">
+                <summary>
+                    ⚙️ Prompt Ekstraksi — Tahap 1 (Kategori)
+                    <span class="prompt-badge">Tingkat Lanjut</span>
+                </summary>
+                <div class="prompt-collapsible__body">
+                    <p style="font-size:13px;color:var(--text-2);margin-bottom:10px;">
+                        Instruksi untuk AI saat membaca struktur kategori dari PDF.
+                        Edit jika hasil ekstraksi tidak sesuai, lalu klik <strong>Ekstrak Ulang</strong>.
+                    </p>
+                    <textarea id="extractionPrompt" spellcheck="false"></textarea>
+                    <div class="prompt-collapsible__note">
+                        💡 Perubahan di sini hanya berlaku saat Anda klik tombol "Ekstrak Ulang" — bukan otomatis.
+                    </div>
+                </div>
+            </details>
         </div>
 
         <!-- Upload dropzone -->
         <div class="upload-area" id="uploadArea">
             <div class="upload-area__icon">📁</div>
-            <div class="upload-area__text">Drag &amp; drop your PDF catalog here</div>
-            <div class="upload-area__sub">or click to browse files</div>
+            <div class="upload-area__text">Seret &amp; lepas PDF katalog di sini</div>
+            <div class="upload-area__sub">atau klik untuk memilih file</div>
             <input type="file" id="fileInput" accept=".pdf">
         </div>
     </div><!-- /card -->
@@ -347,17 +381,17 @@
     <div class="card hidden" id="statusCard">
         <div class="card__header">
             <span class="card__header-icon">📊</span>
-            Processing Status
+            Status Pemrosesan
         </div>
 
         <div class="status-panel">
-            <div class="status-panel__title">Current Job</div>
+            <div class="status-panel__title">Pekerjaan Saat Ini</div>
             <div class="status-row">
                 <span class="status-row__label">File</span>
                 <span id="statusFilename">—</span>
             </div>
             <div class="status-row">
-                <span class="status-row__label">Type</span>
+                <span class="status-row__label">Tipe</span>
                 <span id="statusPartbookType">—</span>
             </div>
             <div class="status-row">
@@ -365,13 +399,12 @@
                 <span id="statusBadge">—</span>
             </div>
             <div class="status-row">
-                <span class="status-row__label">Stage</span>
+                <span class="status-row__label">Tahap</span>
                 <span id="statusStage">—</span>
             </div>
-            <!-- Progress bar -->
             <div class="progress-wrap">
                 <div class="progress-header">
-                    <span class="progress-label" id="progressLabel">Waiting…</span>
+                    <span class="progress-label" id="progressLabel">Menunggu…</span>
                     <span class="progress-pct" id="progressPct">0%</span>
                 </div>
                 <div class="progress">
@@ -382,56 +415,80 @@
 
         <!-- Step 1 — Categories Review -->
         <div class="hidden" id="reviewSection">
-            <div class="section-title">📝 Step 1 — Review &amp; Edit Extracted Categories</div>
-            <p class="text-sm" style="margin-bottom:14px;">Edit the JSON below before submitting. Duplicate categories are automatically skipped — no need to remove them.</p>
+            <div class="section-title">📝 Tahap 1 — Review &amp; Edit Kategori yang Diekstrak</div>
+            <p class="text-sm" style="margin-bottom:14px;">Edit JSON di bawah sebelum submit. Kategori yang sudah ada di database akan dilewati otomatis.</p>
 
             <textarea class="json-editor" id="jsonEditor" spellcheck="false"></textarea>
 
             <div class="btn-group">
                 <button class="btn btn--ghost" id="downloadBtn">💾 Download JSON</button>
-                <button class="btn btn--warning" id="reExtractBtn">🔄 Re-Extract</button>
-                <button class="btn btn--success" id="approveBtn">✅ Approve &amp; Submit Categories</button>
+                <button class="btn btn--warning" id="reExtractBtn">🔄 Ekstrak Ulang</button>
+                <button class="btn btn--success" id="approveBtn">✅ Setujui &amp; Submit Kategori</button>
             </div>
         </div>
 
         <!-- Submission result (categories) -->
         <div class="hidden" id="submissionResult"></div>
 
-        <!-- Re-prompt -->
+        <!-- Re-prompt (Stage 1) -->
         <div class="hidden" id="rePromptSection">
-            <div class="section-title">🔄 Re-Extract with Modified Prompt</div>
+            <div class="section-title">🔄 Ekstrak Ulang dengan Prompt yang Dimodifikasi</div>
             <div class="form-group">
-                <label>Modified Extraction Prompt</label>
+                <label>Prompt Ekstraksi yang Dimodifikasi</label>
                 <textarea id="rePromptText" style="min-height:180px;font-family:var(--mono);font-size:13px;"></textarea>
             </div>
             <div class="btn-group">
-                <button class="btn btn--ghost" id="cancelRePrompt">Cancel</button>
-                <button class="btn btn--warning" id="confirmRePrompt">Start Re-Extraction</button>
+                <button class="btn btn--ghost" id="cancelRePrompt">Batal</button>
+                <button class="btn btn--warning" id="confirmRePrompt">Mulai Ekstraksi Ulang</button>
             </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════
-             Step 2 — Parts Management Review (cabin_chassis only)
+             Step 2 — Parts Management
         ════════════════════════════════════════════════════════════════ -->
         <div class="hidden" id="partsSection">
-            <hr style="margin: 28px 0; border: none; border-top: 1px solid var(--border);">
+            <hr class="divider">
 
-            <div class="section-title">🔩 Step 2 — Parts Management Review</div>
+            <div class="section-title">🔩 Tahap 2 — Review Suku Cadang</div>
 
-            <!-- ✅ CHANGED: Auto-detected document name display (replaces manual input) -->
-            <div class="info-box info-box--green" style="max-width:520px; margin-top:16px; margin-bottom:20px;" id="dokumenNameDisplay">
+            <!-- Auto-detected document name -->
+            <div class="info-box info-box--green" style="max-width:520px; margin-bottom:16px;">
                 <span class="info-box__icon">📄</span>
                 <div>
-                    Document name auto-detected from PDF filename:
+                    Nama dokumen otomatis dari nama file PDF:
                     <strong id="dokumenNameValue" style="font-family:var(--mono);font-size:13px;display:block;margin-top:4px;"></strong>
                 </div>
             </div>
 
+            <!-- Stage 2 Prompt — COLLAPSIBLE (NEW FEATURE) -->
+            <details class="prompt-collapsible" id="stage2PromptDetails" style="margin-bottom:20px;">
+                <summary>
+                    ⚙️ Prompt Ekstraksi — Tahap 2 (Suku Cadang)
+                    <span class="prompt-badge">Tingkat Lanjut</span>
+                </summary>
+                <div class="prompt-collapsible__body">
+                    <p style="font-size:13px;color:var(--text-2);margin-bottom:10px;">
+                        Instruksi untuk AI saat membaca tabel suku cadang dari setiap halaman PDF.
+                        Edit jika ada bagian yang terbaca tidak benar (mis. kolom tertukar, nomor part salah).
+                    </p>
+                    <textarea id="stage2Prompt" spellcheck="false"></textarea>
+                    <div class="prompt-collapsible__note">
+                        💡 Setelah mengedit, klik <strong>"Ekstrak Ulang Suku Cadang"</strong> di bawah untuk menerapkan perubahan.
+                        Proses ekstraksi akan dimulai ulang dari awal.
+                    </div>
+                    <div class="btn-group" style="margin-top:10px;">
+                        <button class="btn btn--warning btn--sm" onclick="reExtractParts()">
+                            🔄 Ekstrak Ulang Suku Cadang dengan Prompt Ini
+                        </button>
+                    </div>
+                </div>
+            </details>
+
             <div class="info-box info-box--blue" style="margin-bottom:16px;">
                 <span class="info-box__icon">ℹ️</span>
                 <div>
-                    Parts are grouped by <strong>Subtype Category</strong>.
-                    You can submit all at once or submit each group individually.
+                    Suku cadang dikelompokkan per <strong>Subtype</strong>.
+                    Submit semua sekaligus, atau per grup satu per satu.
                 </div>
             </div>
 
@@ -444,7 +501,7 @@
                             <th style="text-align:center">Parts</th>
                             <th>Preview</th>
                             <th style="text-align:center">Status</th>
-                            <th style="text-align:center">Action</th>
+                            <th style="text-align:center">Aksi</th>
                         </tr>
                     </thead>
                     <tbody id="partsTableBody"></tbody>
@@ -455,24 +512,24 @@
             <div class="hidden" id="partsDetailPanel" style="background:#fafbfc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;overflow-x:auto;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
                     <strong id="partsDetailTitle" style="font-size:14px;"></strong>
-                    <button class="btn btn--ghost btn--sm" onclick="closePartsDetail()">✕ Close</button>
+                    <button class="btn btn--ghost btn--sm" onclick="closePartsDetail()">✕ Tutup</button>
                 </div>
                 <table class="parts-table" id="partsDetailTable">
                     <thead>
                         <tr>
                             <th>Target ID</th><th>Part Number</th>
-                            <th>Name (EN)</th><th>Name (CN)</th>
-                            <th style="text-align:center">Qty</th><th>Description</th>
+                            <th>Nama (EN)</th><th>Nama (CN)</th>
+                            <th style="text-align:center">Qty</th><th>Keterangan</th>
                         </tr>
                     </thead>
                     <tbody id="partsDetailBody"></tbody>
                 </table>
             </div>
 
-            <!-- Buttons -->
+            <!-- Bulk action buttons -->
             <div class="btn-group">
-                <button class="btn btn--ghost" id="downloadPartsBtn">⬇ Download Parts JSON</button>
-                <button class="btn btn--primary" id="approvePartsBtn">✅ Submit All Parts to EPC</button>
+                <button class="btn btn--ghost" id="downloadPartsBtn">⬇ Download JSON Suku Cadang</button>
+                <button class="btn btn--primary" id="approvePartsBtn">✅ Submit Semua Suku Cadang ke EPC</button>
             </div>
 
             <!-- Parts submission result -->
@@ -509,7 +566,7 @@
         axle_drive:    { short: '🛞 Axle Drive' }
     };
 
-    // Per-type default extraction prompts
+    // ── Stage 1 default prompts ────────────────────────────────────────────
     const EXTRACTION_PROMPTS = {
         cabin_chassis: `You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
 
@@ -555,13 +612,6 @@ Extract category names from the bilingual top-right header on each page.
 Header format: Chinese characters immediately followed by English text.
 Example: "燃油泵PUMP,FUEL" · "缸体管路PLUMBING,CYLINDER BLOCK"
 
-Rules:
-1. Each unique header = one category entry
-2. Split Chinese (category_name_cn) from English (category_name_en)
-3. Convert comma-separated English to title-case words: "PUMP,FUEL" → "Pump Fuel"
-4. Deduplicate — each header appears once
-5. No type categories for Engine (flat structure)
-
 Return ONLY valid JSON:
 {
   "categories": [
@@ -576,15 +626,6 @@ Return ONLY valid JSON:
         transmission: `You are a data extraction expert for Transmission parts catalogs.
 Extract all category names from the Table of Contents (TOC) pages.
 
-The TOC is in Chinese only. Each line is a numbered section, e.g.:
-  一、离合器和变速器壳体总成
-  二、二轴总成
-
-Rules:
-1. Strip the leading ordinal and 、 from each entry
-2. Translate each Chinese name to professional automotive English
-3. No type categories for Transmission (flat structure)
-
 Return ONLY valid JSON:
 {
   "categories": [
@@ -597,17 +638,7 @@ Return ONLY valid JSON:
 }`,
 
         axle_drive: `You are a data extraction expert for Axle Drive parts catalogs.
-Extract subtype table titles from each page of the catalog.
-
-Table titles appear at the top of each page above the column headers, in the format:
-  表1 <number> <Chinese title>
-Example: "表1-1 主减速器及差速器总成"
-
-Rules:
-1. Strip the table-number prefix (e.g. "表1-1 ")
-2. Strip continuation suffix 续 if present
-3. Deduplicate — each unique Chinese title appears once
-4. Translate each title to professional automotive English
+Extract subtype table titles from each page.
 
 Return ONLY valid JSON:
 {
@@ -622,13 +653,146 @@ Return ONLY valid JSON:
 }`
     };
 
-    // ✅ NEW: Derive dokumen_name automatically from the uploaded PDF filename
-    // e.g. "PX122604.pdf" → "PX122604"
+    // ── Stage 2 default prompts (Vision AI for reading parts tables) ───────
+    const PARTS_EXTRACTION_PROMPTS = {
+        cabin_chassis: `You are a precise data-extraction engine for automotive parts catalog pages.
+
+Each TABLE page contains:
+1. A bilingual header ABOVE the table:
+   <code>  <English name>  <Chinese name>
+   Example: "DC97259190594  Air Intake System  进气系统"
+
+2. A table with exactly 6 columns (left to right):
+   序号 | 编码 | 名称 | NAME | 数量 | 备注
+
+DIAGRAM pages → return {"page_type": "diagram"}
+TOC pages     → return {"page_type": "toc", "categories": [...]}
+
+TABLE page rules:
+• Extract ONLY rows where 编码 (part number) is non-empty
+• serial_no: integer in 序号, or null
+• quantity: positive integer; use 1 if unreadable
+• remarks: empty string "" if blank
+• Return ONLY valid JSON — no markdown fences
+
+OUTPUT (table page):
+{
+  "page_type": "table",
+  "subtype_code": "<code, spaces removed>",
+  "subtype_name_en": "<English name from header>",
+  "subtype_name_cn": "<Chinese name from header>",
+  "parts": [
+    {
+      "serial_no": <int or null>,
+      "part_number": "<编码>",
+      "name_cn": "<名称>",
+      "name_en": "<NAME>",
+      "quantity": <int>,
+      "remarks": "<备注 or empty>"
+    }
+  ]
+}`,
+
+        transmission: `You are a precise data-extraction engine for a Chinese-only automotive transmission parts catalog.
+
+PAGE TYPES:
+1. COVER — {"page_type": "cover"}
+2. TOC   — {"page_type": "toc"}
+3. CONTENT — parts table (4 columns) + optional section header
+
+SECTION HEADER: Large bold CENTERED title with 、character (U+3001)
+Example: "一、离合器和变速器壳体总成"
+CRITICAL: The 、character MUST be present.
+
+TABLE COLUMNS (left to right):
+代号 | 零件号 | 零件名称. | 数量
+
+RULES:
+• Extract ONLY rows with non-empty 零件号
+• quantity: integer or null for "按需"
+• Return ONLY valid JSON
+
+OUTPUT (content page):
+{
+  "page_type": "content",
+  "section_header": "<title with 、or null>",
+  "parts": [
+    {
+      "serial_no": "<string or null>",
+      "part_number": "<零件号>",
+      "name_cn": "<零件名称>",
+      "quantity": <int or null>,
+      "is_assembly_header": false
+    }
+  ]
+}`,
+
+        engine: `You are a precise data-extraction engine for an engine parts catalog page.
+
+PAGE LAYOUT:
+  TOP-LEFT  : short page code (e.g. "FH 2471")
+  TOP-RIGHT : bilingual label (Chinese + English)
+              e.g. "飞轮壳HOUSING,FLYWHEEL"
+  CENTER    : exploded-view diagram
+  BOTTOM    : parts table
+
+PARTS TABLE COLUMNS:
+  Item | Part Number | Name (English) | Name (Chinese) | Qty
+
+PAGE TYPES: "table", "diagram", "skip"
+
+RULES:
+• Return TOP-RIGHT text exactly as category_label_raw
+• Extract ONLY rows with non-empty Part Number
+• quantity: integer; "AR"/"REF" → null
+• Return ONLY valid JSON
+
+OUTPUT (table page):
+{
+  "page_type": "table",
+  "category_label_raw": "<exact top-right text>",
+  "page_code": "<top-left code>",
+  "parts": [
+    {
+      "item_no": "<string or null>",
+      "part_number": "<code>",
+      "name_en": "<ENGLISH>",
+      "name_cn": "<Chinese or empty>",
+      "quantity": <int or null>
+    }
+  ]
+}`
+    };
+
+    // ── Helper: translate technical error to friendly message ──────────────
+    function friendlyError(err) {
+        if (!err) return 'Terjadi kesalahan yang tidak diketahui.';
+        const e = String(err).toLowerCase();
+        if (e.includes('sudah ada') || e.includes('409') || e.includes('duplicate') || e.includes('already exists'))
+            return 'Data sudah ada di database — item dilewati (tidak ada duplikasi).';
+        if (e.includes('not found') && e.includes('category'))
+            return 'Kategori tidak ditemukan — pastikan Tahap 1 sudah dijalankan lebih dulu.';
+        if (e.includes('dokumen') && e.includes('not found'))
+            return 'Nama dokumen tidak ditemukan di database — pastikan Tahap 1 sudah diselesaikan.';
+        if (e.includes('401') || e.includes('unauthorized'))
+            return 'Autentikasi gagal — periksa email/password SSO.';
+        if (e.includes('403') || e.includes('forbidden'))
+            return 'Akses ditolak — akun tidak memiliki izin untuk operasi ini.';
+        if (e.includes('500') || e.includes('server error'))
+            return 'Terjadi kesalahan di server — coba lagi beberapa saat.';
+        if (e.includes('timeout') || e.includes('etimedout'))
+            return 'Koneksi habis waktu — periksa jaringan dan coba lagi.';
+        if (e.includes('network') || e.includes('fetch'))
+            return 'Gagal terhubung ke server — periksa koneksi internet.';
+        return err; // return original if no pattern matched
+    }
+
+    // ── Derived dokumen name from uploaded filename ────────────────────────
     function getDokumenName() {
         return currentFilename ? currentFilename.replace(/\.pdf$/i, '') : '';
     }
 
-    // ── Master Categories ──────────────────────────────────────────────────
+    // ── Load master categories ─────────────────────────────────────────────
     async function loadMasterCategories() {
         try {
             const resp = await fetch('/api/master-categories');
@@ -636,8 +800,8 @@ Return ONLY valid JSON:
             const sel  = document.getElementById('masterCategory');
             (data.categories || []).forEach(cat => {
                 const opt = document.createElement('option');
-                opt.value       = cat.id;
-                opt.textContent = cat.display;
+                opt.value            = cat.id;
+                opt.textContent      = cat.display;
                 opt.dataset.partbookType = cat.partbook_type;
                 sel.appendChild(opt);
             });
@@ -650,17 +814,22 @@ Return ONLY valid JSON:
         const sel  = document.getElementById('masterCategory');
         const opt  = sel.options[sel.selectedIndex];
         const type = opt?.dataset?.partbookType;
+
         const promptGroup = document.getElementById('promptGroup');
         const promptTA    = document.getElementById('extractionPrompt');
+        const s2TA        = document.getElementById('stage2Prompt');
 
         if (type && EXTRACTION_PROMPTS[type]) {
-            // Show prompt with the correct default text for this category type
             promptTA.value = EXTRACTION_PROMPTS[type];
             promptGroup.classList.remove('hidden');
         } else {
-            // No category selected — hide prompt entirely
             promptTA.value = '';
             promptGroup.classList.add('hidden');
+        }
+
+        // Pre-load Stage 2 prompt default for the selected type
+        if (type && PARTS_EXTRACTION_PROMPTS[type]) {
+            s2TA.value = PARTS_EXTRACTION_PROMPTS[type];
         }
     }
 
@@ -679,10 +848,11 @@ Return ONLY valid JSON:
     });
 
     function handleFile(file) {
-        if (!file.name.endsWith('.pdf')) { showAlert('Please upload a PDF file.', 'error'); return; }
+        if (!file.name.endsWith('.pdf')) { showAlert('Mohon upload file PDF.', 'error'); return; }
         const mc = document.getElementById('masterCategory').value;
-        if (!mc) { showAlert('Please select a Master Category first.', 'error'); return; }
-        uploadFile(file, mc, document.getElementById('aiModel').value, document.getElementById('extractionPrompt').value);
+        if (!mc) { showAlert('Pilih Master Category terlebih dahulu.', 'error'); return; }
+        uploadFile(file, mc, document.getElementById('aiModel').value,
+                   document.getElementById('extractionPrompt').value);
     }
 
     async function uploadFile(file, masterCategoryId, aiModel, prompt) {
@@ -711,11 +881,9 @@ Return ONLY valid JSON:
                 currentPartsData    = null;
 
                 document.getElementById('statusFilename').textContent = file.name;
-
-                // ✅ Update the auto-detected dokumen name display immediately
                 document.getElementById('dokumenNameValue').textContent = getDokumenName();
 
-                showAlert('File uploaded. Processing started…', 'success');
+                showAlert('File diupload. Proses dimulai…', 'success');
                 statusCard.classList.remove('hidden');
                 reviewSection.classList.add('hidden');
                 rePromptSection.classList.add('hidden');
@@ -724,10 +892,10 @@ Return ONLY valid JSON:
                 document.getElementById('partsSubmissionResult').classList.add('hidden');
                 startPolling();
             } else {
-                showAlert('Upload failed: ' + (data.error || 'Unknown error'), 'error');
+                showAlert('Upload gagal: ' + friendlyError(data.error), 'error');
             }
         } catch (err) {
-            showAlert('Network error: ' + err.message, 'error');
+            showAlert('Gagal terhubung: ' + err.message, 'error');
         }
     }
 
@@ -749,7 +917,8 @@ Return ONLY valid JSON:
             if (!resp.ok) return;
             const job = await resp.json();
             renderStatus(job);
-            if (['completed', 'error', 'failed', 'review', 'parts_review'].includes(job.status)) stopPolling();
+            if (['completed', 'error', 'failed', 'review', 'parts_review', 'parts_error'].includes(job.status))
+                stopPolling();
             if (job.status === 'review' && !editorPopulated) openReview(job);
             if (job.status === 'parts_review' && !partsPopulated) openPartsReview(job);
 
@@ -762,31 +931,67 @@ Return ONLY valid JSON:
         }
     }
 
-    // ✅ CHANGED: dokumen_name now derived automatically from filename — no manual input needed
     async function startPartsExtraction() {
         const dokumenName = getDokumenName();
-        showAlert(`Structure submitted — starting Parts extraction (dokumen: "${dokumenName}")…`, 'info');
+        const prompt      = document.getElementById('stage2Prompt').value.trim();
+        showAlert(`Struktur disimpan — memulai ekstraksi Suku Cadang (dokumen: "${dokumenName}")…`, 'info');
         try {
             const resp = await fetch(`/api/start-parts/${currentJobId}`, {
-                method: 'POST',
+                method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    dokumen_name: dokumenName,
-                    target_id_start: 1
+                body:    JSON.stringify({
+                    dokumen_name:         dokumenName,
+                    target_id_start:      1,
+                    parts_custom_prompt:  prompt,   // ← SEND Stage 2 prompt
+                })
+            });
+            if (resp.ok) {
+                partsPopulated = false;
+                startPolling();
+            } else {
+                const d = await resp.json();
+                showAlert('Gagal memulai ekstraksi: ' + friendlyError(d.error), 'error');
+            }
+        } catch (err) {
+            showAlert('Gagal terhubung: ' + err.message, 'error');
+        }
+    }
+
+    // ── Re-extract parts with new Stage 2 prompt ──────────────────────────
+    async function reExtractParts() {
+        const prompt = document.getElementById('stage2Prompt').value.trim();
+        if (!prompt) { showAlert('Prompt tidak boleh kosong.', 'error'); return; }
+        if (!confirm('Mulai ulang ekstraksi suku cadang dengan prompt yang diperbarui?\n\nProses sebelumnya akan diganti.')) return;
+
+        const dokumenName = getDokumenName();
+        partsPopulated    = false;
+
+        document.getElementById('partsSection').classList.add('hidden');
+        document.getElementById('partsSubmissionResult').classList.add('hidden');
+        showAlert('Memulai ulang ekstraksi suku cadang…', 'info');
+
+        try {
+            const resp = await fetch(`/api/start-parts/${currentJobId}`, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({
+                    dokumen_name:         dokumenName,
+                    target_id_start:      1,
+                    parts_custom_prompt:  prompt,
                 })
             });
             if (resp.ok) {
                 startPolling();
             } else {
                 const d = await resp.json();
-                showAlert('Failed to start parts extraction: ' + (d.error || 'Unknown'), 'error');
+                showAlert('Gagal memulai ulang: ' + friendlyError(d.error), 'error');
             }
         } catch (err) {
-            showAlert('Network error: ' + err.message, 'error');
+            showAlert('Gagal terhubung: ' + err.message, 'error');
         }
     }
 
-    // ── renderStatus ───────────────────────────────────────────────────────
+    // ── Render status panel ────────────────────────────────────────────────
     function renderStatus(job) {
         document.getElementById('statusFilename').textContent =
             job.filename || currentFilename || '—';
@@ -794,44 +999,43 @@ Return ONLY valid JSON:
             job.partbook_type ? (PARTBOOK_META[job.partbook_type]?.short || job.partbook_type) : '—';
         document.getElementById('statusStage').textContent = job.stage || '—';
         document.getElementById('statusBadge').innerHTML =
-            `<span class="status-badge status-${job.status}">${job.status.replace(/_/g, ' ').toUpperCase()}</span>`;
+            `<span class="status-badge status-${job.status}">${job.status.replace(/_/g,' ').toUpperCase()}</span>`;
 
         currentPartbookType = job.partbook_type;
 
         const pct  = job.progress || 0;
         const fill = document.getElementById('progressFill');
-        const ACTIVE_STATUSES = ['processing', 'processing_parts', 'structure_submitted'];
-        const PROGRESS_LABELS = {
-            queued:              'Queued…',
-            processing:          'Step 1 — Extracting categories…',
-            review:              'Step 1 — Awaiting review',
-            structure_submitted: 'Step 1 — Submitted, starting parts…',
-            processing_parts:    'Step 2 — Extracting parts…',
-            parts_review:        'Step 2 — Awaiting review',
-            completed:           'All done ✓',
-            error:               'Error',
-            parts_error:         'Parts submission error',
+        const ACTIVE = ['processing', 'processing_parts', 'structure_submitted'];
+        const LABELS = {
+            queued:              'Antri…',
+            processing:          'Tahap 1 — Ekstraksi kategori…',
+            review:              'Tahap 1 — Menunggu review',
+            structure_submitted: 'Tahap 1 — Disimpan, memulai suku cadang…',
+            processing_parts:    'Tahap 2 — Ekstraksi suku cadang…',
+            parts_review:        'Tahap 2 — Menunggu review',
+            completed:           'Selesai ✓',
+            error:               'Terjadi Kesalahan',
+            parts_error:         'Kesalahan saat submit suku cadang',
         };
 
         fill.style.width = pct + '%';
         document.getElementById('progressPct').textContent   = pct + '%';
-        document.getElementById('progressLabel').textContent = PROGRESS_LABELS[job.status] || job.status;
+        document.getElementById('progressLabel').textContent = LABELS[job.status] || job.status;
 
         fill.className = 'progress__fill';
         if (job.status === 'completed')
             fill.classList.add('progress__fill--complete');
-        else if (job.status === 'error' || job.status === 'parts_error' || job.status === 'failed')
+        else if (['error','parts_error','failed'].includes(job.status))
             fill.classList.add('progress__fill--error');
-        else if (ACTIVE_STATUSES.includes(job.status))
+        else if (ACTIVE.includes(job.status))
             fill.classList.add('progress__fill--active');
 
-        if (job.status === 'error' || job.status === 'failed') {
-            showAlert('Error: ' + (job.message || job.error || 'Unknown error'), 'error');
+        if (['error','failed'].includes(job.status)) {
+            showAlert('❌ Kesalahan: ' + friendlyError(job.message || job.error || 'Tidak diketahui'), 'error');
             stopPolling();
         }
     }
 
-    // ✅ CHANGED: removed dokumenNameGroup show/hide — no input field anymore
     function openReview(job) {
         if (!job.extracted_data) return;
         editorPopulated = true;
@@ -839,9 +1043,7 @@ Return ONLY valid JSON:
         jsonEditor.value = JSON.stringify(job.extracted_data, null, 2);
         reviewSection.classList.remove('hidden');
         document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
-
-        showAlert('Extraction complete. Review the data below, then approve to submit.', 'success');
-
+        showAlert('Ekstraksi selesai. Review data di bawah, lalu klik Setujui untuk submit.', 'success');
         if (job.parts_data && job.parts_data.subtypes?.length) {
             populatePartsSection(job.parts_data);
         }
@@ -852,83 +1054,83 @@ Return ONLY valid JSON:
         partsPopulated = true;
         stopPolling();
         populatePartsSection(job.parts_data);
-        showAlert('Parts extraction complete. Review and approve to submit.', 'success');
+        showAlert('Ekstraksi suku cadang selesai. Review dan setujui untuk submit.', 'success');
     }
 
-    // ── Download JSON ──────────────────────────────────────────────────────
+    // ── Download JSON (Stage 1) ────────────────────────────────────────────
     document.getElementById('downloadBtn').addEventListener('click', () => {
         try {
             const data = JSON.parse(jsonEditor.value);
-            const url  = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-            Object.assign(document.createElement('a'), { href: url, download: `extracted_${currentJobId}.json` }).click();
+            const url  = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}));
+            Object.assign(document.createElement('a'), {href: url, download: `extracted_${currentJobId}.json`}).click();
             URL.revokeObjectURL(url);
-        } catch { showAlert('Invalid JSON — fix syntax errors before downloading.', 'error'); }
+        } catch { showAlert('JSON tidak valid — perbaiki sintaks sebelum download.', 'error'); }
     });
 
-    // ── Re-Extract ─────────────────────────────────────────────────────────
+    // ── Re-Extract (Stage 1) ───────────────────────────────────────────────
     document.getElementById('reExtractBtn').addEventListener('click', () => rePromptSection.classList.remove('hidden'));
     document.getElementById('cancelRePrompt').addEventListener('click', () => rePromptSection.classList.add('hidden'));
 
     document.getElementById('confirmRePrompt').addEventListener('click', async () => {
         const newPrompt = document.getElementById('rePromptText').value.trim();
-        if (!newPrompt) { showAlert('Please enter a prompt first.', 'error'); return; }
+        if (!newPrompt) { showAlert('Masukkan prompt terlebih dahulu.', 'error'); return; }
 
         try {
             const resp = await fetch('/api/re-extract/' + currentJobId, {
-                method: 'POST',
+                method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: newPrompt })
+                body:    JSON.stringify({ prompt: newPrompt })
             });
             if (resp.ok) {
                 editorPopulated  = false;
                 partsPopulated   = false;
                 currentPartsData = null;
-                showAlert('Re-extraction started…', 'info');
+                showAlert('Ekstraksi ulang dimulai…', 'info');
                 rePromptSection.classList.add('hidden');
                 reviewSection.classList.add('hidden');
                 document.getElementById('partsSection').classList.add('hidden');
                 startPolling();
             } else {
                 const d = await resp.json();
-                showAlert((d.error || 'Re-extraction failed'), 'error');
+                showAlert(friendlyError(d.error || 'Ekstraksi ulang gagal'), 'error');
             }
-        } catch (err) { showAlert('Network error: ' + err.message, 'error'); }
+        } catch (err) { showAlert('Gagal terhubung: ' + err.message, 'error'); }
     });
 
-    // ── Approve & Submit categories ────────────────────────────────────────
+    // ── Approve & Submit Stage 1 categories ───────────────────────────────
     document.getElementById('approveBtn').addEventListener('click', async () => {
-        if (!confirm('Submit categories to EPC database?\n\nDuplicate categories will be skipped automatically.')) return;
+        if (!confirm('Submit kategori ke database EPC?\n\nKategori yang sudah ada akan dilewati otomatis.')) return;
 
         let editedData;
         try { editedData = JSON.parse(jsonEditor.value); }
-        catch { showAlert('Invalid JSON — fix syntax errors before submitting.', 'error'); return; }
+        catch { showAlert('JSON tidak valid — perbaiki sintaks sebelum submit.', 'error'); return; }
 
-        showAlert('Submitting categories to EPC…', 'info');
+        showAlert('Menyimpan kategori ke EPC…', 'info');
 
         try {
             const resp = await fetch('/api/approve-structure/' + currentJobId, {
-                method: 'POST',
+                method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ extracted_data: editedData })
+                body:    JSON.stringify({ extracted_data: editedData })
             });
             const text = await resp.text();
             let result;
             try { result = JSON.parse(text); }
-            catch (_) { showAlert('Server error (non-JSON response). Check Flask logs.', 'error'); return; }
+            catch (_) { showAlert('Kesalahan server (respons tidak valid). Cek log Flask.', 'error'); return; }
 
             if (resp.ok && result.success) {
                 renderSubmissionResult(result.epc_results);
-                showAlert('Categories submitted successfully!', 'success');
+                showAlert('Kategori berhasil disimpan!', 'success');
                 startPolling();
             } else {
-                showAlert('Submission failed: ' + (result.error || 'Unknown error'), 'error');
+                showAlert('Gagal submit: ' + friendlyError(result.error), 'error');
             }
         } catch (err) {
-            showAlert('Network error: ' + err.message, 'error');
+            showAlert('Gagal terhubung: ' + err.message, 'error');
         }
     });
 
-    // ── renderSubmissionResult — WITH CLICKABLE DETAIL ROWS ───────────────
+    // ── Stage 1 submission result ──────────────────────────────────────────
     function toggleSummaryDetail(rowId, detailId) {
         const row    = document.getElementById(rowId);
         const detail = document.getElementById(detailId);
@@ -944,149 +1146,76 @@ Return ONLY valid JSON:
         const errorsList   = Array.isArray(r.errors)              ? r.errors              : [];
         const typeCatsList = Array.isArray(r.type_categories_created) ? r.type_categories_created : [];
 
-        const created  = createdList.length;
-        const skipped  = skippedList.length;
-        const errors   = errorsList.length;
-        const typeCats = typeCatsList.length;
+        const created = createdList.length, skipped = skippedList.length;
+        const errors  = errorsList.length,  typeCats = typeCatsList.length;
 
-        const createdDetailHtml = created > 0
-            ? `<div class="summary-detail" id="detail-created">
-                 <div class="summary-detail__inner">
-                   <ul class="summary-detail__list">
-                     ${createdList.map(cat => {
-                         const nameEn = cat.category_name_en || cat.master_category_name_en || '—';
-                         const nameCn = cat.category_name_cn || '';
-                         return `<li class="summary-detail__item">
-                             <span class="summary-detail__item-icon">✅</span>
-                             <div>
-                                 <div class="summary-detail__item-name">${_escHtml(nameEn)}</div>
-                                 ${nameCn ? `<div class="summary-detail__item-cn">${_escHtml(nameCn)}</div>` : ''}
-                             </div>
-                         </li>`;
-                     }).join('')}
-                   </ul>
-                 </div>
-               </div>`
-            : '';
+        const mkCreatedDetail = () => created > 0 ? `
+            <div class="summary-detail" id="detail-created">
+              <div class="summary-detail__inner"><ul class="summary-detail__list">
+                ${createdList.map(c=>`<li class="summary-detail__item">
+                  <span class="summary-detail__item-icon">✅</span>
+                  <div><div class="summary-detail__item-name">${_esc(c.category_name_en||'—')}</div>
+                  ${c.category_name_cn?`<div class="summary-detail__item-cn">${_esc(c.category_name_cn)}</div>`:''}
+                  </div></li>`).join('')}
+              </ul></div></div>` : '';
 
-        const skippedDetailHtml = skipped > 0
-            ? `<div class="summary-detail" id="detail-skipped">
-                 <div class="summary-detail__inner">
-                   <ul class="summary-detail__list">
-                     ${skippedList.map(cat => {
-                         const nameEn = cat.category_name_en || '—';
-                         const msg    = cat.message || 'Already exists (duplicate)';
-                         return `<li class="summary-detail__item summary-detail__item--skipped">
-                             <span class="summary-detail__item-icon">⏭️</span>
-                             <div>
-                                 <div class="summary-detail__item-name">${_escHtml(nameEn)}</div>
-                                 <div class="summary-detail__item-msg">${_escHtml(msg)}</div>
-                             </div>
-                         </li>`;
-                     }).join('')}
-                   </ul>
-                 </div>
-               </div>`
-            : '';
-
-        const createdRowHtml = created > 0
-            ? `<div class="summary-row summary-row--clickable" id="row-created">
-                 <div class="summary-row__trigger" onclick="toggleSummaryDetail('row-created','detail-created')">
-                     <span class="summary-row__label">
-                         <span class="summary-row__chevron">›</span>
-                         Categories Created
-                     </span>
-                     <span class="summary-row__value summary-row__value--created">${created}</span>
-                 </div>
-                 ${createdDetailHtml}
-               </div>`
-            : `<div class="summary-row">
-                 <div class="summary-row__trigger">
-                     <span class="summary-row__label">Categories Created</span>
-                     <span class="summary-row__value summary-row__value--created">0</span>
-                 </div>
-               </div>`;
-
-        const skippedRowHtml = skipped > 0
-            ? `<div class="summary-row summary-row--clickable" id="row-skipped">
-                 <div class="summary-row__trigger" onclick="toggleSummaryDetail('row-skipped','detail-skipped')">
-                     <span class="summary-row__label">
-                         <span class="summary-row__chevron">›</span>
-                         Categories Skipped (duplicates)
-                     </span>
-                     <span class="summary-row__value summary-row__value--skipped">${skipped}</span>
-                 </div>
-                 ${skippedDetailHtml}
-               </div>`
-            : `<div class="summary-row">
-                 <div class="summary-row__trigger">
-                     <span class="summary-row__label">Categories Skipped (duplicates)</span>
-                     <span class="summary-row__value summary-row__value--skipped">0</span>
-                 </div>
-               </div>`;
-
-        const typeCatRow = typeCats
-            ? `<div class="summary-row">
-                 <div class="summary-row__trigger">
-                     <span class="summary-row__label">Type Categories Created</span>
-                     <span class="summary-row__value summary-row__value--created">${typeCats}</span>
-                 </div>
-               </div>`
-            : '';
-
-        const errorRow = errors
-            ? `<div class="summary-row">
-                 <div class="summary-row__trigger">
-                     <span class="summary-row__label">Errors</span>
-                     <span class="summary-row__value summary-row__value--error">${errors}</span>
-                 </div>
-               </div>`
-            : '';
-
-        const hintHtml = (created > 0 || skipped > 0)
-            ? `<p style="font-size:11.5px;color:var(--text-3);margin-bottom:8px;">
-                   💡 Click a row to see the full list
-               </p>`
-            : '';
+        const mkSkippedDetail = () => skipped > 0 ? `
+            <div class="summary-detail" id="detail-skipped">
+              <div class="summary-detail__inner"><ul class="summary-detail__list">
+                ${skippedList.map(c=>`<li class="summary-detail__item summary-detail__item--skipped">
+                  <span class="summary-detail__item-icon">⏭️</span>
+                  <div><div class="summary-detail__item-name">${_esc(c.category_name_en||'—')}</div>
+                  <div class="summary-detail__item-msg">Sudah ada di database</div></div></li>`).join('')}
+              </ul></div></div>` : '';
 
         const el = document.getElementById('submissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
             <div class="submission-summary">
-                <div class="submission-summary__title">✅ Submission Complete</div>
-                ${hintHtml}
-                ${createdRowHtml}
-                ${skippedRowHtml}
-                ${typeCatRow}
-                ${errorRow}
+              <div class="submission-summary__title">✅ Submit Selesai</div>
+              ${(created>0||skipped>0)?`<p style="font-size:11.5px;color:var(--text-3);margin-bottom:8px;">💡 Klik baris untuk melihat daftar lengkap</p>`:''}
+              ${created>0?`<div class="summary-row summary-row--clickable" id="row-created">
+                <div class="summary-row__trigger" onclick="toggleSummaryDetail('row-created','detail-created')">
+                  <span class="summary-row__label"><span class="summary-row__chevron">›</span> Kategori Dibuat</span>
+                  <span class="summary-row__value summary-row__value--created">${created}</span>
+                </div>${mkCreatedDetail()}</div>` :
+                `<div class="summary-row"><div class="summary-row__trigger">
+                  <span class="summary-row__label">Kategori Dibuat</span>
+                  <span class="summary-row__value summary-row__value--created">0</span>
+                </div></div>`}
+              ${skipped>0?`<div class="summary-row summary-row--clickable" id="row-skipped">
+                <div class="summary-row__trigger" onclick="toggleSummaryDetail('row-skipped','detail-skipped')">
+                  <span class="summary-row__label"><span class="summary-row__chevron">›</span> Dilewati (sudah ada)</span>
+                  <span class="summary-row__value summary-row__value--skipped">${skipped}</span>
+                </div>${mkSkippedDetail()}</div>` :
+                `<div class="summary-row"><div class="summary-row__trigger">
+                  <span class="summary-row__label">Dilewati (sudah ada)</span>
+                  <span class="summary-row__value summary-row__value--skipped">0</span>
+                </div></div>`}
+              ${typeCats?`<div class="summary-row"><div class="summary-row__trigger">
+                <span class="summary-row__label">Type Categories Dibuat</span>
+                <span class="summary-row__value summary-row__value--created">${typeCats}</span>
+              </div></div>`:''}
+              ${errors?`<div class="summary-row"><div class="summary-row__trigger">
+                <span class="summary-row__label">Kesalahan</span>
+                <span class="summary-row__value summary-row__value--error">${errors}</span>
+              </div></div>`:''}
             </div>`;
-
-        showAlert(
-            errors ? `Completed with ${errors} error(s). Check summary.` :
-                     `Done! ${created} new, ${skipped} skipped${typeCats ? `, ${typeCats} type categories` : ''}.`,
-            errors ? 'warning' : 'success'
-        );
     }
 
-    function _escHtml(str) {
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
+    // ── Parts Management — Stage 2 ─────────────────────────────────────────
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Parts Management — Step 2
-    // ═══════════════════════════════════════════════════════════════════════
-
-    // ✅ CHANGED: update auto-detected dokumen name display when parts section opens
     function populatePartsSection(partsData) {
         if (!partsData || !partsData.subtypes?.length) return;
         currentPartsData = partsData;
 
-        // Update the auto-detected dokumen name display
         document.getElementById('dokumenNameValue').textContent = getDokumenName();
+
+        // Pre-fill Stage 2 prompt with type-specific default if empty
+        const s2TA = document.getElementById('stage2Prompt');
+        if (!s2TA.value.trim() && currentPartbookType && PARTS_EXTRACTION_PROMPTS[currentPartbookType]) {
+            s2TA.value = PARTS_EXTRACTION_PROMPTS[currentPartbookType];
+        }
 
         const tbody = document.getElementById('partsTableBody');
         tbody.innerHTML = '';
@@ -1094,43 +1223,45 @@ Return ONLY valid JSON:
         partsData.subtypes.forEach((subtype, idx) => {
             const parts   = subtype.parts || [];
             const preview = parts.slice(0, 3)
-                .map(p => `<span style="font-size:11px;color:var(--text-3)">${p.target_id}</span> ${p.name_en || p.catalog_item_name_en || ''}`)
+                .map(p => `<span style="font-size:11px;color:var(--text-3)">${p.target_id}</span> ${_esc(p.name_en || p.catalog_item_name_en || '')}`)
                 .join('<br>');
             const more = parts.length > 3
-                ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} more…</em>` : '';
+                ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} lainnya…</em>` : '';
 
             const tr = document.createElement('tr');
             tr.id = `subtype-row-${idx}`;
             tr.innerHTML = `
                 <td>
-                    <strong>${subtype.subtype_name_en}</strong><br>
-                    <span style="font-size:12px;color:var(--text-3)">${subtype.subtype_name_cn || ''}</span>
+                    <strong>${_esc(subtype.subtype_name_en)}</strong><br>
+                    <span style="font-size:12px;color:var(--text-3)">${_esc(subtype.subtype_name_cn || '')}</span>
                 </td>
-                <td style="text-align:center">
-                    <span class="parts-count-badge">${parts.length}</span>
-                </td>
+                <td style="text-align:center"><span class="parts-count-badge">${parts.length}</span></td>
                 <td>
                     ${preview}${more}
-                    <br>
-                    <button class="parts-expand-btn" style="margin-top:5px"
-                            onclick="expandPartsDetail(${idx})">View all</button>
+                    <br><button class="parts-expand-btn" style="margin-top:5px"
+                            onclick="expandPartsDetail(${idx})">Lihat semua</button>
                 </td>
                 <td style="text-align:center" id="subtype-status-${idx}">
                     <span style="font-size:12px;color:var(--text-3)">—</span>
                 </td>
                 <td style="text-align:center">
                     <button class="btn btn--sm btn--primary" id="subtype-btn-${idx}"
-                            onclick="submitSingleSubtype(${idx})">
-                        Submit
-                    </button>
+                            onclick="submitSingleSubtype(${idx})">Submit</button>
                 </td>`;
             tbody.appendChild(tr);
         });
 
+        // Reset approve button
+        const approveBtn = document.getElementById('approvePartsBtn');
+        approveBtn.disabled    = false;
+        approveBtn.textContent = '✅ Submit Semua Suku Cadang ke EPC';
+        approveBtn.className   = 'btn btn--primary';
+
         document.getElementById('partsSection').classList.remove('hidden');
+        document.getElementById('partsSubmissionResult').classList.add('hidden');
     }
 
-    // ✅ CHANGED: dokumen_name from getDokumenName() — no input validation needed
+    // ── Submit single subtype (with re-submit support) ────────────────────
     async function submitSingleSubtype(idx) {
         if (!currentPartsData) return;
 
@@ -1139,11 +1270,11 @@ Return ONLY valid JSON:
         const btn      = document.getElementById(`subtype-btn-${idx}`);
         const statusEl = document.getElementById(`subtype-status-${idx}`);
 
-        if (!confirm(`Submit "${subtype.subtype_name_en}" to EPC?\n\nDocument: ${dokumenName}`)) return;
+        if (!confirm(`Submit "${subtype.subtype_name_en}" ke EPC?\n\nDokumen: ${dokumenName}`)) return;
 
         btn.disabled       = true;
         btn.textContent    = '…';
-        statusEl.innerHTML = `<span style="font-size:12px;color:var(--warning)">Submitting…</span>`;
+        statusEl.innerHTML = `<span style="font-size:12px;color:var(--warning)">Menyimpan…</span>`;
 
         try {
             const resp = await fetch(`/api/approve-parts-single/${currentJobId}`, {
@@ -1156,26 +1287,34 @@ Return ONLY valid JSON:
             let result;
             try { result = JSON.parse(text); }
             catch (_) {
-                statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">⚠ Server error</span>`;
-                btn.disabled    = false;
-                btn.textContent = 'Retry';
+                statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">⚠ Kesalahan server</span>`;
+                btn.disabled = false; btn.textContent = 'Coba Lagi';
                 return;
             }
 
             if (resp.ok && result.success) {
-                statusEl.innerHTML = `<span style="font-size:12px;color:var(--success)">✓ Done</span>`;
-                btn.textContent    = '✓ Done';
-                btn.classList.replace('btn--primary', 'btn--ghost');
-            } else {
-                const msg = result.error || 'Failed';
-                statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${msg}">✗ Error</span>`;
+                const epc = result.epc_results || {};
+                const skipped = (epc.skipped||[]).length;
+                if (skipped > 0) {
+                    statusEl.innerHTML = `<span style="font-size:12px;color:var(--warning)" title="Data sudah ada di database">⏭ Dilewati</span>`;
+                } else {
+                    statusEl.innerHTML = `<span style="font-size:12px;color:var(--success)">✓ Berhasil</span>`;
+                }
+                // Allow re-submit
                 btn.disabled    = false;
-                btn.textContent = 'Retry';
+                btn.textContent = '🔄 Kirim Ulang';
+                btn.className   = 'btn btn--sm btn--warning';
+            } else {
+                const errMsg = friendlyError(result.error || 'Gagal');
+                statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${_esc(errMsg)}">✗ Gagal</span>`;
+                btn.disabled    = false;
+                btn.textContent = 'Coba Lagi';
+                btn.className   = 'btn btn--sm btn--danger';
+                showAlert(`❌ "${subtype.subtype_name_en}": ${errMsg}`, 'error');
             }
         } catch (err) {
-            statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">✗ Network error</span>`;
-            btn.disabled    = false;
-            btn.textContent = 'Retry';
+            statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)">✗ Gagal terhubung</span>`;
+            btn.disabled = false; btn.textContent = 'Coba Lagi';
         }
     }
 
@@ -1183,21 +1322,19 @@ Return ONLY valid JSON:
         const sub = currentPartsData.subtypes[idx];
         document.getElementById('partsDetailTitle').textContent =
             `${sub.subtype_name_en}  /  ${sub.subtype_name_cn || ''}  (${sub.parts.length} parts)`;
-
         const tbody = document.getElementById('partsDetailBody');
         tbody.innerHTML = '';
         sub.parts.forEach(p => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><code>${p.target_id}</code></td>
-                <td>${p.part_number}</td>
-                <td>${p.catalog_item_name_en || p.name_en || ''}</td>
-                <td>${p.catalog_item_name_ch || p.name_cn || ''}</td>
+                <td>${_esc(p.part_number)}</td>
+                <td>${_esc(p.catalog_item_name_en || p.name_en || '')}</td>
+                <td>${_esc(p.catalog_item_name_ch || p.name_cn || '')}</td>
                 <td style="text-align:center">${p.quantity}</td>
-                <td style="color:var(--text-3);font-size:12px">${p.description || ''}</td>`;
+                <td style="color:var(--text-3);font-size:12px">${_esc(p.description || '')}</td>`;
             tbody.appendChild(tr);
         });
-
         document.getElementById('partsDetailPanel').classList.remove('hidden');
         document.getElementById('partsDetailPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -1209,83 +1346,167 @@ Return ONLY valid JSON:
     document.getElementById('downloadPartsBtn').addEventListener('click', () => {
         if (!currentPartsData) return;
         const url = URL.createObjectURL(
-            new Blob([JSON.stringify(currentPartsData, null, 2)], { type: 'application/json' })
+            new Blob([JSON.stringify(currentPartsData, null, 2)], {type:'application/json'})
         );
-        Object.assign(document.createElement('a'), {
-            href: url, download: `parts_${currentJobId}.json`
-        }).click();
+        Object.assign(document.createElement('a'), {href: url, download: `parts_${currentJobId}.json`}).click();
         URL.revokeObjectURL(url);
     });
 
-    // ✅ CHANGED: dokumen_name from getDokumenName() — no input field validation
+    // ── Submit ALL parts ───────────────────────────────────────────────────
     document.getElementById('approvePartsBtn').addEventListener('click', async () => {
         const dokumenName = getDokumenName();
-        if (!currentPartsData) { showAlert('No parts data available.', 'error'); return; }
-        if (!confirm(`Submit all parts to the EPC database?\n\nDocument: ${dokumenName}`)) return;
+        if (!currentPartsData) { showAlert('Tidak ada data suku cadang.', 'error'); return; }
+        if (!confirm(`Submit semua suku cadang ke database EPC?\n\nDokumen: ${dokumenName}`)) return;
 
         document.getElementById('approvePartsBtn').disabled = true;
-        showAlert(`Submitting parts to EPC (document: "${dokumenName}")…`, 'info');
+        showAlert(`Menyimpan suku cadang ke EPC (dokumen: "${dokumenName}")…`, 'info');
 
         try {
             const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
-                method: 'POST',
+                method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ parts_data: currentPartsData, dokumen_name: dokumenName })
+                body:    JSON.stringify({ parts_data: currentPartsData, dokumen_name: dokumenName })
             });
-
             const text = await resp.text();
             let result;
             try { result = JSON.parse(text); }
-            catch (_) {
-                showAlert('Server error (non-JSON response). Check Flask logs.', 'error');
-                document.getElementById('approvePartsBtn').disabled = false;
-                return;
-            }
+            catch (_) { showAlert('Kesalahan server. Cek log Flask.', 'error'); document.getElementById('approvePartsBtn').disabled = false; return; }
 
             if (resp.ok && result.success) {
-                renderPartsSubmissionResult(result.epc_results);
-                showAlert('Parts submitted successfully!', 'success');
+                renderPartsSubmissionResult(result.epc_results, true);
+                showAlert('✅ Suku cadang berhasil disimpan!', 'success');
             } else {
-                showAlert('Parts submission failed: ' + (result.error || 'Unknown error'), 'error');
+                showAlert('❌ Gagal submit: ' + friendlyError(result.error), 'error');
                 document.getElementById('approvePartsBtn').disabled = false;
             }
         } catch (err) {
-            showAlert('Network error: ' + err.message, 'error');
+            showAlert('Gagal terhubung: ' + err.message, 'error');
             document.getElementById('approvePartsBtn').disabled = false;
         }
     });
 
-    function renderPartsSubmissionResult(r) {
-        const created = Array.isArray(r.created) ? r.created.length : (r.created || 0);
-        const skipped = Array.isArray(r.skipped) ? r.skipped.length : (r.skipped || 0);
-        const errors  = Array.isArray(r.errors)  ? r.errors.length  : (r.errors  || 0);
+    // ── Parts submission result — with skipped list + re-submit ───────────
+    function renderPartsSubmissionResult(r, fromBulk = false) {
+        const createdList = Array.isArray(r.created) ? r.created : [];
+        const updatedList = Array.isArray(r.updated) ? r.updated : [];
+        const skippedList = Array.isArray(r.skipped) ? r.skipped : [];
+        const errorsList  = Array.isArray(r.errors)  ? r.errors  : [];
+
+        const created = createdList.length;
+        const updated = updatedList.length;
+        const skipped = skippedList.length;
+        const errors  = errorsList.length;
+        const totalSubmitted = r.total_parts_submitted || 0;
+
+        // ── Build skipped detail ────────────────────────────────────────
+        const skippedDetailHtml = skipped > 0 ? `
+            <div class="summary-detail" id="parts-detail-skipped">
+              <div class="summary-detail__inner"><ul class="summary-detail__list">
+                ${skippedList.map(s => `
+                  <li class="summary-detail__item summary-detail__item--skipped">
+                    <span class="summary-detail__item-icon">⏭️</span>
+                    <div>
+                      <div class="summary-detail__item-name">${_esc(s.subtype_name_en || '—')}</div>
+                      <div class="summary-detail__item-msg">Sudah ada di database — tidak ada duplikasi data</div>
+                    </div>
+                  </li>`).join('')}
+              </ul></div>
+            </div>` : '';
+
+        // ── Build errors detail ─────────────────────────────────────────
+        const errorsDetailHtml = errors > 0 ? `
+            <div class="summary-detail" id="parts-detail-errors">
+              <div class="summary-detail__inner"><ul class="summary-detail__list">
+                ${errorsList.map(e => `
+                  <li class="summary-detail__item summary-detail__item--error">
+                    <span class="summary-detail__item-icon">❌</span>
+                    <div>
+                      <div class="summary-detail__item-name">${_esc(e.subtype_name_en || '—')}</div>
+                      <div class="summary-detail__item-error">${_esc(friendlyError(e.error))}</div>
+                    </div>
+                  </li>`).join('')}
+              </ul></div>
+            </div>` : '';
+
+        const bgClass  = errors > 0 ? 'style="background:var(--warning-lt);border-color:#fde68a;"' : '';
+        const title    = errors > 0
+            ? `⚠️ Submit Selesai dengan ${errors} Kesalahan`
+            : `✅ Submit Suku Cadang Selesai`;
+
         const el = document.getElementById('partsSubmissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
-            <div class="submission-summary">
-                <div class="submission-summary__title">🔩 Parts Submission Complete</div>
-                <div class="summary-row">
-                    <div class="summary-row__trigger">
-                        <span class="summary-row__label">Subtypes Created</span>
-                        <span class="summary-row__value summary-row__value--created">${created}</span>
-                    </div>
-                </div>
-                <div class="summary-row">
-                    <div class="summary-row__trigger">
-                        <span class="summary-row__label">Subtypes Skipped (duplicates)</span>
-                        <span class="summary-row__value summary-row__value--skipped">${skipped}</span>
-                    </div>
-                </div>
-                ${errors ? `<div class="summary-row">
-                    <div class="summary-row__trigger">
-                        <span class="summary-row__label">Errors</span>
-                        <span class="summary-row__value summary-row__value--error">${errors}</span>
-                    </div>
-                </div>
-                <ul style="margin:6px 0 0 16px;font-size:12px;color:var(--danger)">
-                    ${r.errors.map(e => `<li>${e.subtype_name_en || e}: ${e.error || ''}</li>`).join('')}
-                </ul>` : ''}
+            <div class="submission-summary" ${bgClass}>
+              <div class="submission-summary__title">${title}</div>
+              ${(skipped>0||errors>0)?`<p style="font-size:11.5px;color:var(--text-3);margin-bottom:8px;">💡 Klik baris untuk melihat daftar lengkap</p>`:''}
+
+              <div class="summary-row"><div class="summary-row__trigger">
+                <span class="summary-row__label">Suku Cadang Disimpan</span>
+                <span class="summary-row__value summary-row__value--created">${totalSubmitted} item</span>
+              </div></div>
+
+              ${created>0?`<div class="summary-row"><div class="summary-row__trigger">
+                <span class="summary-row__label">Subtype Baru Dibuat</span>
+                <span class="summary-row__value summary-row__value--created">${created}</span>
+              </div></div>`:''}
+
+              ${updated>0?`<div class="summary-row"><div class="summary-row__trigger">
+                <span class="summary-row__label">Subtype Diperbarui</span>
+                <span class="summary-row__value summary-row__value--updated">${updated}</span>
+              </div></div>`:''}
+
+              ${skipped>0?`<div class="summary-row summary-row--clickable" id="parts-row-skipped">
+                <div class="summary-row__trigger" onclick="toggleSummaryDetail('parts-row-skipped','parts-detail-skipped')">
+                  <span class="summary-row__label">
+                    <span class="summary-row__chevron">›</span>
+                    Dilewati (sudah ada di database)
+                  </span>
+                  <span class="summary-row__value summary-row__value--skipped">${skipped}</span>
+                </div>${skippedDetailHtml}</div>`:
+                `<div class="summary-row"><div class="summary-row__trigger">
+                  <span class="summary-row__label">Dilewati (sudah ada)</span>
+                  <span class="summary-row__value summary-row__value--skipped">0</span>
+                </div></div>`}
+
+              ${errors>0?`<div class="summary-row summary-row--clickable" id="parts-row-errors">
+                <div class="summary-row__trigger" onclick="toggleSummaryDetail('parts-row-errors','parts-detail-errors')">
+                  <span class="summary-row__label">
+                    <span class="summary-row__chevron">›</span>
+                    Gagal
+                  </span>
+                  <span class="summary-row__value summary-row__value--error">${errors}</span>
+                </div>${errorsDetailHtml}</div>`:''}
+
+              <!-- Re-submit button (always shown after bulk submit) -->
+              <div style="margin-top:14px;padding-top:12px;border-top:1px solid #d1fae5;display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn--warning btn--sm" onclick="reSubmitAllParts()">
+                  🔄 Kirim Ulang Semua
+                </button>
+                ${errors>0?`<button class="btn btn--ghost btn--sm" onclick="reExtractParts()">
+                  🔧 Ekstrak Ulang (ubah prompt)
+                </button>`:''}
+              </div>
             </div>`;
+    }
+
+    // ── Re-submit all parts (re-enable the approve button) ────────────────
+    function reSubmitAllParts() {
+        const approveBtn = document.getElementById('approvePartsBtn');
+        approveBtn.disabled    = false;
+        approveBtn.textContent = '✅ Submit Semua Suku Cadang ke EPC';
+        approveBtn.className   = 'btn btn--primary';
+        document.getElementById('partsSubmissionResult').classList.add('hidden');
+        // Reset individual row statuses
+        if (currentPartsData) {
+            currentPartsData.subtypes.forEach((_, idx) => {
+                const statusEl = document.getElementById(`subtype-status-${idx}`);
+                const btn      = document.getElementById(`subtype-btn-${idx}`);
+                if (statusEl) statusEl.innerHTML = `<span style="font-size:12px;color:var(--text-3)">—</span>`;
+                if (btn) { btn.disabled = false; btn.textContent = 'Submit'; btn.className = 'btn btn--sm btn--primary'; }
+            });
+        }
+        // Trigger the submit
+        approveBtn.click();
     }
 
     // ── Alert utility ──────────────────────────────────────────────────────
@@ -1295,7 +1516,14 @@ Return ONLY valid JSON:
         div.textContent = message;
         alertContainer.innerHTML = '';
         alertContainer.appendChild(div);
-        setTimeout(() => div.remove(), 10000);
+        setTimeout(() => div.remove(), 12000);
+    }
+
+    // ── HTML escape ────────────────────────────────────────────────────────
+    function _esc(str) {
+        return String(str)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+            .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
     window.addEventListener('load', loadMasterCategories);

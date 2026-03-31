@@ -172,7 +172,8 @@ def _image_hash(b64: str) -> str:
     return hashlib.sha256(base64.b64decode(b64)).hexdigest()
 
 
-def _call_vision(b64: str, sumopod_client, detail: str = "high") -> Optional[Dict]:
+def _call_vision(b64: str, sumopod_client, detail: str = "high",
+                 system_prompt: Optional[str] = None) -> Optional[Dict]:
     """
     Send one page to vision AI for full parts extraction.
 
@@ -183,11 +184,12 @@ def _call_vision(b64: str, sumopod_client, detail: str = "high") -> Optional[Dic
                         Use "low" for clean-print PDFs to save tokens & latency.
     """
     raw = ""
+    _prompt = system_prompt or _PARTS_SYSTEM_PROMPT
     try:
         resp = sumopod_client.client.chat.completions.create(
             model=sumopod_client.model,
             messages=[
-                {"role": "system", "content": _PARTS_SYSTEM_PROMPT},
+                {"role": "system", "content": _prompt},
                 {
                     "role": "user",
                     "content": [
@@ -496,6 +498,7 @@ def extract_cabin_chassis_parts(
     dpi: int = 150,
     code_to_category: Optional[Dict[str, str]] = None,
     vision_detail: str = "high",
+    custom_prompt: Optional[str] = None
 ) -> List[Dict]:
     """
     Extract all parts from a Cabin & Chassis partbook PDF.
@@ -593,7 +596,7 @@ def extract_cabin_chassis_parts(
             "Page %d/%d: table page confirmed — running full extraction …",
             page_num, total_pages,
         )
-        result = _call_vision(b64, sumopod_client, detail=vision_detail)
+        result = _call_vision(b64, sumopod_client, detail=vision_detail, system_prompt=custom_prompt)
         return idx, result
 
     page_results: Dict[int, Optional[Dict]] = {}

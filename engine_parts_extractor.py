@@ -327,16 +327,18 @@ OUTPUT (skip):    {"page_type": "skip"}
 """
 
 
-def _vision_call(b64: str, sumopod_client, detail: str = "high") -> Optional[Dict]:
+def _vision_call(b64: str, sumopod_client, detail: str = "high",
+                 system_prompt: Optional[str] = None) -> Optional[Dict]:
     """Kirim satu halaman ke Vision AI dan parse hasilnya."""
     from pdf_utils import extract_response_text
 
     raw = ""
+    _prompt = system_prompt or _ENGINE_PARTS_VISION_PROMPT
     try:
         resp = sumopod_client.client.chat.completions.create(
             model=sumopod_client.model,
             messages=[
-                {"role": "system", "content": _ENGINE_PARTS_VISION_PROMPT},
+                {"role": "system", "content": _prompt},
                 {
                     "role": "user",
                     "content": [
@@ -370,6 +372,7 @@ def _extract_parts_from_vision(
     sumopod_client,
     vision_detail: str = "high",
     max_workers: int = 5,
+    custom_prompt: Optional[str] = None,
 ) -> List[Dict]:
     """Ekstrak parts dari image-based PDF menggunakan Vision AI (paralel)."""
     from pdf_utils import pdf_page_to_base64
@@ -389,7 +392,7 @@ def _extract_parts_from_vision(
             logger.warning("Page %d render failed: %s", idx + 1, exc)
 
     def _process(idx: int) -> Tuple[int, Optional[Dict]]:
-        result = _vision_call(page_b64s[idx], sumopod_client, detail=vision_detail)
+        result = _vision_call(page_b64s[idx], sumopod_client, detail=vision_detail, system_prompt=custom_prompt)
         logger.info(
             "Page %d → %s | label: %s | parts: %d",
             idx + 1,
@@ -493,6 +496,7 @@ def extract_engine_parts(
     max_workers: int = 5,
     force_vision: bool = False,
     force_text: bool = False,
+    custom_prompt: Optional[str] = None, 
 ) -> List[Dict]:
     """
     Ekstrak semua parts dari Engine partbook PDF.
@@ -536,6 +540,7 @@ def extract_engine_parts(
             sumopod_client=sumopod_client,
             vision_detail=vision_detail,
             max_workers=max_workers,
+            custom_prompt=custom_prompt,
         )
     else:
         return _extract_parts_from_text(pdf_path)
