@@ -178,7 +178,6 @@
         display: flex; justify-content: space-between; align-items: center;
         padding: 7px 0; font-size: 13.5px;
     }
-    /* Make rows with a list clickable */
     .summary-row--clickable .summary-row__trigger {
         cursor: pointer;
         border-radius: 4px;
@@ -195,7 +194,6 @@
     .summary-row__value--skipped { color: var(--warning); }
     .summary-row__value--error   { color: var(--danger); }
 
-    /* Chevron icon that rotates when expanded */
     .summary-row__chevron {
         font-size: 12px; color: var(--text-3);
         transition: transform 0.2s;
@@ -210,7 +208,7 @@
         transition: max-height 0.3s ease, padding 0.2s ease;
     }
     .summary-detail--open {
-        max-height: 800px; /* large enough for any list */
+        max-height: 800px;
     }
     .summary-detail__inner {
         padding: 4px 0 10px 6px;
@@ -330,72 +328,10 @@
             </div>
         </div>
 
-        <!-- Partbook strategy badge -->
-        <div class="form-group hidden" id="partbookBadgeGroup">
-            <label>Extraction Strategy</label>
-            <div class="mt-4">
-                <span class="partbook-badge" id="partbookBadge"></span>
-            </div>
-        </div>
-
-        <!-- Extraction Prompt -->
-        <div class="form-group" id="promptGroup">
+        <!-- Extraction Prompt — hidden until Master Category is selected -->
+        <div class="form-group hidden" id="promptGroup">
             <label>Extraction Prompt</label>
-            <textarea id="extractionPrompt">You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
-
-**CRITICAL: Extract data in the EXACT format shown below - NO codes required!**
-
-PDF Structure Pattern (4-level hierarchy):
-  Master Category = "Cabin & Chassis" (already selected, do NOT extract this)
-  Category        = Section header (e.g. "Frame System 车架系统")
-  Type Category   = Each DC-coded entry under that section
-```
-10          Frame System 车架系统                                    1
-D C97259880020   Front Accessories 中保险杠...                        ...4
-D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁...     ...6
-D C95259980037   Frame Assembly 车架总成...     ...8
-```
-Rules:
-1. Numbered section headers = Category (category_name_en / category_name_cn)
-2. DC-coded entries UNDER a section = Type Categories for THAT category
-3. Include the part code in type_category_name_en
-4. Do NOT use "Cabin & Chassis" as a category — it is the master category
-
-Return ONLY valid JSON in this structure:
-{
-  "categories": [
-    {
-      "category_name_en": "Frame System",
-      "category_name_cn": "车架系统",
-      "category_description": "",
-      "data_type": [
-        {
-          "type_category_name_en": "DC97259880020 Front Accessories",
-          "type_category_name_cn": "中保险杠",
-          "type_category_description": ""
-        }
-      ]
-    }
-  ]
-}</textarea>
-        </div>
-
-        <!-- Partbook-specific strategy info -->
-        <div id="strategyInfo" class="hidden">
-            <div class="form-row">
-                <div class="form-group">
-                    <div class="info-box info-box--orange" id="strategyBox">
-                        <span class="info-box__icon">⚡</span>
-                        <div id="strategyText"></div>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <div class="info-box info-box--purple">
-                        <span class="info-box__icon">🔩</span>
-                        <div>Cabin &amp; Chassis also automatically extracts <strong>Parts Management</strong> tables for review after categories.</div>
-                    </div>
-                </div>
-            </div>
+            <textarea id="extractionPrompt"></textarea>
         </div>
 
         <!-- Upload dropzone -->
@@ -482,10 +418,13 @@ Return ONLY valid JSON in this structure:
 
             <div class="section-title">🔩 Step 2 — Parts Management Review</div>
 
-            <div class="form-group" id="dokumenNameGroup" style="max-width:440px; margin-top:16px;">
-                <label>Document Name <span style="color:var(--danger)">*</span></label>
-                <input type="text" id="dokumenName" placeholder="e.g. PX122604">
-                <small>Must match an existing dokumen in the EPC database</small>
+            <!-- ✅ CHANGED: Auto-detected document name display (replaces manual input) -->
+            <div class="info-box info-box--green" style="max-width:520px; margin-top:16px; margin-bottom:20px;" id="dokumenNameDisplay">
+                <span class="info-box__icon">📄</span>
+                <div>
+                    Document name auto-detected from PDF filename:
+                    <strong id="dokumenNameValue" style="font-family:var(--mono);font-size:13px;display:block;margin-top:4px;"></strong>
+                </div>
             </div>
 
             <div class="info-box info-box--blue" style="margin-bottom:16px;">
@@ -555,7 +494,7 @@ Return ONLY valid JSON in this structure:
 
     let currentJobId         = null;
     let currentPartbookType  = null;
-    let currentFilename      = null;   // stored client-side at upload time
+    let currentFilename      = null;
     let statusInterval       = null;
     let editorPopulated      = false;
     let partsPopulated       = false;
@@ -564,18 +503,130 @@ Return ONLY valid JSON in this structure:
     const PARTS_MGMT_TYPES = ['cabin_chassis', 'transmission', 'engine'];
 
     const PARTBOOK_META = {
-        engine:        { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)',      short: '⚙️ Engine',        cls: 'badge-engine' },
-        transmission:  { label: '🔧 Transmission — ToC Translation (1 AI call)',  short: '🔧 Transmission',  cls: 'badge-transmission' },
-        cabin_chassis: { label: '🚛 Cabin & Chassis — Full Markdown Extraction',  short: '🚛 Cabin & Chassis', cls: 'badge-cabin_chassis' },
-        axle_drive:    { label: '🛞 Axle Drive — Vision Extraction (1 call/page)', short: '🛞 Axle Drive',    cls: 'badge-axle_drive' }
+        engine:        { short: '⚙️ Engine' },
+        transmission:  { short: '🔧 Transmission' },
+        cabin_chassis: { short: '🚛 Cabin & Chassis' },
+        axle_drive:    { short: '🛞 Axle Drive' }
     };
 
-    const STRATEGY_TEXT = {
-        engine:        'Crops top-right header from each page — zero AI tokens per page.',
-        transmission:  'Translates Table of Contents — 1 AI call total.',
-        cabin_chassis: 'Full markdown extraction of categories, type categories, AND parts tables.',
-        axle_drive:    'ZIP/JPEG vision extraction — 1 AI call per table page + 1 translation call.'
+    // Per-type default extraction prompts
+    const EXTRACTION_PROMPTS = {
+        cabin_chassis: `You are a data extraction expert for Electronic Product Catalogs (EPC). Extract structured information from PDF markdown text.
+
+**CRITICAL: Extract data in the EXACT format shown below — NO codes required.**
+
+PDF Structure Pattern:
+  Master Category = "Cabin & Chassis" (already selected, do NOT extract this)
+  Category        = Section header (e.g. "Frame System 车架系统")
+  Type Category   = Each DC-coded entry under that section
+
+Example:
+  10          Frame System 车架系统
+  D C97259880020   Front Accessories 中保险杠
+  D C95259510002   Transmission Auxiliary Crossbeam 变速器辅助横梁
+
+Rules:
+1. Numbered section headers = Category (category_name_en / category_name_cn)
+2. DC-coded entries UNDER a section = Type Categories for THAT category
+3. Include the part code in type_category_name_en
+4. Do NOT use "Cabin & Chassis" as a category — it is the master category
+
+Return ONLY valid JSON:
+{
+  "categories": [
+    {
+      "category_name_en": "Frame System",
+      "category_name_cn": "车架系统",
+      "category_description": "",
+      "data_type": [
+        {
+          "type_category_name_en": "DC97259880020 Front Accessories",
+          "type_category_name_cn": "中保险杠",
+          "type_category_description": ""
+        }
+      ]
+    }
+  ]
+}`,
+
+        engine: `You are a data extraction expert for Engine parts catalogs.
+Extract category names from the bilingual top-right header on each page.
+
+Header format: Chinese characters immediately followed by English text.
+Example: "燃油泵PUMP,FUEL" · "缸体管路PLUMBING,CYLINDER BLOCK"
+
+Rules:
+1. Each unique header = one category entry
+2. Split Chinese (category_name_cn) from English (category_name_en)
+3. Convert comma-separated English to title-case words: "PUMP,FUEL" → "Pump Fuel"
+4. Deduplicate — each header appears once
+5. No type categories for Engine (flat structure)
+
+Return ONLY valid JSON:
+{
+  "categories": [
+    {
+      "category_name_en": "Pump Fuel",
+      "category_name_cn": "燃油泵",
+      "category_description": ""
+    }
+  ]
+}`,
+
+        transmission: `You are a data extraction expert for Transmission parts catalogs.
+Extract all category names from the Table of Contents (TOC) pages.
+
+The TOC is in Chinese only. Each line is a numbered section, e.g.:
+  一、离合器和变速器壳体总成
+  二、二轴总成
+
+Rules:
+1. Strip the leading ordinal and 、 from each entry
+2. Translate each Chinese name to professional automotive English
+3. No type categories for Transmission (flat structure)
+
+Return ONLY valid JSON:
+{
+  "categories": [
+    {
+      "category_name_en": "Clutch And Transmission Housing Assembly",
+      "category_name_cn": "离合器和变速器壳体总成",
+      "category_description": ""
+    }
+  ]
+}`,
+
+        axle_drive: `You are a data extraction expert for Axle Drive parts catalogs.
+Extract subtype table titles from each page of the catalog.
+
+Table titles appear at the top of each page above the column headers, in the format:
+  表1 <number> <Chinese title>
+Example: "表1-1 主减速器及差速器总成"
+
+Rules:
+1. Strip the table-number prefix (e.g. "表1-1 ")
+2. Strip continuation suffix 续 if present
+3. Deduplicate — each unique Chinese title appears once
+4. Translate each title to professional automotive English
+
+Return ONLY valid JSON:
+{
+  "categories": [
+    {
+      "category_name_en": "Main Reducer And Differential Assembly",
+      "category_name_cn": "主减速器及差速器总成",
+      "category_description": "",
+      "data_type": []
+    }
+  ]
+}`
     };
+
+    // ✅ NEW: Derive dokumen_name automatically from the uploaded PDF filename
+    // e.g. "PX122604.pdf" → "PX122604"
+    function getDokumenName() {
+        return currentFilename ? currentFilename.replace(/\.pdf$/i, '') : '';
+    }
 
     // ── Master Categories ──────────────────────────────────────────────────
     async function loadMasterCategories() {
@@ -599,25 +650,17 @@ Return ONLY valid JSON in this structure:
         const sel  = document.getElementById('masterCategory');
         const opt  = sel.options[sel.selectedIndex];
         const type = opt?.dataset?.partbookType;
+        const promptGroup = document.getElementById('promptGroup');
+        const promptTA    = document.getElementById('extractionPrompt');
 
-        const badgeGroup   = document.getElementById('partbookBadgeGroup');
-        const badge        = document.getElementById('partbookBadge');
-        const strategyInfo = document.getElementById('strategyInfo');
-        const strategyText = document.getElementById('strategyText');
-
-        if (type && PARTBOOK_META[type]) {
-            badge.textContent = PARTBOOK_META[type].label;
-            badge.className   = `partbook-badge ${PARTBOOK_META[type].cls}`;
-            badgeGroup.classList.remove('hidden');
+        if (type && EXTRACTION_PROMPTS[type]) {
+            // Show prompt with the correct default text for this category type
+            promptTA.value = EXTRACTION_PROMPTS[type];
+            promptGroup.classList.remove('hidden');
         } else {
-            badgeGroup.classList.add('hidden');
-        }
-
-        if (type && STRATEGY_TEXT[type]) {
-            strategyText.textContent = STRATEGY_TEXT[type];
-            strategyInfo.classList.remove('hidden');
-        } else {
-            strategyInfo.classList.add('hidden');
+            // No category selected — hide prompt entirely
+            promptTA.value = '';
+            promptGroup.classList.add('hidden');
         }
     }
 
@@ -661,13 +704,17 @@ Return ONLY valid JSON in this structure:
             const data = await resp.json();
             if (resp.ok) {
                 currentJobId        = data.job_id;
-                currentFilename     = file.name;   // capture before FormData is GC'd
+                currentFilename     = file.name;
                 currentPartbookType = null;
                 editorPopulated     = false;
                 partsPopulated      = false;
                 currentPartsData    = null;
-                // Set filename immediately — don't wait for the first poll cycle
+
                 document.getElementById('statusFilename').textContent = file.name;
+
+                // ✅ Update the auto-detected dokumen name display immediately
+                document.getElementById('dokumenNameValue').textContent = getDokumenName();
+
                 showAlert('File uploaded. Processing started…', 'success');
                 statusCard.classList.remove('hidden');
                 reviewSection.classList.add('hidden');
@@ -715,14 +762,16 @@ Return ONLY valid JSON in this structure:
         }
     }
 
+    // ✅ CHANGED: dokumen_name now derived automatically from filename — no manual input needed
     async function startPartsExtraction() {
-        showAlert('Structure submitted — starting Parts extraction…', 'info');
+        const dokumenName = getDokumenName();
+        showAlert(`Structure submitted — starting Parts extraction (dokumen: "${dokumenName}")…`, 'info');
         try {
             const resp = await fetch(`/api/start-parts/${currentJobId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    dokumen_name: document.getElementById('dokumenName').value.trim(),
+                    dokumen_name: dokumenName,
                     target_id_start: 1
                 })
             });
@@ -739,10 +788,8 @@ Return ONLY valid JSON in this structure:
 
     // ── renderStatus ───────────────────────────────────────────────────────
     function renderStatus(job) {
-        // filename: prefer server value, fall back to what we stored at upload time
         document.getElementById('statusFilename').textContent =
             job.filename || currentFilename || '—';
-        // type: use the short label (icon + name only, no strategy description)
         document.getElementById('statusPartbookType').textContent =
             job.partbook_type ? (PARTBOOK_META[job.partbook_type]?.short || job.partbook_type) : '—';
         document.getElementById('statusStage').textContent = job.stage || '—';
@@ -784,6 +831,7 @@ Return ONLY valid JSON in this structure:
         }
     }
 
+    // ✅ CHANGED: removed dokumenNameGroup show/hide — no input field anymore
     function openReview(job) {
         if (!job.extracted_data) return;
         editorPopulated = true;
@@ -791,10 +839,6 @@ Return ONLY valid JSON in this structure:
         jsonEditor.value = JSON.stringify(job.extracted_data, null, 2);
         reviewSection.classList.remove('hidden');
         document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
-
-        document.getElementById('dokumenNameGroup').classList.toggle(
-            'hidden', !PARTS_MGMT_TYPES.includes(job.partbook_type)
-        );
 
         showAlert('Extraction complete. Review the data below, then approve to submit.', 'success');
 
@@ -885,23 +929,16 @@ Return ONLY valid JSON in this structure:
     });
 
     // ── renderSubmissionResult — WITH CLICKABLE DETAIL ROWS ───────────────
-    /**
-     * Toggle a detail list open/closed when the user clicks a summary row.
-     * @param {string} rowId   - The id of the .summary-row element
-     * @param {string} detailId - The id of the .summary-detail element
-     */
     function toggleSummaryDetail(rowId, detailId) {
         const row    = document.getElementById(rowId);
         const detail = document.getElementById(detailId);
         if (!row || !detail) return;
-
         const isOpen = detail.classList.contains('summary-detail--open');
         detail.classList.toggle('summary-detail--open', !isOpen);
         row.classList.toggle('summary-row--open', !isOpen);
     }
 
     function renderSubmissionResult(r) {
-        // ── Normalise data ────────────────────────────────────────────────
         const createdList  = Array.isArray(r.categories_created)  ? r.categories_created  : [];
         const skippedList  = Array.isArray(r.categories_skipped)  ? r.categories_skipped  : [];
         const errorsList   = Array.isArray(r.errors)              ? r.errors              : [];
@@ -912,7 +949,6 @@ Return ONLY valid JSON in this structure:
         const errors   = errorsList.length;
         const typeCats = typeCatsList.length;
 
-        // ── Build "Categories Created" detail list ────────────────────────
         const createdDetailHtml = created > 0
             ? `<div class="summary-detail" id="detail-created">
                  <div class="summary-detail__inner">
@@ -933,7 +969,6 @@ Return ONLY valid JSON in this structure:
                </div>`
             : '';
 
-        // ── Build "Categories Skipped" detail list ────────────────────────
         const skippedDetailHtml = skipped > 0
             ? `<div class="summary-detail" id="detail-skipped">
                  <div class="summary-detail__inner">
@@ -954,7 +989,6 @@ Return ONLY valid JSON in this structure:
                </div>`
             : '';
 
-        // ── Build clickable row HTML ──────────────────────────────────────
         const createdRowHtml = created > 0
             ? `<div class="summary-row summary-row--clickable" id="row-created">
                  <div class="summary-row__trigger" onclick="toggleSummaryDetail('row-created','detail-created')">
@@ -1009,14 +1043,12 @@ Return ONLY valid JSON in this structure:
                </div>`
             : '';
 
-        // ── Hint text (shows only when both lists have items) ─────────────
         const hintHtml = (created > 0 || skipped > 0)
             ? `<p style="font-size:11.5px;color:var(--text-3);margin-bottom:8px;">
                    💡 Click a row to see the full list
                </p>`
             : '';
 
-        // ── Render ────────────────────────────────────────────────────────
         const el = document.getElementById('submissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
@@ -1036,7 +1068,6 @@ Return ONLY valid JSON in this structure:
         );
     }
 
-    /** Minimal HTML escaping for user-supplied strings */
     function _escHtml(str) {
         return String(str)
             .replace(/&/g, '&amp;')
@@ -1049,9 +1080,13 @@ Return ONLY valid JSON in this structure:
     // Parts Management — Step 2
     // ═══════════════════════════════════════════════════════════════════════
 
+    // ✅ CHANGED: update auto-detected dokumen name display when parts section opens
     function populatePartsSection(partsData) {
         if (!partsData || !partsData.subtypes?.length) return;
         currentPartsData = partsData;
+
+        // Update the auto-detected dokumen name display
+        document.getElementById('dokumenNameValue').textContent = getDokumenName();
 
         const tbody = document.getElementById('partsTableBody');
         tbody.innerHTML = '';
@@ -1095,21 +1130,16 @@ Return ONLY valid JSON in this structure:
         document.getElementById('partsSection').classList.remove('hidden');
     }
 
+    // ✅ CHANGED: dokumen_name from getDokumenName() — no input validation needed
     async function submitSingleSubtype(idx) {
         if (!currentPartsData) return;
 
-        const dokumenName = document.getElementById('dokumenName').value.trim();
-        if (!dokumenName) {
-            showAlert('Please enter the Document Name before submitting.', 'error');
-            document.getElementById('dokumenName').focus();
-            return;
-        }
-
+        const dokumenName = getDokumenName();
         const subtype  = currentPartsData.subtypes[idx];
         const btn      = document.getElementById(`subtype-btn-${idx}`);
         const statusEl = document.getElementById(`subtype-status-${idx}`);
 
-        if (!confirm(`Submit "${subtype.subtype_name_en}" to EPC?`)) return;
+        if (!confirm(`Submit "${subtype.subtype_name_en}" to EPC?\n\nDocument: ${dokumenName}`)) return;
 
         btn.disabled       = true;
         btn.textContent    = '…';
@@ -1119,7 +1149,7 @@ Return ONLY valid JSON in this structure:
             const resp = await fetch(`/api/approve-parts-single/${currentJobId}`, {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({ subtype, dokumen_name: document.getElementById('dokumenName').value.trim() }),
+                body:    JSON.stringify({ subtype, dokumen_name: dokumenName }),
             });
 
             const text = await resp.text();
@@ -1187,25 +1217,20 @@ Return ONLY valid JSON in this structure:
         URL.revokeObjectURL(url);
     });
 
+    // ✅ CHANGED: dokumen_name from getDokumenName() — no input field validation
     document.getElementById('approvePartsBtn').addEventListener('click', async () => {
-        const dokumenName = document.getElementById('dokumenName').value.trim();
-        if (!dokumenName) {
-            showAlert('Please enter the Document Name before submitting.', 'error');
-            document.getElementById('dokumenName').focus();
-            return;
-        }
-
+        const dokumenName = getDokumenName();
         if (!currentPartsData) { showAlert('No parts data available.', 'error'); return; }
-        if (!confirm('Submit all parts to the EPC database?')) return;
+        if (!confirm(`Submit all parts to the EPC database?\n\nDocument: ${dokumenName}`)) return;
 
         document.getElementById('approvePartsBtn').disabled = true;
-        showAlert('Submitting parts to EPC…', 'info');
+        showAlert(`Submitting parts to EPC (document: "${dokumenName}")…`, 'info');
 
         try {
             const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ parts_data: currentPartsData, dokumen_name: document.getElementById('dokumenName').value.trim() })
+                body: JSON.stringify({ parts_data: currentPartsData, dokumen_name: dokumenName })
             });
 
             const text = await resp.text();
