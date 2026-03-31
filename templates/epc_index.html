@@ -170,13 +170,71 @@
     /* ── Submission summary ──────────────────────────────────────────── */
     .submission-summary { background: var(--success-lt); border: 1px solid #bbf7d0; border-radius: var(--radius-sm); padding: 16px; margin-top: 12px; }
     .submission-summary__title { font-weight: 600; color: var(--success); margin-bottom: 10px; font-size: 14px; }
-    .summary-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13.5px; border-bottom: 1px solid #d1fae5; }
+    .summary-row { border-bottom: 1px solid #d1fae5; }
     .summary-row:last-child { border-bottom: none; }
-    .summary-row__label { color: var(--text-2); }
+
+    /* ── Clickable summary row trigger ──────────────────────────────── */
+    .summary-row__trigger {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 7px 0; font-size: 13.5px;
+    }
+    /* Make rows with a list clickable */
+    .summary-row--clickable .summary-row__trigger {
+        cursor: pointer;
+        border-radius: 4px;
+        padding: 7px 6px;
+        margin: 0 -6px;
+        transition: background 0.15s;
+    }
+    .summary-row--clickable .summary-row__trigger:hover {
+        background: rgba(22,163,74,0.08);
+    }
+    .summary-row__label { color: var(--text-2); font-weight: 500; display: flex; align-items: center; gap: 6px; }
     .summary-row__value { font-weight: 600; }
     .summary-row__value--created { color: var(--success); }
     .summary-row__value--skipped { color: var(--warning); }
     .summary-row__value--error   { color: var(--danger); }
+
+    /* Chevron icon that rotates when expanded */
+    .summary-row__chevron {
+        font-size: 12px; color: var(--text-3);
+        transition: transform 0.2s;
+        display: inline-block;
+    }
+    .summary-row--open .summary-row__chevron { transform: rotate(90deg); }
+
+    /* ── Category detail list (expandable) ──────────────────────────── */
+    .summary-detail {
+        overflow: hidden;
+        max-height: 0;
+        transition: max-height 0.3s ease, padding 0.2s ease;
+    }
+    .summary-detail--open {
+        max-height: 800px; /* large enough for any list */
+    }
+    .summary-detail__inner {
+        padding: 4px 0 10px 6px;
+    }
+    .summary-detail__list {
+        list-style: none;
+        margin: 0; padding: 0;
+        display: flex; flex-direction: column; gap: 4px;
+    }
+    .summary-detail__item {
+        display: flex; align-items: flex-start; gap: 8px;
+        font-size: 12.5px; padding: 5px 10px;
+        background: rgba(255,255,255,0.6);
+        border: 1px solid rgba(22,163,74,0.15);
+        border-radius: 5px;
+    }
+    .summary-detail__item--skipped {
+        background: rgba(255,251,235,0.7);
+        border-color: rgba(217,119,6,0.18);
+    }
+    .summary-detail__item-icon { flex-shrink: 0; margin-top: 1px; }
+    .summary-detail__item-name { font-weight: 500; color: var(--text-1); }
+    .summary-detail__item-cn   { color: var(--text-3); font-size: 11.5px; margin-top: 1px; }
+    .summary-detail__item-msg  { color: var(--text-3); font-size: 11.5px; }
 
     /* ── Parts table ─────────────────────────────────────────────────── */
     .parts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -496,13 +554,12 @@ Return ONLY valid JSON in this structure:
     const jsonEditor      = document.getElementById('jsonEditor');
 
     let currentJobId         = null;
-    let currentPartbookType  = null;   // ← tracks partbook type for button guards
+    let currentPartbookType  = null;
     let statusInterval       = null;
     let editorPopulated      = false;
     let partsPopulated       = false;
     let currentPartsData     = null;
 
-    // Partbook types that require Parts Management (add others here when ready)
     const PARTS_MGMT_TYPES = ['cabin_chassis', 'transmission', 'engine'];
 
     const PARTBOOK_META = {
@@ -542,8 +599,8 @@ Return ONLY valid JSON in this structure:
         const opt  = sel.options[sel.selectedIndex];
         const type = opt?.dataset?.partbookType;
 
-        const badgeGroup = document.getElementById('partbookBadgeGroup');
-        const badge      = document.getElementById('partbookBadge');
+        const badgeGroup   = document.getElementById('partbookBadgeGroup');
+        const badge        = document.getElementById('partbookBadge');
         const strategyInfo = document.getElementById('strategyInfo');
         const strategyText = document.getElementById('strategyText');
 
@@ -685,10 +742,8 @@ Return ONLY valid JSON in this structure:
         document.getElementById('statusBadge').innerHTML =
             `<span class="status-badge status-${job.status}">${job.status.replace(/_/g, ' ').toUpperCase()}</span>`;
 
-        // Store partbook type for button guards
         currentPartbookType = job.partbook_type;
 
-        // Progress bar
         const pct  = job.progress || 0;
         const fill = document.getElementById('progressFill');
         const ACTIVE_STATUSES = ['processing', 'processing_parts', 'structure_submitted'];
@@ -730,7 +785,6 @@ Return ONLY valid JSON in this structure:
         reviewSection.classList.remove('hidden');
         document.getElementById('rePromptText').value = document.getElementById('extractionPrompt').value;
 
-        // Show dokumen name field only for partbook types that need Parts Management
         document.getElementById('dokumenNameGroup').classList.toggle(
             'hidden', !PARTS_MGMT_TYPES.includes(job.partbook_type)
         );
@@ -792,8 +846,6 @@ Return ONLY valid JSON in this structure:
 
     // ── Approve & Submit categories ────────────────────────────────────────
     document.getElementById('approveBtn').addEventListener('click', async () => {
-        // Guard: require dokumen name for cabin_chassis (and future PARTS_MGMT_TYPES)
-
         if (!confirm('Submit categories to EPC database?\n\nDuplicate categories will be skipped automatically.')) return;
 
         let editedData;
@@ -825,26 +877,165 @@ Return ONLY valid JSON in this structure:
         }
     });
 
+    // ── renderSubmissionResult — WITH CLICKABLE DETAIL ROWS ───────────────
+    /**
+     * Toggle a detail list open/closed when the user clicks a summary row.
+     * @param {string} rowId   - The id of the .summary-row element
+     * @param {string} detailId - The id of the .summary-detail element
+     */
+    function toggleSummaryDetail(rowId, detailId) {
+        const row    = document.getElementById(rowId);
+        const detail = document.getElementById(detailId);
+        if (!row || !detail) return;
+
+        const isOpen = detail.classList.contains('summary-detail--open');
+        detail.classList.toggle('summary-detail--open', !isOpen);
+        row.classList.toggle('summary-row--open', !isOpen);
+    }
+
     function renderSubmissionResult(r) {
-        const created  = Array.isArray(r.categories_created)  ? r.categories_created.length  : (r.categories_created  || 0);
-        const skipped  = Array.isArray(r.categories_skipped)  ? r.categories_skipped.length  : (r.categories_skipped  || 0);
-        const errors   = Array.isArray(r.errors)   ? r.errors.length   : (r.errors   || 0);
-        const typeCats = Array.isArray(r.type_categories_created) ? r.type_categories_created.length : (r.type_categories_created || 0);
+        // ── Normalise data ────────────────────────────────────────────────
+        const createdList  = Array.isArray(r.categories_created)  ? r.categories_created  : [];
+        const skippedList  = Array.isArray(r.categories_skipped)  ? r.categories_skipped  : [];
+        const errorsList   = Array.isArray(r.errors)              ? r.errors              : [];
+        const typeCatsList = Array.isArray(r.type_categories_created) ? r.type_categories_created : [];
+
+        const created  = createdList.length;
+        const skipped  = skippedList.length;
+        const errors   = errorsList.length;
+        const typeCats = typeCatsList.length;
+
+        // ── Build "Categories Created" detail list ────────────────────────
+        const createdDetailHtml = created > 0
+            ? `<div class="summary-detail" id="detail-created">
+                 <div class="summary-detail__inner">
+                   <ul class="summary-detail__list">
+                     ${createdList.map(cat => {
+                         const nameEn = cat.category_name_en || cat.master_category_name_en || '—';
+                         const nameCn = cat.category_name_cn || '';
+                         return `<li class="summary-detail__item">
+                             <span class="summary-detail__item-icon">✅</span>
+                             <div>
+                                 <div class="summary-detail__item-name">${_escHtml(nameEn)}</div>
+                                 ${nameCn ? `<div class="summary-detail__item-cn">${_escHtml(nameCn)}</div>` : ''}
+                             </div>
+                         </li>`;
+                     }).join('')}
+                   </ul>
+                 </div>
+               </div>`
+            : '';
+
+        // ── Build "Categories Skipped" detail list ────────────────────────
+        const skippedDetailHtml = skipped > 0
+            ? `<div class="summary-detail" id="detail-skipped">
+                 <div class="summary-detail__inner">
+                   <ul class="summary-detail__list">
+                     ${skippedList.map(cat => {
+                         const nameEn = cat.category_name_en || '—';
+                         const msg    = cat.message || 'Already exists (duplicate)';
+                         return `<li class="summary-detail__item summary-detail__item--skipped">
+                             <span class="summary-detail__item-icon">⏭️</span>
+                             <div>
+                                 <div class="summary-detail__item-name">${_escHtml(nameEn)}</div>
+                                 <div class="summary-detail__item-msg">${_escHtml(msg)}</div>
+                             </div>
+                         </li>`;
+                     }).join('')}
+                   </ul>
+                 </div>
+               </div>`
+            : '';
+
+        // ── Build clickable row HTML ──────────────────────────────────────
+        const createdRowHtml = created > 0
+            ? `<div class="summary-row summary-row--clickable" id="row-created">
+                 <div class="summary-row__trigger" onclick="toggleSummaryDetail('row-created','detail-created')">
+                     <span class="summary-row__label">
+                         <span class="summary-row__chevron">›</span>
+                         Categories Created
+                     </span>
+                     <span class="summary-row__value summary-row__value--created">${created}</span>
+                 </div>
+                 ${createdDetailHtml}
+               </div>`
+            : `<div class="summary-row">
+                 <div class="summary-row__trigger">
+                     <span class="summary-row__label">Categories Created</span>
+                     <span class="summary-row__value summary-row__value--created">0</span>
+                 </div>
+               </div>`;
+
+        const skippedRowHtml = skipped > 0
+            ? `<div class="summary-row summary-row--clickable" id="row-skipped">
+                 <div class="summary-row__trigger" onclick="toggleSummaryDetail('row-skipped','detail-skipped')">
+                     <span class="summary-row__label">
+                         <span class="summary-row__chevron">›</span>
+                         Categories Skipped (duplicates)
+                     </span>
+                     <span class="summary-row__value summary-row__value--skipped">${skipped}</span>
+                 </div>
+                 ${skippedDetailHtml}
+               </div>`
+            : `<div class="summary-row">
+                 <div class="summary-row__trigger">
+                     <span class="summary-row__label">Categories Skipped (duplicates)</span>
+                     <span class="summary-row__value summary-row__value--skipped">0</span>
+                 </div>
+               </div>`;
+
+        const typeCatRow = typeCats
+            ? `<div class="summary-row">
+                 <div class="summary-row__trigger">
+                     <span class="summary-row__label">Type Categories Created</span>
+                     <span class="summary-row__value summary-row__value--created">${typeCats}</span>
+                 </div>
+               </div>`
+            : '';
+
+        const errorRow = errors
+            ? `<div class="summary-row">
+                 <div class="summary-row__trigger">
+                     <span class="summary-row__label">Errors</span>
+                     <span class="summary-row__value summary-row__value--error">${errors}</span>
+                 </div>
+               </div>`
+            : '';
+
+        // ── Hint text (shows only when both lists have items) ─────────────
+        const hintHtml = (created > 0 || skipped > 0)
+            ? `<p style="font-size:11.5px;color:var(--text-3);margin-bottom:8px;">
+                   💡 Click a row to see the full list
+               </p>`
+            : '';
+
+        // ── Render ────────────────────────────────────────────────────────
         const el = document.getElementById('submissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
             <div class="submission-summary">
                 <div class="submission-summary__title">✅ Submission Complete</div>
-                <div class="summary-row"><span class="summary-row__label">Categories Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
-                <div class="summary-row"><span class="summary-row__label">Categories Skipped (duplicates)</span><span class="summary-row__value summary-row__value--skipped">${skipped}</span></div>
-                ${typeCats ? `<div class="summary-row"><span class="summary-row__label">Type Categories Created</span><span class="summary-row__value summary-row__value--created">${typeCats}</span></div>` : ''}
-                ${errors ? `<div class="summary-row"><span class="summary-row__label">Errors</span><span class="summary-row__value summary-row__value--error">${errors}</span></div>` : ''}
+                ${hintHtml}
+                ${createdRowHtml}
+                ${skippedRowHtml}
+                ${typeCatRow}
+                ${errorRow}
             </div>`;
+
         showAlert(
             errors ? `Completed with ${errors} error(s). Check summary.` :
                      `Done! ${created} new, ${skipped} skipped${typeCats ? `, ${typeCats} type categories` : ''}.`,
             errors ? 'warning' : 'success'
         );
+    }
+
+    /** Minimal HTML escaping for user-supplied strings */
+    function _escHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -921,7 +1112,7 @@ Return ONLY valid JSON in this structure:
             const resp = await fetch(`/api/approve-parts-single/${currentJobId}`, {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({ subtype, dokumen_name: document.getElementById('dokumenName').value.trim(), }),
+                body:    JSON.stringify({ subtype, dokumen_name: document.getElementById('dokumenName').value.trim() }),
             });
 
             const text = await resp.text();
@@ -978,7 +1169,6 @@ Return ONLY valid JSON in this structure:
         document.getElementById('partsDetailPanel').classList.add('hidden');
     }
 
-    // Download Parts JSON
     document.getElementById('downloadPartsBtn').addEventListener('click', () => {
         if (!currentPartsData) return;
         const url = URL.createObjectURL(
@@ -990,9 +1180,7 @@ Return ONLY valid JSON in this structure:
         URL.revokeObjectURL(url);
     });
 
-    // Submit All Parts
     document.getElementById('approvePartsBtn').addEventListener('click', async () => {
-
         const dokumenName = document.getElementById('dokumenName').value.trim();
         if (!dokumenName) {
             showAlert('Please enter the Document Name before submitting.', 'error');
@@ -1010,7 +1198,7 @@ Return ONLY valid JSON in this structure:
             const resp = await fetch(`/api/approve-parts/${currentJobId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ parts_data: currentPartsData, dokumen_name: document.getElementById('dokumenName').value.trim(), })
+                body: JSON.stringify({ parts_data: currentPartsData, dokumen_name: document.getElementById('dokumenName').value.trim() })
             });
 
             const text = await resp.text();
@@ -1044,11 +1232,23 @@ Return ONLY valid JSON in this structure:
         el.innerHTML = `
             <div class="submission-summary">
                 <div class="submission-summary__title">🔩 Parts Submission Complete</div>
-                <div class="summary-row"><span class="summary-row__label">Subtypes Created</span><span class="summary-row__value summary-row__value--created">${created}</span></div>
-                <div class="summary-row"><span class="summary-row__label">Subtypes Skipped (duplicates)</span><span class="summary-row__value summary-row__value--skipped">${skipped}</span></div>
+                <div class="summary-row">
+                    <div class="summary-row__trigger">
+                        <span class="summary-row__label">Subtypes Created</span>
+                        <span class="summary-row__value summary-row__value--created">${created}</span>
+                    </div>
+                </div>
+                <div class="summary-row">
+                    <div class="summary-row__trigger">
+                        <span class="summary-row__label">Subtypes Skipped (duplicates)</span>
+                        <span class="summary-row__value summary-row__value--skipped">${skipped}</span>
+                    </div>
+                </div>
                 ${errors ? `<div class="summary-row">
-                    <span class="summary-row__label">Errors</span>
-                    <span class="summary-row__value summary-row__value--error">${errors}</span>
+                    <div class="summary-row__trigger">
+                        <span class="summary-row__label">Errors</span>
+                        <span class="summary-row__value summary-row__value--error">${errors}</span>
+                    </div>
                 </div>
                 <ul style="margin:6px 0 0 16px;font-size:12px;color:var(--danger)">
                     ${r.errors.map(e => `<li>${e.subtype_name_en || e}: ${e.error || ''}</li>`).join('')}
