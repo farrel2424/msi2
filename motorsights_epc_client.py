@@ -456,6 +456,11 @@ class MotorsightsEPCClient:
                     "Server rejected POST /item_category/create [%s]: %s",
                     r.status_code, r.text[:1000]
                 )
+            if r.status_code == 400 and "sudah ada di database" in r.text:
+                self.logger.info(
+                    "Parts already exist in DB — treated as skipped"
+                )
+                return True, {"skipped": True, "message": r.text[:500]}
             r.raise_for_status()
             return True, r.json()
 
@@ -1062,7 +1067,7 @@ class MotorsightsEPCClient:
                 dokumen_name              = dokumen_name,
                 parts                     = parts,
             )
-            
+
             if ok and (resp or {}).get("skipped"):
                 results["skipped"].append({
                     "subtype_name_en": subtype_name_en,

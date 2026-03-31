@@ -1,35 +1,4 @@
 """
-cabin_chassis_parts_runner.py  —  FIXED
-=========================================
-Fix applied:
-  FIX 4 (Bug 4): Print summary now uses "created" and "skipped" keys
-                 (matching batch_submit_parts output). Removed phantom
-                 "updated" key — no update path exists in the submit flow.
-
-Usage examples:
-
-  # Dry run — extract and preview without submitting
-  python cabin_chassis_parts_runner.py \\
-      --pdf partbook.pdf \\
-      --category "Frame System" \\
-      --dry-run
-
-  # Full run — extract and submit to EPC
-  python cabin_chassis_parts_runner.py \\
-      --pdf partbook.pdf \\
-      --category "Frame System"
-
-  # Save extracted JSON for review, then submit from it later
-  python cabin_chassis_parts_runner.py \\
-      --pdf partbook.pdf \\
-      --category "Frame System" \\
-      --save-json extracted_parts.json \\
-      --dry-run
-
-  python cabin_chassis_parts_runner.py \\
-      --from-json extracted_parts.json \\
-      --category "Frame System"
-
 Environment variables required (or via .env):
   MASTER_CATEGORY_CABIN_CHASSIS_ID  — UUID of the Cabin & Chassis master category
   SSO_EMAIL                         — Motorsights SSO email

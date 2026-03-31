@@ -1,33 +1,4 @@
-"""
-Axle (Drive Axle) Partbook Extractor
-======================================
-Handles extraction for the Drive Axle partbook type.
 
-Supports two PDF formats:
-  - ZIP-format PDF  : JPEG images + manifest.json
-  - Real PDF        : standard PDF rendered page-by-page via PyMuPDF + vision AI
-
-Each PDF maps to ONE Category (e.g. "Drive Axle") with multiple Type Categories,
-one per unique table title found across the pages.
-
-Output format (3-level: Master → Category → Type Category):
-{
-  "categories": [
-    {
-      "category_name_en": "Drive Axle",
-      "category_name_cn": "驱动桥",
-      "category_description": "",
-      "data_type": [
-        {
-          "type_category_name_en": "Pass-Through Drive Axle Main Reducer Assembly Parts",
-          "type_category_name_cn": "贯通式驱动桥主减速器总成爆炸图对应备件目录",
-          "type_category_description": ""
-        }
-      ]
-    }
-  ]
-}
-"""
 
 import json
 import logging
