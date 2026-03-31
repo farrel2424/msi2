@@ -555,6 +555,7 @@ Return ONLY valid JSON in this structure:
 
     let currentJobId         = null;
     let currentPartbookType  = null;
+    let currentFilename      = null;   // stored client-side at upload time
     let statusInterval       = null;
     let editorPopulated      = false;
     let partsPopulated       = false;
@@ -563,10 +564,10 @@ Return ONLY valid JSON in this structure:
     const PARTS_MGMT_TYPES = ['cabin_chassis', 'transmission', 'engine'];
 
     const PARTBOOK_META = {
-        engine:        { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)', cls: 'badge-engine' },
-        transmission:  { label: '🔧 Transmission — ToC Translation (1 AI call)', cls: 'badge-transmission' },
-        cabin_chassis: { label: '🚛 Cabin & Chassis — Full Markdown Extraction', cls: 'badge-cabin_chassis' },
-        axle_drive:    { label: '🛞 Axle Drive — Vision Extraction (1 call/page)', cls: 'badge-axle_drive' }
+        engine:        { label: '⚙️ Engine — Top-Right Crop (0 AI tokens)',      short: '⚙️ Engine',        cls: 'badge-engine' },
+        transmission:  { label: '🔧 Transmission — ToC Translation (1 AI call)',  short: '🔧 Transmission',  cls: 'badge-transmission' },
+        cabin_chassis: { label: '🚛 Cabin & Chassis — Full Markdown Extraction',  short: '🚛 Cabin & Chassis', cls: 'badge-cabin_chassis' },
+        axle_drive:    { label: '🛞 Axle Drive — Vision Extraction (1 call/page)', short: '🛞 Axle Drive',    cls: 'badge-axle_drive' }
     };
 
     const STRATEGY_TEXT = {
@@ -660,10 +661,13 @@ Return ONLY valid JSON in this structure:
             const data = await resp.json();
             if (resp.ok) {
                 currentJobId        = data.job_id;
+                currentFilename     = file.name;   // capture before FormData is GC'd
                 currentPartbookType = null;
                 editorPopulated     = false;
                 partsPopulated      = false;
                 currentPartsData    = null;
+                // Set filename immediately — don't wait for the first poll cycle
+                document.getElementById('statusFilename').textContent = file.name;
                 showAlert('File uploaded. Processing started…', 'success');
                 statusCard.classList.remove('hidden');
                 reviewSection.classList.add('hidden');
@@ -735,9 +739,12 @@ Return ONLY valid JSON in this structure:
 
     // ── renderStatus ───────────────────────────────────────────────────────
     function renderStatus(job) {
-        document.getElementById('statusFilename').textContent = job.filename || '—';
+        // filename: prefer server value, fall back to what we stored at upload time
+        document.getElementById('statusFilename').textContent =
+            job.filename || currentFilename || '—';
+        // type: use the short label (icon + name only, no strategy description)
         document.getElementById('statusPartbookType').textContent =
-            job.partbook_type ? (PARTBOOK_META[job.partbook_type]?.label || job.partbook_type) : '—';
+            job.partbook_type ? (PARTBOOK_META[job.partbook_type]?.short || job.partbook_type) : '—';
         document.getElementById('statusStage').textContent = job.stage || '—';
         document.getElementById('statusBadge').innerHTML =
             `<span class="status-badge status-${job.status}">${job.status.replace(/_/g, ' ').toUpperCase()}</span>`;

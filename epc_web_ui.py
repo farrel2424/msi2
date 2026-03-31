@@ -109,7 +109,7 @@ def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
             job_status[job_id]["message"]          = "Structure extracted — awaiting review"
             job_status[job_id]["extracted_data"]   = result.get("extracted_data", {})
             job_status[job_id]["code_to_category"] = result.get("code_to_category", {})  # ← ADD
-            job_status[job_id]["stage"]            = "structure"
+            job_status[job_id]["stage"]            = "Categories Extraction"
             job_status[job_id]["progress"]         = 50
 
     except Exception as e:
@@ -145,7 +145,7 @@ def _run_stage2(job_id: str, pdf_path: str, config_params: dict,
             job_status[job_id]["status"]     = "parts_review"
             job_status[job_id]["message"]    = "Parts extracted — awaiting review"
             job_status[job_id]["parts_data"] = {"subtypes": result.get("parts_data", [])}
-            job_status[job_id]["stage"]      = "parts"
+            job_status[job_id]["stage"]      = "Parts Extraction"
             job_status[job_id]["progress"]   = 90
 
     except Exception as e:
@@ -257,6 +257,7 @@ def api_status(job_id: str):
         "message":        job.get("message"),
         "stage":          job.get("stage"),
         "partbook_type":  job.get("partbook_type"),
+        "filename":       job.get("filename"),
         "progress":       job.get("progress", 0),
         "extracted_data": job.get("extracted_data"),
         "parts_data":     job.get("parts_data"),
