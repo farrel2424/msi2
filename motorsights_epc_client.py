@@ -25,6 +25,7 @@ from urllib3.util.retry import Retry
 
 from motorsights_auth_client import MotorsightsAuthClient
 
+_EMPTY_DISPLAY_VALUES = {"tidak ada", "null", "none", "-", ""}
 
 class MotorsightsEPCClient:
     """Client for Motorsights Electronic Product Catalog API"""
@@ -377,7 +378,8 @@ class MotorsightsEPCClient:
         )
         return next_index
     
-    def _sync_parts_with_db_conflicts(
+
+    def _sync_parts_with_db_conflicts(   
         self,
         parts: List[Dict],
         error_body: str,
@@ -408,9 +410,11 @@ class MotorsightsEPCClient:
                 )
                 if pn_m and db_m:
                     pn = pn_m.group(1)
+                    raw_desc = db_m.group(2).strip()
+                    db_desc_clean = "" if raw_desc.lower() in _EMPTY_DISPLAY_VALUES else raw_desc
                     conflicts[pn] = {
                         "db_name":        db_m.group(1),
-                        "db_description": db_m.group(2),
+                        "db_description": db_desc_clean,
                     }
                     self.logger.info(
                         "Conflict sync: PN=%-30s  db_name='%s'  db_desc='%s'",
@@ -537,6 +541,10 @@ class MotorsightsEPCClient:
                     "Server rejected POST /item_category/create [%s]: %s",
                     r.status_code, r.text[:1000],
                 )
+            
+            if r.status_code == 400 and "Kombinasi" in r.text and "sudah ada" in r.text:
+                self.logger.info("Item category combination already exists — treated as skipped")
+                return True, {"skipped": True, "message": r.text[:500]}
  
             if r.status_code == 400 and "sudah ada di database" in r.text:
                 body = r.text
