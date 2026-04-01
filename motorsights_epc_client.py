@@ -376,6 +376,79 @@ class MotorsightsEPCClient:
             item_category_id, max_t, next_index
         )
         return next_index
+    
+    def _sync_parts_with_db_conflicts(
+        self,
+        parts: List[Dict],
+        error_body: str,
+    ) -> List[Dict]:
+        """
+        Parse respons 400 "description berbeda" dan sinkronkan bagian yang konflik
+        dengan data yang sudah ada di database.
+ 
+        Pola pesan error dari API:
+          'Part number "BSQH50-4211502" (nama: "Double-Ended Stud", description: "-")
+           sudah ada di database dengan description yang berbeda
+           (nama: "Stud bolt", description: "Q33210 ... : 1")'
+ 
+        Untuk setiap part yang konflik, field catalog_item_name_en dan description
+        diganti dengan nilai dari database, lalu dikembalikan sebagai list baru.
+        """
+        conflicts: Dict[str, Dict] = {}
+        try:
+            data = json.loads(error_body)
+            for err_str in data.get("errors", []):
+                # Ekstrak nomor part yang dikirim
+                pn_m = re.search(r'Part number "([^"]+)"', err_str)
+                # Ekstrak nama dan deskripsi yang sudah ada di database
+                db_m = re.search(
+                    r"sudah ada di database dengan description yang berbeda"
+                    r' \(nama: "([^"]+)", description: "([^"]*)"\)',
+                    err_str,
+                )
+                if pn_m and db_m:
+                    pn = pn_m.group(1)
+                    conflicts[pn] = {
+                        "db_name":        db_m.group(1),
+                        "db_description": db_m.group(2),
+                    }
+                    self.logger.info(
+                        "Conflict sync: PN=%-30s  db_name='%s'  db_desc='%s'",
+                        pn, db_m.group(1), db_m.group(2),
+                    )
+        except Exception as exc:
+            self.logger.warning("Gagal parse conflict error body: %s", exc)
+            return parts   # kembalikan list asli agar tidak ada data yang hilang
+ 
+        if not conflicts:
+            return parts
+ 
+        updated: List[Dict] = []
+        for p in parts:
+            pn = p.get("part_number", "")
+            if pn in conflicts:
+                synced = dict(p)   # shallow copy, aman karena nilai-nilainya primitif
+                synced["catalog_item_name_en"] = conflicts[pn]["db_name"]
+                db_desc = conflicts[pn]["db_description"]
+                # Gunakan deskripsi DB; fallback ke nilai asli jika DB kosong
+                synced["description"] = db_desc if db_desc else (p.get("description") or "-")
+                updated.append(synced)
+                self.logger.info(
+                    "  ↳ Synced PN=%-28s  name: '%s' → '%s'  desc: '%s' → '%s'",
+                    pn,
+                    p.get("catalog_item_name_en", ""),
+                    synced["catalog_item_name_en"],
+                    p.get("description", ""),
+                    synced["description"],
+                )
+            else:
+                updated.append(p)
+ 
+        self.logger.info(
+            "Auto-sync selesai: %d part(s) diperbarui dengan data DB.",
+            len(conflicts),
+        )
+        return updated
 
     def create_item_category_with_parts(
         self,
@@ -386,39 +459,46 @@ class MotorsightsEPCClient:
         item_category_name_cn: str,
         item_category_description: str,
         dokumen_name: str,
-        parts: List[Dict]
+        parts: List[Dict],
+        _retry: bool = True,   # ← flag internal; cegah rekursi tak terbatas
     ) -> Tuple[bool, Optional[Dict]]:
         """
         Create one item_category (Parts Management entry) with its parts rows.
-
+ 
         Calls POST /item_category/create as multipart/form-data.
         The `data_items` field is a JSON-encoded string of parts rows.
-
+ 
+        AUTO-SYNC CONFLICT:
+          Jika API menolak karena Part Number sudah ada dengan description berbeda
+          (HTTP 400 "description yang berbeda"), metode ini akan:
+            1. Parse daftar konflik dari respons error
+            2. Perbarui catalog_item_name_en dan description dengan data DB
+            3. Kirim ulang sekali dengan data yang sudah sinkron (_retry=False)
+ 
         Hierarchy routing (per API docs):
           • If type_category_id provided → 3-level (subtype present)
           • Else if category_id provided → 2-level (no subtype)
         """
         url = f"{self.base_url}/item_category/create"
-
+ 
         if not type_category_id and not category_id:
             raise ValueError("Either type_category_id or category_id must be provided")
-
+ 
         # Build data_items JSON array (the parts rows)
         data_items = []
         for p in parts:
             data_items.append({
-                "target_id":            p.get("target_id", ""),
+                "target_id":             p.get("target_id", ""),
                 "diagram_serial_number": p.get("diagram_serial_number", ""),
-                "part_number":          p.get("part_number", ""),
-                "catalog_item_name_en": p.get("catalog_item_name_en", ""),
-                "catalog_item_name_ch": p.get("catalog_item_name_ch", ""),
-                "description":          p.get("description") or "-",
-                "quantity":             int(p.get("quantity") or 1),
-                "unit":                 p.get("unit", ""),
+                "part_number":           p.get("part_number", ""),
+                "catalog_item_name_en":  p.get("catalog_item_name_en", ""),
+                "catalog_item_name_ch":  p.get("catalog_item_name_ch", ""),
+                "description":           p.get("description") or "-",
+                "quantity":              int(p.get("quantity") or 1),
+                "unit":                  p.get("unit", ""),
             })
-
+ 
         # Build multipart form fields
-        # requests multipart format: {field: (filename, value)} — None filename for text fields
         form_data = {
             "dokumen_name":              (None, dokumen_name),
             "master_category_id":        (None, master_category_id),
@@ -427,59 +507,95 @@ class MotorsightsEPCClient:
             "item_category_description": (None, item_category_description),
             "data_items":                (None, json.dumps(data_items, ensure_ascii=False)),
         }
-
+ 
         # Route hierarchy
         if type_category_id:
             form_data["type_category_id"] = (None, type_category_id)
             if category_id:
                 form_data["category_id"] = (None, category_id)
-
             self.logger.debug(
                 "create_item_category_with_parts: type_category_id=%s (3-level)",
-                type_category_id
+                type_category_id,
             )
         else:
             if category_id:
                 form_data["category_id"] = (None, category_id)
             self.logger.debug(
                 "create_item_category_with_parts: category_id=%s (2-level)",
-                category_id
+                category_id,
             )
-
+ 
+        # ── _SENTINEL untuk conflict detection ───────────────────────────────
+        _CONFLICT_SENTINEL = "__PART_CONFLICT__"
+ 
         def _request():
-            # Do NOT send Content-Type manually —
-            # requests sets it with the boundary automatically for multipart.
             headers = {"Authorization": f"Bearer {self._get_bearer_token()}"}
             r = self.session.post(url, files=form_data, headers=headers, timeout=60)
+ 
             if not r.ok:
                 self.logger.error(
                     "Server rejected POST /item_category/create [%s]: %s",
-                    r.status_code, r.text[:1000]
+                    r.status_code, r.text[:1000],
                 )
+ 
             if r.status_code == 400 and "sudah ada di database" in r.text:
-                self.logger.info(
-                    "Parts already exist in DB — treated as skipped"
-                )
-                return True, {"skipped": True, "message": r.text[:500]}
+                body = r.text
+                # ── CONFLICT: Part Number exists with DIFFERENT description ──
+                if "dengan description yang berbeda" in body and _retry:
+                    self.logger.warning(
+                        "Part number conflict (description mismatch) — "
+                        "akan auto-sync dengan data DB dan coba ulang."
+                    )
+                    return _CONFLICT_SENTINEL, body   # ← sentinel, bukan exception
+ 
+                # ── SIMPLE DUPLICATE: bagian yang persis sama sudah ada ──────
+                self.logger.info("Parts already exist in DB — treated as skipped")
+                return True, {"skipped": True, "message": body[:500]}
+ 
             r.raise_for_status()
             return True, r.json()
-
+ 
         try:
-            return self._handle_401_retry(_request)
-        
+            raw = self._handle_401_retry(_request)
+ 
+            # ── Handle conflict sentinel ──────────────────────────────────────
+            if isinstance(raw, tuple) and len(raw) == 2 and raw[0] == _CONFLICT_SENTINEL:
+                conflict_body = raw[1]
+                try:
+                    n_conflicts = len(json.loads(conflict_body).get("errors", []))
+                except Exception:
+                    n_conflicts = "?"
+                self.logger.info(
+                    "Auto-syncing %s conflicting part(s) dengan data DB …",
+                    n_conflicts,
+                )
+                synced_parts = self._sync_parts_with_db_conflicts(parts, conflict_body)
+                # ── Retry sekali dengan data yang sudah disinkronkan ──────────
+                return self.create_item_category_with_parts(
+                    master_category_id        = master_category_id,
+                    category_id               = category_id,
+                    type_category_id          = type_category_id,
+                    item_category_name_en     = item_category_name_en,
+                    item_category_name_cn     = item_category_name_cn,
+                    item_category_description = item_category_description,
+                    dokumen_name              = dokumen_name,
+                    parts                     = synced_parts,
+                    _retry                    = False,   # ← cegah loop tak terbatas
+                )
+ 
+            return raw
+ 
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response else "?"
-            body   = e.response.text[:500] if e.response else ""
+            body   = e.response.text[:500]  if e.response else ""
             if status == 400 and "sudah ada di database" in body:
-                self.logger.info(
-                    "Parts already exist in DB — treated as skipped"
-                )
+                self.logger.info("Parts already exist in DB — treated as skipped")
                 return True, {"skipped": True, "message": body}
             self.logger.error(
                 "create_item_category_with_parts HTTP %s: %s", status, body
             )
             return False, {"error": f"HTTP {status}: {body}"}
-        
+ 
         except Exception as e:
             self.logger.error("create_item_category_with_parts failed: %s", e)
             return False, {"error": str(e)}
