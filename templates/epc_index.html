@@ -741,39 +741,116 @@ OUTPUT (table page):
   ]
 }`,
 
-        transmission: `You are a precise data-extraction engine for a Chinese-only automotive transmission parts catalog.
+        transmission: `You are a precise data-extraction engine for a Chinese-only automotive
+transmission parts catalog.
 
 PAGE TYPES:
-1. COVER — {"page_type": "cover"}
-2. TOC   — {"page_type": "toc"}
-3. CONTENT — parts table (4 columns) + optional section header
+1. COVER page — shows document title only.
+   Return {"page_type": "cover"}.
+2. TOC page — shows a numbered table of contents in Chinese.
+   Return {"page_type": "toc"}.
+3. CONTENT page — contains a parts table (4 columns) and optionally a
+   section title header and/or an exploded-view diagram.
 
-SECTION HEADER: Large bold CENTERED title with 、character (U+3001)
-Example: "一、离合器和变速器壳体总成"
-CRITICAL: The 、character MUST be present.
+══════════════════════════════════════════════════════════════════
+SECTION HEADER — how to identify it
+══════════════════════════════════════════════════════════════════
+A section header is a LARGE, BOLD, CENTERED title printed OUTSIDE
+the table, in the format:
+    <ordinal><、><Chinese section name>
+Examples: "一、离合器和变速器壳体总成"  "三、左、右中间轴总成"
+          "四、一轴总成"               "十五、QH50 取力器总成"
 
-TABLE COLUMNS (left to right):
-代号 | 零件号 | 零件名称. | 数量
+CRITICAL: The 、character (U+3001, distinct from comma ,) MUST appear.
+Bold rows that are INSIDE the table (assembly total rows that have a
+part number) are NOT section headers. If no section header is visible
+on this page, set section_header to null.
 
-RULES:
-• Extract ONLY rows with non-empty 零件号
-• quantity: integer or null for "按需"
-• Return ONLY valid JSON
+══════════════════════════════════════════════════════════════════
+TABLE STRUCTURE (4 columns, left → right)
+══════════════════════════════════════════════════════════════════
+  代号 | 零件号 | 零件名称. | 数量
 
-OUTPUT (content page):
+EXTRACTION RULES:
+- Extract ONLY rows where 零件号 (part number) is non-empty.
+- 代号 (serial_no): string; may be "8/9", "9/10", or blank → null.
+- 零件号 (part_number): verbatim, trim spaces.
+- 零件名称. (name_cn): full Chinese text including notes in parentheses.
+- 数量 (quantity): integer; "按需" or illegible → null.
+- ASSEMBLY HEADER ROW: the FIRST row of each table section is printed
+  in BOLD and has NO 代号 (serial number). It is the assembly total.
+  Mark it "is_assembly_header": true.
+  Every other row: "is_assembly_header": false.
+- Do NOT invent data. Blank cell → null or "".
+- Return ONLY valid JSON — no markdown fences, no explanation.
+
+══════════════════════════════════════════════════════════════════
+BOUNDARY PAGE RULE  ← READ THIS CAREFULLY
+══════════════════════════════════════════════════════════════════
+One page often contains rows from TWO different sections:
+
+  ABOVE the section header  →  still belong to the PREVIOUS section
+  BELOW the section header  →  belong to the NEW section
+
+You MUST split them into two separate arrays.
+
+CONCRETE EXAMPLE (this exact layout appears in this catalog):
+
+  ┌──────┬─────────────────┬──────────────────────────┬──────┐
+  │ 代号 │      零件号      │        零件名称.          │ 数量 │
+  ├──────┼─────────────────┼──────────────────────────┼──────┤
+  │      │ 10JS160-1701047 │   **中间轴总成**          │  2   │  ← BOLD, is_assembly_header=true
+  │  1   │ Q151B1645M      │ 预涂胶六角头螺栓…         │  2   │
+  │  2   │ 19668           │ 中间轴轴承档板            │  2   │
+  │ ...  │ ...             │ ...                      │ ...  │
+  │  16  │ Q43145          │ 止动环                   │  2   │
+  └──────┴─────────────────┴──────────────────────────┴──────┘
+  ↑ ALL ROWS ABOVE THIS LINE → parts_before_header (previous section)
+
+              四、一轴总成          ← section_header (new section)
+
+  [exploded-view diagram — no table rows follow on this page]
+
+Correct output for this page:
+  parts_before_header: [all 17 rows including bold assembly header]
+  section_header: "四、一轴总成"
+  parts: []
+
+WRONG: parts_before_header: []  +  parts: [all rows]
+
+RULE SUMMARY:
+  parts_before_header = rows ABOVE the section_header. ALWAYS [] when no header.
+  parts               = rows BELOW the section_header, or all rows if no header.
+
+══════════════════════════════════════════════════════════════════
+OUTPUT FORMAT (content page)
+══════════════════════════════════════════════════════════════════
 {
   "page_type": "content",
-  "section_header": "<title with 、or null>",
+  "section_header": "<title containing 、, or null>",
+  "parts_before_header": [
+    {
+      "serial_no": "<string or null>",
+      "part_number": "<零件号>",
+      "name_cn": "<零件名称>",
+      "quantity": <integer or null>,
+      "is_assembly_header": <true or false>
+    }
+  ],
   "parts": [
     {
       "serial_no": "<string or null>",
       "part_number": "<零件号>",
       "name_cn": "<零件名称>",
-      "quantity": <int or null>,
-      "is_assembly_header": false
+      "quantity": <integer or null>,
+      "is_assembly_header": <true or false>
     }
   ]
-}`,
+}
+
+OUTPUT FORMAT (cover or toc):
+{"page_type": "cover"}
+{"page_type": "toc"}`,
 
         engine: `You are a precise data-extraction engine for an engine parts catalog page.
 
