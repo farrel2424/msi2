@@ -305,7 +305,7 @@
         color: var(--text-3);
         margin-top: 3px;
     }
-    
+
     .edit-input[type="number"] { font-family: var(--mono); }
     .hidden { display: none !important; }
     .mt-4 { margin-top: 16px; }
@@ -1558,9 +1558,13 @@ OUTPUT (table page):
                 renderPartsSubmissionResult(result.epc_results, true);
                 showAlert('✅ Suku cadang berhasil disimpan!', 'success');
             } else {
+                if (result.epc_results) {
+                    renderPartsSubmissionResult(result.epc_results, true);
+                }
                 showAlert('❌ Gagal submit: ' + friendlyError(result.error), 'error');
                 document.getElementById('approvePartsBtn').disabled = false;
             }
+            
         } catch (err) {
             showAlert('Gagal terhubung: ' + err.message, 'error');
             document.getElementById('approvePartsBtn').disabled = false;
