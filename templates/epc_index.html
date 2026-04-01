@@ -280,6 +280,32 @@
         border-color: var(--primary);
         box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
     }
+    /* ── Summary stat cards ──────────────────────────────────────────────── */
+    .summary-stat-cards {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+    }
+    .summary-stat-card {
+        background: var(--success-lt);
+        border: 1px solid #bbf7d0;
+        border-radius: 6px;
+        padding: 8px 14px;
+        text-align: center;
+        min-width: 80px;
+    }
+    .summary-stat-card__value {
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1;
+    }
+    .summary-stat-card__label {
+        font-size: 11px;
+        color: var(--text-3);
+        margin-top: 3px;
+    }
+    
     .edit-input[type="number"] { font-family: var(--mono); }
     .hidden { display: none !important; }
     .mt-4 { margin-top: 16px; }
@@ -1548,101 +1574,202 @@ OUTPUT (table page):
         const skippedList = Array.isArray(r.skipped) ? r.skipped : [];
         const errorsList  = Array.isArray(r.errors)  ? r.errors  : [];
 
-        const created = createdList.length;
-        const updated = updatedList.length;
-        const skipped = skippedList.length;
-        const errors  = errorsList.length;
+        const created        = createdList.length;
+        const updated        = updatedList.length;
+        const skipped        = skippedList.length;
+        const errors         = errorsList.length;
         const totalSubmitted = r.total_parts_submitted || 0;
 
-        // ── Build skipped detail ────────────────────────────────────────
-        const skippedDetailHtml = skipped > 0 ? `
-            <div class="summary-detail" id="parts-detail-skipped">
-              <div class="summary-detail__inner"><ul class="summary-detail__list">
-                ${skippedList.map(s => `
-                  <li class="summary-detail__item summary-detail__item--skipped">
-                    <span class="summary-detail__item-icon">⏭️</span>
-                    <div>
-                      <div class="summary-detail__item-name">${_esc(s.subtype_name_en || '—')}</div>
-                      <div class="summary-detail__item-msg">Sudah ada di database — tidak ada duplikasi data</div>
-                    </div>
-                  </li>`).join('')}
-              </ul></div>
-            </div>` : '';
+        const hasDetail = created > 0 || updated > 0 || skipped > 0 || errors > 0;
+        const hasErrors = errors > 0;
 
-        // ── Build errors detail ─────────────────────────────────────────
-        const errorsDetailHtml = errors > 0 ? `
-            <div class="summary-detail" id="parts-detail-errors">
-              <div class="summary-detail__inner"><ul class="summary-detail__list">
-                ${errorsList.map(e => `
-                  <li class="summary-detail__item summary-detail__item--error">
-                    <span class="summary-detail__item-icon">❌</span>
-                    <div>
-                      <div class="summary-detail__item-name">${_esc(e.subtype_name_en || '—')}</div>
-                      <div class="summary-detail__item-error">${_esc(friendlyError(e.error))}</div>
+        // ── Builder: baris ringkasan yang bisa diklik ─────────────────────
+        function mkRow(id, label, count, colorClass, detailHtml) {
+            if (count === 0) return `
+                <div class="summary-row">
+                    <div class="summary-row__trigger">
+                        <span class="summary-row__label">${label}</span>
+                        <span class="summary-row__value ${colorClass}">0</span>
                     </div>
-                  </li>`).join('')}
-              </ul></div>
-            </div>` : '';
+                </div>`;
+            return `
+                <div class="summary-row summary-row--clickable" id="row-${id}">
+                    <div class="summary-row__trigger"
+                         onclick="toggleSummaryDetail('row-${id}','detail-${id}')">
+                        <span class="summary-row__label">
+                            <span class="summary-row__chevron">›</span>
+                            ${label}
+                        </span>
+                        <span class="summary-row__value ${colorClass}">${count}</span>
+                    </div>
+                    <div class="summary-detail" id="detail-${id}">
+                        <div class="summary-detail__inner">
+                            <ul class="summary-detail__list">${detailHtml}</ul>
+                        </div>
+                    </div>
+                </div>`;
+        }
 
-        const bgClass  = errors > 0 ? 'style="background:var(--warning-lt);border-color:#fde68a;"' : '';
-        const title    = errors > 0
-            ? `⚠️ Submit Selesai dengan ${errors} Kesalahan`
-            : `✅ Submit Suku Cadang Selesai`;
+        // ── Detail: Created ───────────────────────────────────────────────
+        const createdDetailHtml = createdList.map(c => `
+            <li class="summary-detail__item">
+                <span class="summary-detail__item-icon">✅</span>
+                <div>
+                    <div class="summary-detail__item-name">${_esc(c.subtype_name_en || c.subtype_code || '—')}</div>
+                    <div class="summary-detail__item-cn">${c.parts_count != null ? `${c.parts_count} parts` : ''} ${_esc(c.action || '')}</div>
+                </div>
+            </li>`).join('');
+
+        // ── Detail: Updated ───────────────────────────────────────────────
+        const updatedDetailHtml = updatedList.map(c => `
+            <li class="summary-detail__item" style="background:rgba(2,132,199,0.06);border-color:rgba(2,132,199,0.2);">
+                <span class="summary-detail__item-icon">🔄</span>
+                <div>
+                    <div class="summary-detail__item-name">${_esc(c.subtype_name_en || '—')}</div>
+                    <div class="summary-detail__item-cn">${c.parts_count != null ? `${c.parts_count} parts diperbarui` : ''}</div>
+                </div>
+            </li>`).join('');
+
+        // ── Detail: Skipped ───────────────────────────────────────────────
+        const skippedDetailHtml = skippedList.map(s => `
+            <li class="summary-detail__item summary-detail__item--skipped">
+                <span class="summary-detail__item-icon">⏭️</span>
+                <div>
+                    <div class="summary-detail__item-name">${_esc(s.subtype_name_en || '—')}</div>
+                    <div class="summary-detail__item-msg">${_esc(s.reason || 'Sudah ada di database')}</div>
+                </div>
+            </li>`).join('');
+
+        // ── Detail: Errors ────────────────────────────────────────────────
+        const errorsDetailHtml = errorsList.map(e => `
+            <li class="summary-detail__item summary-detail__item--error">
+                <span class="summary-detail__item-icon">❌</span>
+                <div>
+                    <div class="summary-detail__item-name">${_esc(e.subtype_name_en || '—')}</div>
+                    <div class="summary-detail__item-error">${_esc(friendlyError(e.error))}</div>
+                </div>
+            </li>`).join('');
+
+        // ── Status keseluruhan ────────────────────────────────────────────
+        let bannerBg    = '';
+        let bannerTitle = '✅ Submit Suku Cadang Selesai';
+        if (hasErrors && (created + updated + skipped) === 0) {
+            bannerBg    = 'style="background:var(--danger-lt);border-color:#fecaca;"';
+            bannerTitle = `❌ Submit Gagal — ${errors} grup tidak berhasil dikirim`;
+        } else if (hasErrors) {
+            bannerBg    = 'style="background:var(--warning-lt);border-color:#fde68a;"';
+            bannerTitle = `⚠️ Submit Selesai dengan ${errors} Kesalahan`;
+        }
 
         const el = document.getElementById('partsSubmissionResult');
         el.classList.remove('hidden');
         el.innerHTML = `
-            <div class="submission-summary" ${bgClass}>
-              <div class="submission-summary__title">${title}</div>
-              ${(skipped>0||errors>0)?`<p style="font-size:11.5px;color:var(--text-3);margin-bottom:8px;">💡 Klik baris untuk melihat daftar lengkap</p>`:''}
+            <div class="submission-summary" ${bannerBg}>
+                <div class="submission-summary__title">${bannerTitle}</div>
 
-              <div class="summary-row"><div class="summary-row__trigger">
-                <span class="summary-row__label">Suku Cadang Disimpan</span>
-                <span class="summary-row__value summary-row__value--created">${totalSubmitted} item</span>
-              </div></div>
+                ${hasDetail ? `<p style="font-size:11.5px;color:var(--text-3);margin-bottom:10px;">
+                    💡 Klik baris untuk melihat daftar lengkap
+                </p>` : ''}
 
-              ${created>0?`<div class="summary-row"><div class="summary-row__trigger">
-                <span class="summary-row__label">Subtype Baru Dibuat</span>
-                <span class="summary-row__value summary-row__value--created">${created}</span>
-              </div></div>`:''}
+                <!-- Ringkasan angka cepat -->
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+                    ${totalSubmitted > 0 ? `
+                    <div style="background:var(--success-lt);border:1px solid #bbf7d0;border-radius:6px;padding:8px 14px;text-align:center;min-width:80px;">
+                        <div style="font-size:22px;font-weight:700;color:var(--success);line-height:1">${totalSubmitted}</div>
+                        <div style="font-size:11px;color:var(--text-3);margin-top:3px;">Parts Terkirim</div>
+                    </div>` : ''}
+                    ${created > 0 ? `
+                    <div style="background:var(--success-lt);border:1px solid #bbf7d0;border-radius:6px;padding:8px 14px;text-align:center;min-width:80px;">
+                        <div style="font-size:22px;font-weight:700;color:var(--success);line-height:1">${created}</div>
+                        <div style="font-size:11px;color:var(--text-3);margin-top:3px;">Grup Dibuat</div>
+                    </div>` : ''}
+                    ${updated > 0 ? `
+                    <div style="background:var(--info-lt);border:1px solid #bae6fd;border-radius:6px;padding:8px 14px;text-align:center;min-width:80px;">
+                        <div style="font-size:22px;font-weight:700;color:var(--info);line-height:1">${updated}</div>
+                        <div style="font-size:11px;color:var(--text-3);margin-top:3px;">Diperbarui</div>
+                    </div>` : ''}
+                    ${skipped > 0 ? `
+                    <div style="background:var(--warning-lt);border:1px solid #fde68a;border-radius:6px;padding:8px 14px;text-align:center;min-width:80px;">
+                        <div style="font-size:22px;font-weight:700;color:var(--warning);line-height:1">${skipped}</div>
+                        <div style="font-size:11px;color:var(--text-3);margin-top:3px;">Dilewati</div>
+                    </div>` : ''}
+                    ${errors > 0 ? `
+                    <div style="background:var(--danger-lt);border:1px solid #fecaca;border-radius:6px;padding:8px 14px;text-align:center;min-width:80px;">
+                        <div style="font-size:22px;font-weight:700;color:var(--danger);line-height:1">${errors}</div>
+                        <div style="font-size:11px;color:var(--text-3);margin-top:3px;">Gagal</div>
+                    </div>` : ''}
+                </div>
 
-              ${updated>0?`<div class="summary-row"><div class="summary-row__trigger">
-                <span class="summary-row__label">Subtype Diperbarui</span>
-                <span class="summary-row__value summary-row__value--updated">${updated}</span>
-              </div></div>`:''}
+                <!-- Baris detail yang bisa diklik -->
+                ${mkRow('parts-created', 'Grup Dibuat',     created, 'summary-row__value--created', createdDetailHtml)}
+                ${mkRow('parts-updated', 'Grup Diperbarui', updated, 'summary-row__value--updated', updatedDetailHtml)}
+                ${mkRow('parts-skipped', 'Dilewati (sudah ada di database)', skipped, 'summary-row__value--skipped', skippedDetailHtml)}
+                ${mkRow('parts-errors',  'Gagal',           errors,  'summary-row__value--error',   errorsDetailHtml)}
 
-              ${skipped>0?`<div class="summary-row summary-row--clickable" id="parts-row-skipped">
-                <div class="summary-row__trigger" onclick="toggleSummaryDetail('parts-row-skipped','parts-detail-skipped')">
-                  <span class="summary-row__label">
-                    <span class="summary-row__chevron">›</span>
-                    Dilewati (sudah ada di database)
-                  </span>
-                  <span class="summary-row__value summary-row__value--skipped">${skipped}</span>
-                </div>${skippedDetailHtml}</div>`:
-                `<div class="summary-row"><div class="summary-row__trigger">
-                  <span class="summary-row__label">Dilewati (sudah ada)</span>
-                  <span class="summary-row__value summary-row__value--skipped">0</span>
-                </div></div>`}
-
-              ${errors>0?`<div class="summary-row summary-row--clickable" id="parts-row-errors">
-                <div class="summary-row__trigger" onclick="toggleSummaryDetail('parts-row-errors','parts-detail-errors')">
-                  <span class="summary-row__label">
-                    <span class="summary-row__chevron">›</span>
-                    Gagal
-                  </span>
-                  <span class="summary-row__value summary-row__value--error">${errors}</span>
-                </div>${errorsDetailHtml}</div>`:''}
-
-              <!-- Re-submit button (always shown after bulk submit) -->
-              <div style="margin-top:14px;padding-top:12px;border-top:1px solid #d1fae5;display:flex;gap:8px;flex-wrap:wrap;">
-                <button class="btn btn--warning btn--sm" onclick="reSubmitAllParts()">
-                  🔄 Kirim Ulang Semua
-                </button>
-                ${errors>0?`<button class="btn btn--ghost btn--sm" onclick="reExtractParts()">
-                  🔧 Ekstrak Ulang (ubah prompt)
-                </button>`:''}
-              </div>
+                <!-- Tombol aksi -->
+                <div style="margin-top:14px;padding-top:12px;border-top:1px solid #d1fae5;display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn--warning btn--sm" onclick="reSubmitAllParts()">
+                        🔄 Kirim Ulang Semua
+                    </button>
+                    ${errors > 0 ? `
+                    <button class="btn btn--ghost btn--sm" onclick="reExtractParts()">
+                        🔧 Ekstrak Ulang (ubah prompt)
+                    </button>` : ''}
+                </div>
             </div>`;
+
+        // Update status per-baris di tabel subtype
+        if (fromBulk && currentPartsData) {
+            const allSubtypes = currentPartsData.subtypes || [];
+
+            // Tandai created
+            createdList.forEach(c => {
+                const idx = allSubtypes.findIndex(s =>
+                    s.subtype_name_en === c.subtype_name_en);
+                if (idx >= 0) {
+                    const el = document.getElementById(`subtype-status-${idx}`);
+                    if (el) el.innerHTML = `<span style="font-size:12px;color:var(--success)">✅ Dibuat</span>`;
+                    const btn = document.getElementById(`subtype-btn-${idx}`);
+                    if (btn) { btn.textContent = '🔄 Kirim Ulang'; btn.className = 'btn btn--sm btn--warning'; btn.disabled = false; }
+                }
+            });
+
+            // Tandai updated
+            updatedList.forEach(c => {
+                const idx = allSubtypes.findIndex(s =>
+                    s.subtype_name_en === c.subtype_name_en);
+                if (idx >= 0) {
+                    const el = document.getElementById(`subtype-status-${idx}`);
+                    if (el) el.innerHTML = `<span style="font-size:12px;color:var(--info)">🔄 Diperbarui</span>`;
+                    const btn = document.getElementById(`subtype-btn-${idx}`);
+                    if (btn) { btn.textContent = '🔄 Kirim Ulang'; btn.className = 'btn btn--sm btn--warning'; btn.disabled = false; }
+                }
+            });
+
+            // Tandai skipped
+            skippedList.forEach(s => {
+                const idx = allSubtypes.findIndex(sub =>
+                    sub.subtype_name_en === s.subtype_name_en);
+                if (idx >= 0) {
+                    const el = document.getElementById(`subtype-status-${idx}`);
+                    if (el) el.innerHTML = `<span style="font-size:12px;color:var(--warning)">⏭ Dilewati</span>`;
+                    const btn = document.getElementById(`subtype-btn-${idx}`);
+                    if (btn) { btn.textContent = '🔄 Kirim Ulang'; btn.className = 'btn btn--sm btn--warning'; btn.disabled = false; }
+                }
+            });
+
+            // Tandai errors
+            errorsList.forEach(e => {
+                const idx = allSubtypes.findIndex(s =>
+                    s.subtype_name_en === e.subtype_name_en);
+                if (idx >= 0) {
+                    const el = document.getElementById(`subtype-status-${idx}`);
+                    if (el) el.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${_esc(friendlyError(e.error))}">❌ Gagal</span>`;
+                    const btn = document.getElementById(`subtype-btn-${idx}`);
+                    if (btn) { btn.textContent = 'Coba Lagi'; btn.className = 'btn btn--sm btn--danger'; btn.disabled = false; }
+                }
+            });
+        }
     }
 
     // ── Re-submit all parts (re-enable the approve button) ────────────────
