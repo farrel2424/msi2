@@ -411,10 +411,9 @@ class MotorsightsEPCClient:
                 if pn_m and db_m:
                     pn = pn_m.group(1)
                     raw_desc = db_m.group(2).strip()
-                    db_desc_clean = "" if raw_desc.lower() in _EMPTY_DISPLAY_VALUES else raw_desc
                     conflicts[pn] = {
                         "db_name":        db_m.group(1),
-                        "db_description": db_desc_clean,
+                        "db_description": raw_desc,
                     }
                     self.logger.info(
                         "Conflict sync: PN=%-30s  db_name='%s'  db_desc='%s'",
@@ -433,9 +432,8 @@ class MotorsightsEPCClient:
             if pn in conflicts:
                 synced = dict(p)   # shallow copy, aman karena nilai-nilainya primitif
                 synced["catalog_item_name_en"] = conflicts[pn]["db_name"]
-                db_desc = conflicts[pn]["db_description"]
                 # Gunakan deskripsi DB; fallback ke nilai asli jika DB kosong
-                synced["description"] = db_desc if db_desc else (p.get("description") or "-")
+                synced["description"] = conflicts[pn]["db_description"] 
                 updated.append(synced)
                 self.logger.info(
                     "  ↳ Synced PN=%-28s  name: '%s' → '%s'  desc: '%s' → '%s'",
@@ -497,7 +495,7 @@ class MotorsightsEPCClient:
                 "part_number":           p.get("part_number", ""),
                 "catalog_item_name_en":  p.get("catalog_item_name_en", ""),
                 "catalog_item_name_ch":  p.get("catalog_item_name_ch", ""),
-                "description":           p.get("description") or "-",
+                "description":           p.get("description") if p.get("description") is not None else "-",
                 "quantity":              int(p.get("quantity") or 1),
                 "unit":                  p.get("unit", ""),
             })
