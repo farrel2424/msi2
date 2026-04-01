@@ -264,6 +264,23 @@
     .parts-count-badge { display: inline-block; background: var(--primary); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
 
     /* ── Utility ─────────────────────────────────────────────────────── */
+    /* ── Inline part editor ──────────────────────────────────────────────── */
+    .edit-input {
+        padding: 3px 6px;
+        border: 1px solid var(--border-mid);
+        border-radius: 4px;
+        font-size: 12.5px;
+        font-family: inherit;
+        background: var(--surface);
+        color: var(--text-1);
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .edit-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+    }
+    .edit-input[type="number"] { font-family: var(--mono); }
     .hidden { display: none !important; }
     .mt-4 { margin-top: 16px; }
     .text-sm { font-size: 13px; color: var(--text-3); }
@@ -510,9 +527,14 @@
 
             <!-- Parts detail panel (expandable) -->
             <div class="hidden" id="partsDetailPanel" style="background:#fafbfc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;overflow-x:auto;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
                     <strong id="partsDetailTitle" style="font-size:14px;"></strong>
-                    <button class="btn btn--ghost btn--sm" onclick="closePartsDetail()">✕ Tutup</button>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <button id="partsEditBtn"   class="btn btn--primary btn--sm hidden" onclick="enterEditMode()">✏️ Edit</button>
+                        <button id="partsSaveBtn"   class="btn btn--success btn--sm hidden" onclick="savePartsEdit()">💾 Simpan Perubahan</button>
+                        <button id="partsCancelBtn" class="btn btn--ghost   btn--sm hidden" onclick="cancelPartsEdit()">Batal</button>
+                        <button class="btn btn--ghost btn--sm" onclick="closePartsDetail()">✕ Tutup</button>
+                    </div>
                 </div>
                 <table class="parts-table" id="partsDetailTable">
                     <thead>
@@ -1354,7 +1376,7 @@ OUTPUT (table page):
                 btn.disabled    = false;
                 btn.textContent = '🔄 Kirim Ulang';
                 btn.className   = 'btn btn--sm btn--warning';
-                
+
             } else {
                 const errMsg = friendlyError(result.error || 'Gagal');
                 statusEl.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${_esc(errMsg)}">✗ Gagal</span>`;
@@ -1369,25 +1391,108 @@ OUTPUT (table page):
         }
     }
 
+    let editingSubtypeIdx = null;
+
     function expandPartsDetail(idx) {
+        editingSubtypeIdx = idx;
         const sub = currentPartsData.subtypes[idx];
         document.getElementById('partsDetailTitle').textContent =
             `${sub.subtype_name_en}  /  ${sub.subtype_name_cn || ''}  (${sub.parts.length} parts)`;
+
+        // Tampilkan tombol Edit / Simpan
+        document.getElementById('partsEditBtn').classList.remove('hidden');
+        document.getElementById('partsSaveBtn').classList.add('hidden');
+        document.getElementById('partsCancelBtn').classList.add('hidden');
+
+        renderPartsDetailReadOnly(sub.parts);
+        document.getElementById('partsDetailPanel').classList.remove('hidden');
+        document.getElementById('partsDetailPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function renderPartsDetailReadOnly(parts) {
         const tbody = document.getElementById('partsDetailBody');
         tbody.innerHTML = '';
-        sub.parts.forEach(p => {
+        parts.forEach(p => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td><code>${p.target_id}</code></td>
                 <td>${_esc(p.part_number)}</td>
                 <td>${_esc(p.catalog_item_name_en || p.name_en || '')}</td>
                 <td>${_esc(p.catalog_item_name_ch || p.name_cn || '')}</td>
-                <td style="text-align:center">${p.quantity}</td>
+                <td style="text-align:center">${p.quantity ?? '—'}</td>
                 <td style="color:var(--text-3);font-size:12px">${_esc(p.description || '')}</td>`;
             tbody.appendChild(tr);
         });
-        document.getElementById('partsDetailPanel').classList.remove('hidden');
-        document.getElementById('partsDetailPanel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function renderPartsDetailEditable(parts) {
+        const tbody = document.getElementById('partsDetailBody');
+        tbody.innerHTML = '';
+        parts.forEach((p, i) => {
+            const tr = document.createElement('tr');
+            tr.dataset.partIndex = i;
+            tr.innerHTML = `
+                <td><code style="color:var(--text-3)">${p.target_id}</code></td>
+                <td><input class="edit-input" data-field="part_number"          value="${_esc(p.part_number)}" style="width:130px"></td>
+                <td><input class="edit-input" data-field="catalog_item_name_en" value="${_esc(p.catalog_item_name_en || p.name_en || '')}" style="width:200px"></td>
+                <td><input class="edit-input" data-field="catalog_item_name_ch" value="${_esc(p.catalog_item_name_ch || p.name_cn || '')}" style="width:160px"></td>
+                <td><input class="edit-input" data-field="quantity" type="number" min="0" value="${p.quantity ?? ''}" style="width:60px;text-align:center"></td>
+                <td><input class="edit-input" data-field="description" value="${_esc(p.description || '')}" style="width:120px"></td>`;
+            tbody.appendChild(tr);
+        });
+    }
+
+    function enterEditMode() {
+        if (editingSubtypeIdx === null) return;
+        const parts = currentPartsData.subtypes[editingSubtypeIdx].parts;
+        renderPartsDetailEditable(parts);
+        document.getElementById('partsEditBtn').classList.add('hidden');
+        document.getElementById('partsSaveBtn').classList.remove('hidden');
+        document.getElementById('partsCancelBtn').classList.remove('hidden');
+    }
+
+    function savePartsEdit() {
+        if (editingSubtypeIdx === null) return;
+        const tbody   = document.getElementById('partsDetailBody');
+        const rows    = tbody.querySelectorAll('tr[data-part-index]');
+        const updated = [];
+
+        rows.forEach(tr => {
+            const i       = parseInt(tr.dataset.partIndex);
+            const orig    = currentPartsData.subtypes[editingSubtypeIdx].parts[i];
+            const inputs  = tr.querySelectorAll('.edit-input');
+            const newPart = { ...orig };
+            inputs.forEach(inp => {
+                const field = inp.dataset.field;
+                newPart[field] = field === 'quantity'
+                    ? (inp.value === '' ? null : parseInt(inp.value))
+                    : inp.value;
+            });
+            updated.push(newPart);
+        });
+
+        currentPartsData.subtypes[editingSubtypeIdx].parts = updated;
+
+        // Kembali ke mode baca dengan data baru
+        renderPartsDetailReadOnly(updated);
+        document.getElementById('partsEditBtn').classList.remove('hidden');
+        document.getElementById('partsSaveBtn').classList.add('hidden');
+        document.getElementById('partsCancelBtn').classList.add('hidden');
+
+        // Update badge jumlah parts di tabel ringkasan
+        const badge = document.querySelector(`#subtype-row-${editingSubtypeIdx} .parts-count-badge`);
+        if (badge) badge.textContent = updated.length;
+
+        showAlert(`✅ Perubahan disimpan untuk "${currentPartsData.subtypes[editingSubtypeIdx].subtype_name_en}". Jangan lupa klik Submit.`, 'success');
+    }
+
+    function cancelPartsEdit() {
+        if (editingSubtypeIdx === null) return;
+        const parts = currentPartsData.subtypes[editingSubtypeIdx].parts;
+        renderPartsDetailReadOnly(parts);
+        document.getElementById('partsEditBtn').classList.remove('hidden');
+        document.getElementById('partsSaveBtn').classList.add('hidden');
+        document.getElementById('partsCancelBtn').classList.add('hidden');
     }
 
     function closePartsDetail() {
