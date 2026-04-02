@@ -741,98 +741,68 @@ OUTPUT (table page):
   ]
 }`,
 
-        transmission: `You are a precise data-extraction engine for a Chinese-only automotive
-transmission parts catalog.
+        transmission: `You are a precise data-extraction engine for a BILINGUAL (Chinese + English)
+automotive transmission parts catalog.
 
 PAGE TYPES:
 1. COVER page — shows document title only.
    Return {"page_type": "cover"}.
-2. TOC page — shows a numbered table of contents in Chinese.
+2. TOC page — shows a table of contents.
    Return {"page_type": "toc"}.
-3. CONTENT page — contains a parts table (4 columns) and optionally a
-   section title header and/or an exploded-view diagram.
+3. CONTENT page — contains a parts table and optionally a section title
+   header and/or an exploded-view diagram.
 
 ══════════════════════════════════════════════════════════════════
 SECTION HEADER — how to identify it
 ══════════════════════════════════════════════════════════════════
-A section header is a LARGE, BOLD, CENTERED title printed OUTSIDE
-the table, in the format:
-    <ordinal><、><Chinese section name>
-Examples: "一、离合器和变速器壳体总成"  "三、左、右中间轴总成"
-          "四、一轴总成"               "十五、QH50 取力器总成"
+A section header is a LARGE, BOLD, CENTERED title printed OUTSIDE the table.
+May appear in Chinese only, English only, or both, e.g.:
+  "三、左、右中间轴总成"
+  "III. Left and Right Counter Shaft Assembly"
+  "三、左、右中间轴总成 / Left and Right Counter Shaft Assembly"
 
-CRITICAL: The 、character (U+3001, distinct from comma ,) MUST appear.
-Bold rows that are INSIDE the table (assembly total rows that have a
-part number) are NOT section headers. If no section header is visible
-on this page, set section_header to null.
+CRITICAL: For Chinese-style headers the 、character (U+3001) MUST appear.
+Bold rows INSIDE the table (assembly totals with a part number) are NOT
+section headers — set section_header to null for those pages.
 
 ══════════════════════════════════════════════════════════════════
-TABLE STRUCTURE (4 columns, left → right)
+TABLE STRUCTURE
 ══════════════════════════════════════════════════════════════════
-  代号 | 零件号 | 零件名称. | 数量
+May be 4 OR 5 columns:
+  4-col: 代号 | 零件号 | 零件名称. | 数量
+  5-col: 代号 | 零件号 | 零件名称. | Part Name | 数量
+  or:    No. | Part No. | Part Name | 零件名称 | Qty
 
 EXTRACTION RULES:
-- Extract ONLY rows where 零件号 (part number) is non-empty.
-- 代号 (serial_no): string; may be "8/9", "9/10", or blank → null.
-- 零件号 (part_number): verbatim, trim spaces.
-- 零件名称. (name_cn): full Chinese text including notes in parentheses.
-- 数量 (quantity): integer; "按需" or illegible → null.
-- ASSEMBLY HEADER ROW: the FIRST row of each table section is printed
-  in BOLD and has NO 代号 (serial number). It is the assembly total.
-  Mark it "is_assembly_header": true.
-  Every other row: "is_assembly_header": false.
-- Do NOT invent data. Blank cell → null or "".
-- Return ONLY valid JSON — no markdown fences, no explanation.
+- Extract ONLY rows where Part No. / 零件号 is non-empty.
+- serial_no: string or null.
+- part_number: verbatim, trim spaces.
+- name_cn: Chinese name; "" if no Chinese column.
+- name_en: English name; "" if no English column.
+- quantity: integer or null.
+- ASSEMBLY HEADER ROW: first BOLD row with no serial number →
+  is_assembly_header: true. All others: false.
+- Return ONLY valid JSON — no markdown fences.
 
 ══════════════════════════════════════════════════════════════════
-BOUNDARY PAGE RULE  ← READ THIS CAREFULLY
+BOUNDARY PAGE RULE
 ══════════════════════════════════════════════════════════════════
-One page often contains rows from TWO different sections:
-
-  ABOVE the section header  →  still belong to the PREVIOUS section
-  BELOW the section header  →  belong to the NEW section
-
-You MUST split them into two separate arrays.
-
-CONCRETE EXAMPLE (this exact layout appears in this catalog):
-
-  ┌──────┬─────────────────┬──────────────────────────┬──────┐
-  │ 代号 │      零件号      │        零件名称.          │ 数量 │
-  ├──────┼─────────────────┼──────────────────────────┼──────┤
-  │      │ 10JS160-1701047 │   **中间轴总成**          │  2   │  ← BOLD, is_assembly_header=true
-  │  1   │ Q151B1645M      │ 预涂胶六角头螺栓…         │  2   │
-  │  2   │ 19668           │ 中间轴轴承档板            │  2   │
-  │ ...  │ ...             │ ...                      │ ...  │
-  │  16  │ Q43145          │ 止动环                   │  2   │
-  └──────┴─────────────────┴──────────────────────────┴──────┘
-  ↑ ALL ROWS ABOVE THIS LINE → parts_before_header (previous section)
-
-              四、一轴总成          ← section_header (new section)
-
-  [exploded-view diagram — no table rows follow on this page]
-
-Correct output for this page:
-  parts_before_header: [all 17 rows including bold assembly header]
-  section_header: "四、一轴总成"
-  parts: []
-
-WRONG: parts_before_header: []  +  parts: [all rows]
-
-RULE SUMMARY:
-  parts_before_header = rows ABOVE the section_header. ALWAYS [] when no header.
-  parts               = rows BELOW the section_header, or all rows if no header.
+ABOVE section header → parts_before_header (previous section)
+BELOW section header → parts (new section)
+ALWAYS [] for parts_before_header when no header on this page.
 
 ══════════════════════════════════════════════════════════════════
 OUTPUT FORMAT (content page)
 ══════════════════════════════════════════════════════════════════
 {
   "page_type": "content",
-  "section_header": "<title containing 、, or null>",
+  "section_header": "<title or null>",
   "parts_before_header": [
     {
       "serial_no": "<string or null>",
-      "part_number": "<零件号>",
-      "name_cn": "<零件名称>",
+      "part_number": "<part number>",
+      "name_cn": "<Chinese name or empty>",
+      "name_en": "<English name or empty>",
       "quantity": <integer or null>,
       "is_assembly_header": <true or false>
     }
@@ -840,8 +810,9 @@ OUTPUT FORMAT (content page)
   "parts": [
     {
       "serial_no": "<string or null>",
-      "part_number": "<零件号>",
-      "name_cn": "<零件名称>",
+      "part_number": "<part number>",
+      "name_cn": "<Chinese name or empty>",
+      "name_en": "<English name or empty>",
       "quantity": <integer or null>,
       "is_assembly_header": <true or false>
     }

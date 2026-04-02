@@ -98,104 +98,59 @@ PAGE TYPES:
 3. CONTENT page — contains a parts table (4 columns) and optionally a
    section title header and/or an exploded-view diagram.
 
-══════════════════════════════════════════════════════════════════
-SECTION HEADER — how to identify it
-══════════════════════════════════════════════════════════════════
-A section header is a LARGE, BOLD, CENTERED title printed OUTSIDE
-the table, in the format:
-    <ordinal><、><Chinese section name>
-Examples: "一、离合器和变速器壳体总成"  "三、左、右中间轴总成"
-          "四、一轴总成"               "十五、QH50 取力器总成"
+SECTION HEADER (marks a new category):
+  A large bold CENTERED title in the format:
+    <Chinese/number ordinal><、><Chinese section name>
+  Examples: "一、离合器和变速器壳体总成", "十五、QH50 取力器总成"
+  CRITICAL: The 、character (U+3001) MUST be present.
+  Bold rows INSIDE the table (assembly totals with a part number) are NOT
+  section headers — return section_header: null for those pages.
+  If no section header exists, set section_header to null.
 
-CRITICAL: The 、character (U+3001, distinct from comma ,) MUST appear.
-Bold rows that are INSIDE the table (assembly total rows that have a
-part number) are NOT section headers. If no section header is visible
-on this page, set section_header to null.
-
-══════════════════════════════════════════════════════════════════
-TABLE STRUCTURE (4 columns, left → right)
-══════════════════════════════════════════════════════════════════
+TABLE STRUCTURE (4 columns, left to right):
   代号 | 零件号 | 零件名称. | 数量
 
 EXTRACTION RULES:
 - Extract ONLY rows where 零件号 (part number) is non-empty.
-- 代号 (serial_no): string; may be "8/9", "9/10", or blank → null.
-- 零件号 (part_number): verbatim, trim spaces.
-- 零件名称. (name_cn): full Chinese text including notes in parentheses.
-- 数量 (quantity): integer; "按需" or illegible → null.
-- ASSEMBLY HEADER ROW: the FIRST row of each table section is printed
-  in BOLD and has NO 代号 (serial number). It is the assembly total.
-  Mark it "is_assembly_header": true.
-  Every other row: "is_assembly_header": false.
-- Do NOT invent data. Blank cell → null or "".
+- 代号 (serial_no): extract as string; may be "8/9", "9/10", or empty → null.
+- 零件号 (part_number): extract as-is, remove surrounding spaces.
+- 零件名称. (name_cn): full Chinese name including parenthetical notes.
+- 数量 (quantity): integer if numeric; null if "按需" or unreadable.
+- The FIRST bold row immediately below the column headers (代号/零件号/数量)
+  is the assembly total row. Mark it "is_assembly_header": true.
+- All other rows: "is_assembly_header": false.
+- Do NOT invent data. Blank cell → null or empty string.
 - Return ONLY valid JSON — no markdown fences, no explanation.
 
-══════════════════════════════════════════════════════════════════
-BOUNDARY PAGE RULE  ← READ THIS CAREFULLY
-══════════════════════════════════════════════════════════════════
-One page often contains rows from TWO different sections:
+CRITICAL — parts_before_header vs parts:
+  A single page may contain parts from TWO different sections:
 
-  ABOVE the section header  →  still belong to the PREVIOUS section
-  BELOW the section header  →  belong to the NEW section
+    [table tail from PREVIOUS section]  ← goes into parts_before_header
+    [Section header 四、一轴总成]
+    [table start of NEW section]        ← goes into parts
 
-You MUST split them into two separate arrays.
+  parts_before_header: rows from a table that appears ABOVE (before) the
+    section_header on this page. These still belong to the PREVIOUS section.
+    Always [] when there is no section_header on this page.
 
-CONCRETE EXAMPLE (this exact layout appears in this catalog):
+  parts: rows from the table that appears BELOW (after) the section_header,
+    OR all rows when there is no header (page is a continuation).
 
-  ┌──────┬─────────────────┬──────────────────────────┬──────┐
-  │ 代号 │      零件号      │        零件名称.          │ 数量 │
-  ├──────┼─────────────────┼──────────────────────────┼──────┤
-  │      │ 10JS160-1701047 │   **中间轴总成**          │  2   │  ← BOLD, is_assembly_header=true
-  │  1   │ Q151B1645M      │ 预涂胶六角头螺栓…         │  2   │
-  │  2   │ 19668           │ 中间轴轴承档板            │  2   │
-  │ ...  │ ...             │ ...                      │ ...  │
-  │  16  │ Q43145          │ 止动环                   │  2   │
-  └──────┴─────────────────┴──────────────────────────┴──────┘
-  ↑ ALL ROWS ABOVE THIS LINE → parts_before_header (previous section)
+  When only ONE table exists and there is NO section header:
+    → parts_before_header = []
+    → parts = [all rows]
 
-              四、一轴总成          ← section_header (new section)
-
-  [exploded-view diagram — no table rows follow on this page]
-  ↑ ROWS BELOW THIS LINE → parts (new section, empty here)
-
-Correct output for this page:
+OUTPUT FORMAT (content page):
 {
   "page_type": "content",
-  "section_header": "四、一轴总成",
-  "parts_before_header": [
-    {"serial_no": null, "part_number": "10JS160-1701047", "name_cn": "中间轴总成",          "quantity": 2, "is_assembly_header": true},
-    {"serial_no": "1",  "part_number": "Q151B1645M",      "name_cn": "预涂胶六角头螺栓和弹簧垫圈组合件", "quantity": 2, "is_assembly_header": false},
-    {"serial_no": "2",  "part_number": "19668",           "name_cn": "中间轴轴承档板",       "quantity": 2, "is_assembly_header": false},
-    ... (all 16 numbered rows) ...
-    {"serial_no": "16", "part_number": "Q43145",          "name_cn": "止动环",              "quantity": 2, "is_assembly_header": false}
-  ],
-  "parts": []
-}
-
-WRONG — do NOT do this:
-  parts_before_header: []       ← leaving it empty is INCORRECT
-  parts: [all 16 rows]          ← rows above the header must NOT go here
-
-RULE SUMMARY:
-  parts_before_header = every row whose table position is ABOVE the
-                        section_header on this page.
-                        ALWAYS [] when section_header is null.
-  parts               = every row whose table position is BELOW the
-                        section_header, OR all rows when no header exists.
-
-══════════════════════════════════════════════════════════════════
-OUTPUT FORMAT (content page)
-══════════════════════════════════════════════════════════════════
-{
-  "page_type": "content",
-  "section_header": "<title containing 、, or null>",
+  "section_header": "<title with 、, or null>",
   "parts_before_header": [
     {
       "serial_no": "<string or null>",
       "part_number": "<零件号>",
       "name_cn": "<零件名称>",
       "quantity": <integer or null>,
-      "is_assembly_header": <true or false>
+      "is_assembly_header": false
     }
   ],
   "parts": [
@@ -204,7 +159,7 @@ OUTPUT FORMAT (content page)
       "part_number": "<零件号>",
       "name_cn": "<零件名称>",
       "quantity": <integer or null>,
-      "is_assembly_header": <true or false>
+      "is_assembly_header": false
     }
   ]
 }
