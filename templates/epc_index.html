@@ -1327,12 +1327,44 @@ OUTPUT (table page):
             const tr = document.createElement('tr');
             tr.id = `subtype-row-${idx}`;
             tr.innerHTML = `
-                <td>
-                    <strong>${_esc(subtype.subtype_name_en)}</strong><br>
-                    <span style="font-size:12px;color:var(--text-3)">${_esc(subtype.subtype_name_cn || '')}</span>
+                <td id="subtype-name-cell-${idx}">
+                    <div id="subtype-name-display-${idx}">
+                        <strong>${_esc(subtype.subtype_name_en)}</strong>
+                        <button
+                            onclick="editSubtypeName(${idx})"
+                            title="Edit nama subtype"
+                            style="background:none;border:1px solid var(--border-mid);border-radius:3px;
+                                   padding:1px 6px;font-size:11px;cursor:pointer;margin-left:5px;
+                                   color:var(--text-2);vertical-align:middle;">✏️</button>
+                        <br>
+                        <span style="font-size:12px;color:var(--text-3)">
+                            ${_esc(subtype.subtype_name_cn || '')}
+                        </span>
+                    </div>
+                    <div id="subtype-name-edit-${idx}" style="display:none;">
+                        <div style="margin-bottom:4px;">
+                            <label style="font-size:11px;font-weight:600;color:var(--text-3);
+                                          display:block;margin-bottom:2px;">EN</label>
+                            <input class="edit-input" id="edit-en-${idx}"
+                                   value="${_esc(subtype.subtype_name_en)}"
+                                   style="width:100%;" placeholder="English name">
+                        </div>
+                        <div style="margin-bottom:6px;">
+                            <label style="font-size:11px;font-weight:600;color:var(--text-3);
+                                          display:block;margin-bottom:2px;">CN</label>
+                            <input class="edit-input" id="edit-cn-${idx}"
+                                   value="${_esc(subtype.subtype_name_cn || '')}"
+                                   style="width:100%;" placeholder="Chinese name">
+                        </div>
+                        <div style="display:flex;gap:4px;">
+                            <button class="btn btn--success btn--sm"
+                                    onclick="saveSubtypeName(${idx})">💾 Simpan</button>
+                            <button class="btn btn--ghost btn--sm"
+                                    onclick="cancelSubtypeEdit(${idx})">✕ Batal</button>
+                        </div>
+                    </div>
                 </td>
-                <td style="text-align:center"><span class="parts-count-badge">${parts.length}</span></td>
-                <td>
+
                     ${preview}${more}
                     <br><button class="parts-expand-btn" style="margin-top:5px"
                             onclick="expandPartsDetail(${idx})">Lihat semua</button>
@@ -1571,6 +1603,75 @@ OUTPUT (table page):
 
     function closePartsDetail() {
         document.getElementById('partsDetailPanel').classList.add('hidden');
+    }
+
+    // ── Subtype name inline editing ────────────────────────────────────────
+    function editSubtypeName(idx) {
+        // Sembunyikan tampilan teks, tampilkan form input
+        document.getElementById(`subtype-name-display-${idx}`).style.display = 'none';
+        document.getElementById(`subtype-name-edit-${idx}`).style.display   = 'block';
+        document.getElementById(`edit-en-${idx}`).focus();
+        document.getElementById(`edit-en-${idx}`).select();
+    }
+
+    function saveSubtypeName(idx) {
+        const newEn = document.getElementById(`edit-en-${idx}`).value.trim();
+        const newCn = document.getElementById(`edit-cn-${idx}`).value.trim();
+
+        if (!newEn) {
+            showAlert('Nama English tidak boleh kosong.', 'error');
+            return;
+        }
+
+        const sub = currentPartsData.subtypes[idx];
+
+        // Kalau category_name_en sebelumnya sama dengan subtype_name_en
+        // (berlaku untuk Transmission), sinkronkan juga.
+        if (sub.category_name_en === sub.subtype_name_en) {
+            currentPartsData.subtypes[idx].category_name_en = newEn;
+        }
+        if (sub.category_name_cn === sub.subtype_name_cn) {
+            currentPartsData.subtypes[idx].category_name_cn = newCn;
+        }
+
+        // Perbarui data di memori
+        currentPartsData.subtypes[idx].subtype_name_en = newEn;
+        currentPartsData.subtypes[idx].subtype_name_cn = newCn;
+
+        // Perbarui tampilan teks (rebuild innerHTML display div)
+        const displayDiv = document.getElementById(`subtype-name-display-${idx}`);
+        displayDiv.innerHTML = `
+            <strong>${_esc(newEn)}</strong>
+            <button
+                onclick="editSubtypeName(${idx})"
+                title="Edit nama subtype"
+                style="background:none;border:1px solid var(--border-mid);border-radius:3px;
+                       padding:1px 6px;font-size:11px;cursor:pointer;margin-left:5px;
+                       color:var(--text-2);vertical-align:middle;">✏️</button>
+            <br>
+            <span style="font-size:12px;color:var(--text-3)">${_esc(newCn)}</span>
+        `;
+        displayDiv.style.display = 'block';
+        document.getElementById(`subtype-name-edit-${idx}`).style.display = 'none';
+
+        // Perbarui judul di detail panel kalau sedang terbuka
+        if (editingSubtypeIdx === idx) {
+            document.getElementById('partsDetailTitle').textContent =
+                `${newEn}  /  ${newCn}  (${(sub.parts || []).length} parts)`;
+        }
+
+        showAlert(`✅ Nama subtype diperbarui: "${newEn}"`, 'success');
+    }
+
+    function cancelSubtypeEdit(idx) {
+        // Kembalikan ke tampilan teks tanpa menyimpan perubahan
+        document.getElementById(`subtype-name-display-${idx}`).style.display = 'block';
+        document.getElementById(`subtype-name-edit-${idx}`).style.display   = 'none';
+
+        // Reset input ke nilai asli (dari memori)
+        const sub = currentPartsData.subtypes[idx];
+        document.getElementById(`edit-en-${idx}`).value = sub.subtype_name_en;
+        document.getElementById(`edit-cn-${idx}`).value = sub.subtype_name_cn || '';
     }
 
     document.getElementById('downloadPartsBtn').addEventListener('click', () => {
