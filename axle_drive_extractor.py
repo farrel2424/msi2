@@ -145,7 +145,6 @@ def _translate_titles(cn_titles: List[str], sumopod_client) -> List[Dict]:
         logger.error("Translation failed: %s", e)
         return [{"cn": t, "en": t} for t in cn_titles]
 
-
 # ---------------------------------------------------------------------------
 # Shared result builder
 # ---------------------------------------------------------------------------
@@ -178,7 +177,6 @@ def _build_result(category_name_en: str, category_name_cn: str,
         ]
     }
 
-
 # ---------------------------------------------------------------------------
 # Shared page-scanning loop
 # ---------------------------------------------------------------------------
@@ -203,7 +201,6 @@ def _collect_unique_titles(pages_b64: List[Tuple], sumopod_client) -> List[str]:
             logger.debug("Page %s: duplicate title, skipping", page_label)
 
     return list(seen.keys())
-
 
 # ---------------------------------------------------------------------------
 # ZIP extraction path

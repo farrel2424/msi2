@@ -199,6 +199,12 @@ class MotorsightsEPCClient:
         candidates = [type_category_name_en.strip()]
         if subtype_code:
             candidates.append(f"{subtype_code} {type_category_name_en}".strip().lower())
+            # Tambahkan kandidat dengan suffix huruf di akhir kode dibuang
+            # contoh: "DC93259000339V" → "DC93259000339"
+            import re as _re
+            clean_code = _re.sub(r'[A-Z]+$', '', subtype_code.upper()).strip()
+            if clean_code != subtype_code.upper():
+                candidates.append(f"{clean_code} {type_category_name_en}".strip().lower())
         else:
             candidates.append(type_category_name_en.strip().lower())
 
@@ -214,10 +220,10 @@ class MotorsightsEPCClient:
             success, result = self._handle_401_retry(_request)
         except requests.exceptions.RequestException as e:
             self.logger.error("resolve_type_category_id_by_name failed: %s", e)
-            return None
+            return None, None
 
         if not success or not result:
-            return None
+            return None, None
 
         self.logger.debug(
             "resolve_type_category_id_by_name: result type=%s", type(result).__name__
@@ -249,7 +255,7 @@ class MotorsightsEPCClient:
             if any(en.lower() == c.lower() for c in candidates):
                 if category_id is None or item.get("category_id") == category_id:
                     return item.get("type_category_id"), item.get("category_id")
-        return None
+        return None, None
 
     def _get_category_id_by_name(
         self, category_name_en: str, master_category_id: str
@@ -960,6 +966,10 @@ class MotorsightsEPCClient:
             
             self.logger.error("update_item_category_with_parts HTTP %s: %s", status, body)
             return False, {"error": f"HTTP {status}: {body}"}
+        
+        except requests.exceptions.RequestException as e:
+            self.logger.error("update_item_category_with_parts connection error: %s", e)
+            return False, {"error": f"Connection error: {e}"}
         except Exception as e:
             self.logger.error("update_item_category_with_parts failed: %s", e)
             return False, {"error": str(e)}
