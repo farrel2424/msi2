@@ -1,5 +1,6 @@
 """
 epc_web_ui.py  — with Stage 2 custom_prompt support + re-submit capability
+              + engine_manufacturer selection (Cummins vs Weichai)
 """
 
 from __future__ import annotations
@@ -52,6 +53,20 @@ MASTER_CATEGORIES = {
         "name_en":       "Axle",
         "name_cn":       "车轴",
         "partbook_type": "axle_drive",
+    },
+}
+
+# ── Engine manufacturer registry (new) ────────────────────────────────────────
+ENGINE_MANUFACTURERS = {
+    "cummins": {
+        "label":      "Xi'an Cummins Engine Co., Ltd.",
+        "short":      "Cummins (Xi'an)",
+        "extraction": "vision",   # requires Vision AI
+    },
+    "weichai": {
+        "label":      "Weichai Power Co., Ltd.",
+        "short":      "Weichai Power",
+        "extraction": "text",     # text-based, no AI
     },
 }
 
@@ -112,9 +127,8 @@ def _run_stage2(
     master_category_id: str,
     dokumen_name: str,
     target_id_start: int,
-    custom_prompt: str = "",          # ← NEW param
+    custom_prompt: str = "",
 ):
-    """Background thread: Stage 2 — parts extraction with optional custom_prompt."""
     with job_lock:
         job_status[job_id]["status"]  = "processing_parts"
         job_status[job_id]["message"] = "Extracting parts rows from tables …"
@@ -134,7 +148,7 @@ def _run_stage2(
             target_id_start    = target_id_start,
             auto_submit        = False,
             code_to_category   = code_to_category,
-            custom_prompt      = custom_prompt or None,   # ← PASS THROUGH
+            custom_prompt      = custom_prompt or None,
         )
 
         with job_lock:
@@ -179,6 +193,17 @@ def api_master_categories():
     return jsonify({"categories": cats})
 
 
+@app.route("/api/engine-manufacturers")
+def api_engine_manufacturers():
+    """Return the list of supported engine manufacturers."""
+    return jsonify({
+        "manufacturers": [
+            {"id": k, **v}
+            for k, v in ENGINE_MANUFACTURERS.items()
+        ]
+    })
+
+
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
     if "file" not in request.files:
@@ -194,6 +219,12 @@ def api_upload():
 
     cat_info      = _get_master_category_info(master_category_id)
     partbook_type = cat_info.get("partbook_type", "cabin_chassis")
+
+    # ── NEW: read engine manufacturer (only relevant for engine type) ─────
+    engine_manufacturer = "cummins"   # safe default
+    if partbook_type == "engine":
+        raw_mfr = request.form.get("engine_manufacturer", "cummins").strip().lower()
+        engine_manufacturer = raw_mfr if raw_mfr in ENGINE_MANUFACTURERS else "cummins"
 
     filename = secure_filename(f.filename)
     job_id   = str(uuid.uuid4())
@@ -211,21 +242,26 @@ def api_upload():
         "master_category_id":      master_category_id,
         "master_category_name_en": cat_info.get("name_en", ""),
         "partbook_type":           partbook_type,
+        "engine_manufacturer":     engine_manufacturer,   # NEW
         "enable_review_mode":      True,
     }
 
+    mfr_label = ENGINE_MANUFACTURERS.get(engine_manufacturer, {}).get("label", engine_manufacturer)
+
     with job_lock:
         job_status[job_id] = {
-            "status":             "queued",
-            "message":            "Job queued",
-            "filename":           filename,
-            "pdf_path":           str(pdf_path),
-            "master_category_id": master_category_id,
-            "partbook_type":      partbook_type,
-            "config_params":      config_params,
-            "stage":              "structure",
-            "progress":           2,
-            "created_at":         datetime.now().isoformat(),
+            "status":               "queued",
+            "message":              "Job queued",
+            "filename":             filename,
+            "pdf_path":             str(pdf_path),
+            "master_category_id":   master_category_id,
+            "partbook_type":        partbook_type,
+            "engine_manufacturer":  engine_manufacturer,   # NEW
+            "engine_mfr_label":     mfr_label,             # NEW
+            "config_params":        config_params,
+            "stage":                "structure",
+            "progress":             2,
+            "created_at":           datetime.now().isoformat(),
         }
 
     threading.Thread(
@@ -244,15 +280,17 @@ def api_status(job_id: str):
     if not job:
         return jsonify({"error": "Job not found"}), 404
     return jsonify({
-        "status":            job.get("status"),
-        "message":           job.get("message"),
-        "stage":             job.get("stage"),
-        "partbook_type":     job.get("partbook_type"),
-        "filename":          job.get("filename"),
-        "progress":          job.get("progress", 0),
-        "extracted_data":    job.get("extracted_data"),
-        "parts_data":        job.get("parts_data"),
-        "submission_result": job.get("submission_result"),
+        "status":               job.get("status"),
+        "message":              job.get("message"),
+        "stage":                job.get("stage"),
+        "partbook_type":        job.get("partbook_type"),
+        "engine_manufacturer":  job.get("engine_manufacturer"),   # NEW
+        "engine_mfr_label":     job.get("engine_mfr_label"),      # NEW
+        "filename":             job.get("filename"),
+        "progress":             job.get("progress", 0),
+        "extracted_data":       job.get("extracted_data"),
+        "parts_data":           job.get("parts_data"),
+        "submission_result":    job.get("submission_result"),
     })
 
 
@@ -301,29 +339,20 @@ def api_approve_structure(job_id: str):
 
 @app.route("/api/start-parts/<job_id>", methods=["POST"])
 def api_start_parts(job_id: str):
-    """
-    Start Stage 2 parts extraction.
-
-    Body params:
-        target_id_start    : int  — T-number to start from (default 1)
-        dokumen_name       : str  — document name (default: PDF filename stem)
-        parts_custom_prompt: str  — optional Vision AI system prompt override
-    """
     with job_lock:
         job = job_status.get(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    body              = request.get_json(force=True) or {}
-    target_id_start   = int(body.get("target_id_start", 1))
-    dokumen_name      = body.get("dokumen_name") or Path(job["pdf_path"]).stem
-    parts_custom_prompt = body.get("parts_custom_prompt", "").strip()   # ← NEW
+    body                = request.get_json(force=True) or {}
+    target_id_start     = int(body.get("target_id_start", 1))
+    dokumen_name        = body.get("dokumen_name") or Path(job["pdf_path"]).stem
+    parts_custom_prompt = body.get("parts_custom_prompt", "").strip()
 
     with job_lock:
         job_status[job_id]["dokumen_name"]          = dokumen_name
-        job_status[job_id]["parts_custom_prompt"]   = parts_custom_prompt   # persist for re-runs
+        job_status[job_id]["parts_custom_prompt"]   = parts_custom_prompt
         job_status[job_id]["progress"]              = 60
-        # Reset parts review state so the UI re-populates correctly
         job_status[job_id]["parts_data"]            = None
         job_status[job_id]["status"]                = "queued"
 
@@ -336,7 +365,7 @@ def api_start_parts(job_id: str):
             job["master_category_id"],
             dokumen_name,
             target_id_start,
-            parts_custom_prompt,         # ← PASS THROUGH
+            parts_custom_prompt,
         ),
         daemon=True
     ).start()
@@ -346,7 +375,6 @@ def api_start_parts(job_id: str):
 
 @app.route("/api/approve-parts/<job_id>", methods=["POST"])
 def api_approve_parts(job_id: str):
-    """Submit (or re-submit) all extracted parts to EPC."""
     try:
         with job_lock:
             job = job_status.get(job_id)
@@ -397,7 +425,6 @@ def api_approve_parts(job_id: str):
 
 @app.route("/api/approve-parts-single/<job_id>", methods=["POST"])
 def api_approve_parts_single(job_id: str):
-    """Submit a single subtype group (allows re-submission)."""
     try:
         with job_lock:
             job = job_status.get(job_id)
@@ -430,7 +457,6 @@ def api_approve_parts_single(job_id: str):
 
 @app.route("/api/re-extract/<job_id>", methods=["POST"])
 def api_re_extract(job_id: str):
-    """Restart Stage 1 with a modified prompt."""
     try:
         with job_lock:
             job = job_status.get(job_id)
@@ -470,15 +496,17 @@ def api_jobs():
     with job_lock:
         jobs = [
             {
-                "job_id":        jid,
-                "id":            jid,
-                "status":        j.get("status"),
-                "filename":      j.get("filename"),
-                "partbook_type": j.get("partbook_type"),
-                "created_at":    j.get("created_at"),
-                "uploaded_at":   j.get("created_at"),
-                "message":       j.get("message"),
-                "stage":         j.get("stage"),
+                "job_id":               jid,
+                "id":                   jid,
+                "status":               j.get("status"),
+                "filename":             j.get("filename"),
+                "partbook_type":        j.get("partbook_type"),
+                "engine_manufacturer":  j.get("engine_manufacturer"),
+                "engine_mfr_label":     j.get("engine_mfr_label"),
+                "created_at":           j.get("created_at"),
+                "uploaded_at":          j.get("created_at"),
+                "message":              j.get("message"),
+                "stage":                j.get("stage"),
             }
             for jid, j in job_status.items()
         ]

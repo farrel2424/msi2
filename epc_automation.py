@@ -1,5 +1,5 @@
 """
-epc_automation.py  — with Stage 2 custom_prompt support
+epc_automation.py  — with Stage 2 custom_prompt support + engine_manufacturer routing
 """
 
 from __future__ import annotations
@@ -47,6 +47,10 @@ class EPCAutomationConfig:
         master_category_id: Optional[str] = None,
         master_category_name_en: Optional[str] = None,
         partbook_type: str = "cabin_chassis",
+        # ── NEW: engine manufacturer selection ───────────────────────────
+        # "cummins" → Xi'an Cummins (Vision AI, existing behaviour)
+        # "weichai" → Weichai Power (text-based, no AI needed)
+        engine_manufacturer: str = "cummins",
         processed_log_file: str = "epc_processed_files.json"
     ):
         self.sumopod_base_url      = sumopod_base_url or os.getenv("SUMOPOD_BASE_URL", "https://ai.sumopod.com/v1")
@@ -76,6 +80,7 @@ class EPCAutomationConfig:
         self.master_category_id      = master_category_id
         self.master_category_name_en = master_category_name_en
         self.partbook_type           = partbook_type
+        self.engine_manufacturer     = engine_manufacturer.lower().strip()  # NEW
         self.processed_log_file      = processed_log_file
 
 
@@ -185,7 +190,8 @@ class EPCPDFAutomation:
         return logging.getLogger(__name__)
 
     def _extract_data(self, pdf_path: Path, custom_prompt: Optional[str] = None) -> Dict:
-        ptype = self.config.partbook_type
+        ptype        = self.config.partbook_type
+        manufacturer = self.config.engine_manufacturer   # NEW
 
         if ptype == "cabin_chassis":
             self.logger.info("Strategy: Cabin & Chassis - markdown extraction via pymupdf4llm")
@@ -222,34 +228,63 @@ class EPCPDFAutomation:
                     category_name_cn="驾驶室和底盘",
                 )
 
-        elif ptype in ("engine", "transmission"):
-            result = extract_engine_or_transmission(
-                pdf_path=str(pdf_path),
-                partbook_type=ptype,
-                sumopod_client=self.sumopod
-            )
+        elif ptype == "engine":
+            # ── NEW: route by manufacturer ────────────────────────────────
+            if manufacturer == "weichai":
+                self.logger.info(
+                    "Strategy: Engine / Weichai — text-based extraction (no Vision AI)"
+                )
+                from weichai_engine_extractor import extract_weichai_engine_categories
+                result = extract_weichai_engine_categories(
+                    pdf_path=str(pdf_path),
+                    sumopod_client=self.sumopod,   # not used but accepted
+                )
+            else:
+                # Default: Xi'an Cummins — Vision AI path
+                self.logger.info(
+                    "Strategy: Engine / Cummins (Xi'an) — Vision AI extraction"
+                )
+                result = extract_engine_or_transmission(
+                    pdf_path=str(pdf_path),
+                    partbook_type="engine",
+                    sumopod_client=self.sumopod,
+                )
 
-            # ── FIX OPSI 1 ────────────────────────────────────────────────────
-            # Bangun peta CN → EN dari hasil ekstraksi Tahap 1.
-            # Peta ini akan disimpan di job_status["code_to_category"] dan
-            # di-override lagi oleh api_approve_structure() dengan data yang
-            # sudah diedit/diapprove user — sehingga Tahap 2 SELALU memakai
-            # nama yang persis sama dengan yang sudah masuk database.
             code_to_category = {}
             for cat in result.get("categories", []):
                 cn = cat.get("category_name_cn", "")
                 en = cat.get("category_name_en", "")
                 if cn and en:
-                    code_to_category[cn] = en   # key: CN name  → value: EN name
+                    code_to_category[cn] = en
                 if en:
-                    code_to_category[en] = en   # key: EN name  → value: EN name (exact-match fallback)
+                    code_to_category[en] = en
             result["code_to_category"] = code_to_category
             self.logger.info(
-                "_extract_data (%s): built code_to_category with %d entries",
-                ptype, len(code_to_category),
+                "_extract_data (engine/%s): built code_to_category with %d entries",
+                manufacturer, len(code_to_category),
             )
             return result
-            # ─────────────────────────────────────────────────────────────────
+
+        elif ptype == "transmission":
+            result = extract_engine_or_transmission(
+                pdf_path=str(pdf_path),
+                partbook_type="transmission",
+                sumopod_client=self.sumopod
+            )
+            code_to_category = {}
+            for cat in result.get("categories", []):
+                cn = cat.get("category_name_cn", "")
+                en = cat.get("category_name_en", "")
+                if cn and en:
+                    code_to_category[cn] = en
+                if en:
+                    code_to_category[en] = en
+            result["code_to_category"] = code_to_category
+            self.logger.info(
+                "_extract_data (transmission): built code_to_category with %d entries",
+                len(code_to_category),
+            )
+            return result
 
         elif ptype == "axle_drive":
             return extract_axle_drive_categories(
@@ -364,18 +399,8 @@ class EPCPDFAutomation:
         code_to_category: Optional[Dict[str, str]] = None,
         custom_prompt: Optional[str] = None,
     ) -> Dict:
-        """
-        Stage 2 — Extract parts rows and optionally submit to EPC.
-
-        Args:
-            code_to_category: Peta CN → EN (atau EN → EN) yang dibangun dari
-                               data Tahap 1 yang sudah diapprove.  Dikirim dari
-                               api_approve_structure() di epc_web_ui.py sehingga
-                               nama kategori di Tahap 2 SELALU sama dengan yang
-                               sudah tersimpan di database.
-            custom_prompt:    Optional override untuk Vision AI system prompt.
-        """
-        pdf_path = Path(pdf_path)
+        pdf_path     = Path(pdf_path)
+        manufacturer = self.config.engine_manufacturer   # NEW
         result: Dict = {"success": False, "stage": "init", "pdf": str(pdf_path)}
 
         if master_category_id is None:
@@ -389,9 +414,11 @@ class EPCPDFAutomation:
         try:
             result["stage"] = "extracting_parts"
             self.logger.info(
-                "Stage 2 - Parts extraction from '%s' (start T%03d, custom_prompt=%s, "
+                "Stage 2 - Parts extraction from '%s' "
+                "(start T%03d, manufacturer=%s, custom_prompt=%s, "
                 "code_to_category entries=%d)",
                 pdf_path.name, target_id_start,
+                manufacturer if self.config.partbook_type == "engine" else "n/a",
                 "yes" if custom_prompt else "no",
                 len(code_to_category) if code_to_category else 0,
             )
@@ -415,12 +442,28 @@ class EPCPDFAutomation:
                     custom_prompt    = custom_prompt,
                 )
             elif ptype == "engine":
-                parts_data = extract_engine_parts(
-                    pdf_path        = str(pdf_path),
-                    sumopod_client  = self.sumopod,
-                    target_id_start = target_id_start,
-                    custom_prompt   = custom_prompt,
-                )
+                # ── NEW: route by manufacturer ────────────────────────────
+                if manufacturer == "weichai":
+                    self.logger.info(
+                        "Stage 2 / Engine / Weichai — text-based parts extraction"
+                    )
+                    from weichai_engine_extractor import extract_weichai_engine_parts
+                    parts_data = extract_weichai_engine_parts(
+                        pdf_path        = str(pdf_path),
+                        sumopod_client  = self.sumopod,
+                        target_id_start = target_id_start,
+                        category_map    = code_to_category or {},
+                    )
+                else:
+                    self.logger.info(
+                        "Stage 2 / Engine / Cummins — Vision AI parts extraction"
+                    )
+                    parts_data = extract_engine_parts(
+                        pdf_path        = str(pdf_path),
+                        sumopod_client  = self.sumopod,
+                        target_id_start = target_id_start,
+                        custom_prompt   = custom_prompt,
+                    )
             else:
                 raise ValueError(
                     f"process_parts() does not support partbook_type='{ptype}'. "

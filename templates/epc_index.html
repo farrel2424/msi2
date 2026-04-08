@@ -263,7 +263,6 @@
     .parts-expand-btn:hover { background: var(--info-lt); }
     .parts-count-badge { display: inline-block; background: var(--primary); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
 
-    /* ── Utility ─────────────────────────────────────────────────────── */
     /* ── Inline part editor ──────────────────────────────────────────────── */
     .edit-input {
         padding: 3px 6px;
@@ -391,6 +390,26 @@
             </div>
         </div>
 
+        <!-- ── NEW: Engine Manufacturer — only shown when Engine is selected ── -->
+        <div id="engineMfrGroup" class="hidden" style="margin-bottom:16px;">
+            <div class="info-box info-box--orange" style="margin-bottom:10px;">
+                <span class="info-box__icon">🏭</span>
+                <div>
+                    <strong>Pilih Produsen Mesin:</strong>
+                    Setiap produsen memiliki format katalog yang berbeda.
+                    <span id="engineMfrNote"></span>
+                </div>
+            </div>
+            <div class="form-group" style="max-width:440px;margin-bottom:0;">
+                <label>Produsen Mesin <span style="color:var(--danger)">*</span></label>
+                <select id="engineManufacturer" onchange="onEngineManufacturerChange()">
+                    <option value="cummins">Xi'an Cummins Engine Co., Ltd.</option>
+                    <option value="weichai">Weichai Power Co., Ltd.</option>
+                </select>
+                <small id="engineMfrSubNote" style="color:var(--text-3);margin-top:5px;display:block;"></small>
+            </div>
+        </div>
+
         <!-- Stage 1 Prompt — COLLAPSIBLE (hidden until category selected) -->
         <div id="promptGroup" class="hidden">
             <details class="prompt-collapsible" id="stage1PromptDetails">
@@ -486,9 +505,7 @@
             </div>
         </div>
 
-        <!-- ═══════════════════════════════════════════════════════════════
-             Step 2 — Parts Management
-        ════════════════════════════════════════════════════════════════ -->
+        <!-- Step 2 — Parts Management -->
         <div class="hidden" id="partsSection">
             <hr class="divider">
 
@@ -503,7 +520,7 @@
                 </div>
             </div>
 
-            <!-- Stage 2 Prompt — COLLAPSIBLE (NEW FEATURE) -->
+            <!-- Stage 2 Prompt — COLLAPSIBLE -->
             <details class="prompt-collapsible" id="stage2PromptDetails" style="margin-bottom:20px;">
                 <summary>
                     ⚙️ Prompt Ekstraksi — Tahap 2 (Suku Cadang)
@@ -701,7 +718,7 @@ Return ONLY valid JSON:
 }`
     };
 
-    // ── Stage 2 default prompts (Vision AI for reading parts tables) ───────
+    // ── Stage 2 default prompts ───────────────────────────────────────────
     const PARTS_EXTRACTION_PROMPTS = {
         cabin_chassis: `You are a precise data-extraction engine for automotive parts catalog pages.
 
@@ -752,76 +769,26 @@ PAGE TYPES:
 3. CONTENT page — contains a parts table and optionally a section title
    header and/or an exploded-view diagram.
 
-══════════════════════════════════════════════════════════════════
-SECTION HEADER — how to identify it
-══════════════════════════════════════════════════════════════════
+SECTION HEADER — how to identify it:
 A section header is a LARGE, BOLD, CENTERED title printed OUTSIDE the table.
-May appear in Chinese only, English only, or both, e.g.:
-  "三、左、右中间轴总成"
-  "III. Left and Right Counter Shaft Assembly"
-  "三、左、右中间轴总成 / Left and Right Counter Shaft Assembly"
-
+May appear in Chinese only, English only, or both.
 CRITICAL: For Chinese-style headers the 、character (U+3001) MUST appear.
-Bold rows INSIDE the table (assembly totals with a part number) are NOT
-section headers — set section_header to null for those pages.
+Bold rows INSIDE the table are NOT section headers.
 
-══════════════════════════════════════════════════════════════════
-TABLE STRUCTURE
-══════════════════════════════════════════════════════════════════
-May be 4 OR 5 columns:
-  4-col: 代号 | 零件号 | 零件名称. | 数量
-  5-col: 代号 | 零件号 | 零件名称. | Part Name | 数量
-  or:    No. | Part No. | Part Name | 零件名称 | Qty
+TABLE STRUCTURE (4 or 5 columns):
+  代号 | 零件号 | 零件名称. | 数量
+  or: No. | Part No. | Part Name | 零件名称 | Qty
 
-EXTRACTION RULES:
-- Extract ONLY rows where Part No. / 零件号 is non-empty.
-- serial_no: string or null.
-- part_number: verbatim, trim spaces.
-- name_cn: Chinese name; "" if no Chinese column.
-- name_en: English name; "" if no English column.
-- quantity: integer or null.
-- ASSEMBLY HEADER ROW: first BOLD row with no serial number →
-  is_assembly_header: true. All others: false.
-- Return ONLY valid JSON — no markdown fences.
+Extract ONLY rows where Part No. / 零件号 is non-empty.
+Return ONLY valid JSON — no markdown fences.
 
-══════════════════════════════════════════════════════════════════
-BOUNDARY PAGE RULE
-══════════════════════════════════════════════════════════════════
-ABOVE section header → parts_before_header (previous section)
-BELOW section header → parts (new section)
-ALWAYS [] for parts_before_header when no header on this page.
-
-══════════════════════════════════════════════════════════════════
-OUTPUT FORMAT (content page)
-══════════════════════════════════════════════════════════════════
+OUTPUT FORMAT (content page):
 {
-  "page_type": "content",Q
+  "page_type": "content",
   "section_header": "<title containing 、, or null>",
-  "parts_before_header": [
-    {
-      "serial_no": "<string or null>",
-      "part_number": "<part number>",
-      "name_cn": "<Chinese name or empty>",
-      "name_en": "<English name or empty>",
-      "quantity": <integer or null>,
-      "is_assembly_header": <true or false>
-    }
-  ],
-  "parts": [
-    {
-      "serial_no": "<string or null>",
-      "part_number": "<part number>",
-      "name_cn": "<Chinese name or empty>",
-      "name_en": "<English name or empty>",
-      "quantity": <integer or null>,
-      "is_assembly_header": <true or false>
-    }
-  ]
-}
-
-OUTPUT FORMAT (cover or toc):
-{"page_type": "cover"}
-{"page_type": "toc"}`,
+  "parts_before_header": [...],
+  "parts": [...]
+}`,
 
         engine: `You are a precise data-extraction engine for an engine parts catalog page.
 
@@ -860,7 +827,7 @@ OUTPUT (table page):
 }`
     };
 
-    // ── Helper: translate technical error to friendly message ──────────────
+    // ── Helper: friendly error messages ───────────────────────────────────
     function friendlyError(err) {
         if (!err) return 'Terjadi kesalahan yang tidak diketahui.';
         const e = String(err).toLowerCase();
@@ -880,10 +847,9 @@ OUTPUT (table page):
             return 'Koneksi habis waktu — periksa jaringan dan coba lagi.';
         if (e.includes('network') || e.includes('fetch'))
             return 'Gagal terhubung ke server — periksa koneksi internet.';
-        return err; // return original if no pattern matched
+        return err;
     }
 
-    // ── Derived dokumen name from uploaded filename ────────────────────────
     function getDokumenName() {
         return currentFilename ? currentFilename.replace(/\.pdf$/i, '') : '';
     }
@@ -896,8 +862,8 @@ OUTPUT (table page):
             const sel  = document.getElementById('masterCategory');
             (data.categories || []).forEach(cat => {
                 const opt = document.createElement('option');
-                opt.value            = cat.id;
-                opt.textContent      = cat.display;
+                opt.value                = cat.id;
+                opt.textContent          = cat.display;
                 opt.dataset.partbookType = cat.partbook_type;
                 sel.appendChild(opt);
             });
@@ -923,9 +889,47 @@ OUTPUT (table page):
             promptGroup.classList.add('hidden');
         }
 
+        // ── Show / hide engine manufacturer selector ──────────────────────
+        const engineMfrGroup = document.getElementById('engineMfrGroup');
+        if (type === 'engine') {
+            engineMfrGroup.classList.remove('hidden');
+            onEngineManufacturerChange();  // populate notes immediately
+        } else {
+            engineMfrGroup.classList.add('hidden');
+        }
+
         // Pre-load Stage 2 prompt default for the selected type
         if (type && PARTS_EXTRACTION_PROMPTS[type]) {
             s2TA.value = PARTS_EXTRACTION_PROMPTS[type];
+        }
+    }
+
+    // ── Engine manufacturer change handler ────────────────────────────────
+    function onEngineManufacturerChange() {
+        const mfr     = document.getElementById('engineManufacturer').value;
+        const note    = document.getElementById('engineMfrNote');
+        const subNote = document.getElementById('engineMfrSubNote');
+        const s2Det   = document.getElementById('stage2PromptDetails');
+        const s2TA    = document.getElementById('stage2Prompt');
+
+        if (mfr === 'weichai') {
+            note.innerHTML = '&nbsp;—&nbsp;<strong style="color:var(--success)">✅ Ekstraksi berbasis teks</strong>, tidak perlu Vision AI.';
+            subNote.textContent = '📄 Weichai: PDF teks langsung — Stage 2 cepat & hemat biaya (tanpa token AI)';
+            subNote.style.color = 'var(--success)';
+            // Weichai is text-based — hide Stage 2 AI prompt (not needed)
+            if (s2Det) s2Det.style.display = 'none';
+        } else {
+            note.innerHTML = '&nbsp;—&nbsp;<strong style="color:var(--warning)">🔭 Vision AI</strong>, membaca gambar setiap halaman.';
+            subNote.textContent = "📷 Cummins Xi'an: PDF gambar — Stage 2 menggunakan Vision AI";
+            subNote.style.color = 'var(--warning)';
+            // Restore Stage 2 prompt panel for Cummins
+            if (s2Det) s2Det.style.display = '';
+            const selEl = document.getElementById('masterCategory');
+            const selOpt = selEl.options[selEl.selectedIndex];
+            const type = selOpt?.dataset?.partbookType;
+            if (type && PARTS_EXTRACTION_PROMPTS[type]) {
+                s2TA.value = PARTS_EXTRACTION_PROMPTS[type];
+            }
         }
     }
 
@@ -964,6 +968,14 @@ OUTPUT (table page):
         if (key) fd.append('sumopod_api_key', key);
         if (em)  fd.append('sso_email', em);
         if (pw)  fd.append('sso_password', pw);
+
+        // ── Append engine manufacturer when Engine category is selected ───
+        const selEl  = document.getElementById('masterCategory');
+        const selOpt = selEl.options[selEl.selectedIndex];
+        if (selOpt?.dataset?.partbookType === 'engine') {
+            const mfrEl = document.getElementById('engineManufacturer');
+            if (mfrEl) fd.append('engine_manufacturer', mfrEl.value);
+        }
 
         try {
             const resp = await fetch('/api/upload', { method: 'POST', body: fd });
@@ -1038,7 +1050,7 @@ OUTPUT (table page):
                 body:    JSON.stringify({
                     dokumen_name:         dokumenName,
                     target_id_start:      1,
-                    parts_custom_prompt:  prompt,   // ← SEND Stage 2 prompt
+                    parts_custom_prompt:  prompt,
                 })
             });
             if (resp.ok) {
@@ -1053,7 +1065,6 @@ OUTPUT (table page):
         }
     }
 
-    // ── Re-extract parts with new Stage 2 prompt ──────────────────────────
     async function reExtractParts() {
         const prompt = document.getElementById('stage2Prompt').value.trim();
         if (!prompt) { showAlert('Prompt tidak boleh kosong.', 'error'); return; }
@@ -1091,8 +1102,15 @@ OUTPUT (table page):
     function renderStatus(job) {
         document.getElementById('statusFilename').textContent =
             job.filename || currentFilename || '—';
+
+        // ── Show manufacturer label when it's an Engine job ───────────────
+        const mfrSuffix = (job.partbook_type === 'engine' && job.engine_mfr_label)
+            ? ` — ${job.engine_mfr_label}` : '';
         document.getElementById('statusPartbookType').textContent =
-            job.partbook_type ? (PARTBOOK_META[job.partbook_type]?.short || job.partbook_type) : '—';
+            job.partbook_type
+                ? ((PARTBOOK_META[job.partbook_type]?.short || job.partbook_type) + mfrSuffix)
+                : '—';
+
         document.getElementById('statusStage').textContent = job.stage || '—';
         document.getElementById('statusBadge').innerHTML =
             `<span class="status-badge status-${job.status}">${job.status.replace(/_/g,' ').toUpperCase()}</span>`;
@@ -1364,7 +1382,10 @@ OUTPUT (table page):
                         </div>
                     </div>
                 </td>
-
+                <td style="text-align:center">
+                    <span class="parts-count-badge">${parts.length}</span>
+                </td>
+                <td>
                     ${preview}${more}
                     <br><button class="parts-expand-btn" style="margin-top:5px"
                             onclick="expandPartsDetail(${idx})">Lihat semua</button>
@@ -1379,7 +1400,6 @@ OUTPUT (table page):
             tbody.appendChild(tr);
         });
 
-        // Reset approve button
         const approveBtn = document.getElementById('approvePartsBtn');
         approveBtn.disabled    = false;
         approveBtn.textContent = '✅ Submit Semua Suku Cadang ke EPC';
@@ -1389,7 +1409,7 @@ OUTPUT (table page):
         document.getElementById('partsSubmissionResult').classList.add('hidden');
     }
 
-    // ── Submit single subtype (with re-submit support) ────────────────────
+    // ── Submit single subtype ──────────────────────────────────────────────
     async function submitSingleSubtype(idx) {
         if (!currentPartsData) return;
 
@@ -1424,7 +1444,6 @@ OUTPUT (table page):
                 const epc = result.epc_results || {};
                 const skipped = (epc.skipped||[]).length;
                 if (skipped > 0) {
-                    // Ambil daftar parts dari data lokal untuk ditampilkan
                     const subtypeParts = (currentPartsData.subtypes[idx].parts || []);
                     const partRows = subtypeParts.map(p =>
                         `<tr>
@@ -1436,7 +1455,6 @@ OUTPUT (table page):
                         </tr>`
                     ).join('');
 
-                    // Buat panel detail di bawah baris tabel
                     const detailPanelId = `skipped-detail-${idx}`;
                     const existingPanel = document.getElementById(detailPanelId);
                     if (existingPanel) existingPanel.remove();
@@ -1478,7 +1496,6 @@ OUTPUT (table page):
                 } else {
                     statusEl.innerHTML = `<span style="font-size:12px;color:var(--success)">✓ Berhasil</span>`;
                 }
-                // Allow re-submit
                 btn.disabled    = false;
                 btn.textContent = '🔄 Kirim Ulang';
                 btn.className   = 'btn btn--sm btn--warning';
@@ -1505,7 +1522,6 @@ OUTPUT (table page):
         document.getElementById('partsDetailTitle').textContent =
             `${sub.subtype_name_en}  /  ${sub.subtype_name_cn || ''}  (${sub.parts.length} parts)`;
 
-        // Tampilkan tombol Edit / Simpan
         document.getElementById('partsEditBtn').classList.remove('hidden');
         document.getElementById('partsSaveBtn').classList.add('hidden');
         document.getElementById('partsCancelBtn').classList.add('hidden');
@@ -1579,13 +1595,11 @@ OUTPUT (table page):
 
         currentPartsData.subtypes[editingSubtypeIdx].parts = updated;
 
-        // Kembali ke mode baca dengan data baru
         renderPartsDetailReadOnly(updated);
         document.getElementById('partsEditBtn').classList.remove('hidden');
         document.getElementById('partsSaveBtn').classList.add('hidden');
         document.getElementById('partsCancelBtn').classList.add('hidden');
 
-        // Update badge jumlah parts di tabel ringkasan
         const badge = document.querySelector(`#subtype-row-${editingSubtypeIdx} .parts-count-badge`);
         if (badge) badge.textContent = updated.length;
 
@@ -1607,7 +1621,6 @@ OUTPUT (table page):
 
     // ── Subtype name inline editing ────────────────────────────────────────
     function editSubtypeName(idx) {
-        // Sembunyikan tampilan teks, tampilkan form input
         document.getElementById(`subtype-name-display-${idx}`).style.display = 'none';
         document.getElementById(`subtype-name-edit-${idx}`).style.display   = 'block';
         document.getElementById(`edit-en-${idx}`).focus();
@@ -1625,8 +1638,6 @@ OUTPUT (table page):
 
         const sub = currentPartsData.subtypes[idx];
 
-        // Kalau category_name_en sebelumnya sama dengan subtype_name_en
-        // (berlaku untuk Transmission), sinkronkan juga.
         if (sub.category_name_en === sub.subtype_name_en) {
             currentPartsData.subtypes[idx].category_name_en = newEn;
         }
@@ -1634,11 +1645,9 @@ OUTPUT (table page):
             currentPartsData.subtypes[idx].category_name_cn = newCn;
         }
 
-        // Perbarui data di memori
         currentPartsData.subtypes[idx].subtype_name_en = newEn;
         currentPartsData.subtypes[idx].subtype_name_cn = newCn;
 
-        // Perbarui tampilan teks (rebuild innerHTML display div)
         const displayDiv = document.getElementById(`subtype-name-display-${idx}`);
         displayDiv.innerHTML = `
             <strong>${_esc(newEn)}</strong>
@@ -1654,7 +1663,6 @@ OUTPUT (table page):
         displayDiv.style.display = 'block';
         document.getElementById(`subtype-name-edit-${idx}`).style.display = 'none';
 
-        // Perbarui judul di detail panel kalau sedang terbuka
         if (editingSubtypeIdx === idx) {
             document.getElementById('partsDetailTitle').textContent =
                 `${newEn}  /  ${newCn}  (${(sub.parts || []).length} parts)`;
@@ -1664,11 +1672,9 @@ OUTPUT (table page):
     }
 
     function cancelSubtypeEdit(idx) {
-        // Kembalikan ke tampilan teks tanpa menyimpan perubahan
         document.getElementById(`subtype-name-display-${idx}`).style.display = 'block';
         document.getElementById(`subtype-name-edit-${idx}`).style.display   = 'none';
 
-        // Reset input ke nilai asli (dari memori)
         const sub = currentPartsData.subtypes[idx];
         document.getElementById(`edit-en-${idx}`).value = sub.subtype_name_en;
         document.getElementById(`edit-cn-${idx}`).value = sub.subtype_name_cn || '';
@@ -1713,14 +1719,14 @@ OUTPUT (table page):
                 showAlert('❌ Gagal submit: ' + friendlyError(result.error), 'error');
                 document.getElementById('approvePartsBtn').disabled = false;
             }
-            
+
         } catch (err) {
             showAlert('Gagal terhubung: ' + err.message, 'error');
             document.getElementById('approvePartsBtn').disabled = false;
         }
     });
 
-    // ── Parts submission result — with skipped list + re-submit ───────────
+    // ── Parts submission result ────────────────────────────────────────────
     function renderPartsSubmissionResult(r, fromBulk = false) {
         const createdList = Array.isArray(r.created) ? r.created : [];
         const updatedList = Array.isArray(r.updated) ? r.updated : [];
@@ -1736,7 +1742,6 @@ OUTPUT (table page):
         const hasDetail = created > 0 || updated > 0 || skipped > 0 || errors > 0;
         const hasErrors = errors > 0;
 
-        // ── Builder: baris ringkasan yang bisa diklik ─────────────────────
         function mkRow(id, label, count, colorClass, detailHtml) {
             if (count === 0) return `
                 <div class="summary-row">
@@ -1763,7 +1768,6 @@ OUTPUT (table page):
                 </div>`;
         }
 
-        // ── Detail: Created ───────────────────────────────────────────────
         const createdDetailHtml = createdList.map(c => `
             <li class="summary-detail__item">
                 <span class="summary-detail__item-icon">✅</span>
@@ -1773,7 +1777,6 @@ OUTPUT (table page):
                 </div>
             </li>`).join('');
 
-        // ── Detail: Updated ───────────────────────────────────────────────
         const updatedDetailHtml = updatedList.map(c => `
             <li class="summary-detail__item" style="background:rgba(2,132,199,0.06);border-color:rgba(2,132,199,0.2);">
                 <span class="summary-detail__item-icon">🔄</span>
@@ -1783,7 +1786,6 @@ OUTPUT (table page):
                 </div>
             </li>`).join('');
 
-        // ── Detail: Skipped ───────────────────────────────────────────────
         const skippedDetailHtml = skippedList.map(s => `
             <li class="summary-detail__item summary-detail__item--skipped">
                 <span class="summary-detail__item-icon">⏭️</span>
@@ -1793,7 +1795,6 @@ OUTPUT (table page):
                 </div>
             </li>`).join('');
 
-        // ── Detail: Errors ────────────────────────────────────────────────
         const errorsDetailHtml = errorsList.map(e => `
             <li class="summary-detail__item summary-detail__item--error">
                 <span class="summary-detail__item-icon">❌</span>
@@ -1803,7 +1804,6 @@ OUTPUT (table page):
                 </div>
             </li>`).join('');
 
-        // ── Status keseluruhan ────────────────────────────────────────────
         let bannerBg    = '';
         let bannerTitle = '✅ Submit Suku Cadang Selesai';
         if (hasErrors && (created + updated + skipped) === 0) {
@@ -1824,7 +1824,6 @@ OUTPUT (table page):
                     💡 Klik baris untuk melihat daftar lengkap
                 </p>` : ''}
 
-                <!-- Ringkasan angka cepat -->
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
                     ${totalSubmitted > 0 ? `
                     <div style="background:var(--success-lt);border:1px solid #bbf7d0;border-radius:6px;padding:8px 14px;text-align:center;min-width:80px;">
@@ -1853,13 +1852,11 @@ OUTPUT (table page):
                     </div>` : ''}
                 </div>
 
-                <!-- Baris detail yang bisa diklik -->
                 ${mkRow('parts-created', 'Grup Dibuat',     created, 'summary-row__value--created', createdDetailHtml)}
                 ${mkRow('parts-updated', 'Grup Diperbarui', updated, 'summary-row__value--updated', updatedDetailHtml)}
                 ${mkRow('parts-skipped', 'Dilewati (sudah ada di database)', skipped, 'summary-row__value--skipped', skippedDetailHtml)}
                 ${mkRow('parts-errors',  'Gagal',           errors,  'summary-row__value--error',   errorsDetailHtml)}
 
-                <!-- Tombol aksi -->
                 <div style="margin-top:14px;padding-top:12px;border-top:1px solid #d1fae5;display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn btn--warning btn--sm" onclick="reSubmitAllParts()">
                         🔄 Kirim Ulang Semua
@@ -1871,14 +1868,11 @@ OUTPUT (table page):
                 </div>
             </div>`;
 
-        // Update status per-baris di tabel subtype
         if (fromBulk && currentPartsData) {
             const allSubtypes = currentPartsData.subtypes || [];
 
-            // Tandai created
             createdList.forEach(c => {
-                const idx = allSubtypes.findIndex(s =>
-                    s.subtype_name_en === c.subtype_name_en);
+                const idx = allSubtypes.findIndex(s => s.subtype_name_en === c.subtype_name_en);
                 if (idx >= 0) {
                     const el = document.getElementById(`subtype-status-${idx}`);
                     if (el) el.innerHTML = `<span style="font-size:12px;color:var(--success)">✅ Dibuat</span>`;
@@ -1887,10 +1881,8 @@ OUTPUT (table page):
                 }
             });
 
-            // Tandai updated
             updatedList.forEach(c => {
-                const idx = allSubtypes.findIndex(s =>
-                    s.subtype_name_en === c.subtype_name_en);
+                const idx = allSubtypes.findIndex(s => s.subtype_name_en === c.subtype_name_en);
                 if (idx >= 0) {
                     const el = document.getElementById(`subtype-status-${idx}`);
                     if (el) el.innerHTML = `<span style="font-size:12px;color:var(--info)">🔄 Diperbarui</span>`;
@@ -1899,10 +1891,8 @@ OUTPUT (table page):
                 }
             });
 
-            // Tandai skipped
             skippedList.forEach(s => {
-                const idx = allSubtypes.findIndex(sub =>
-                    sub.subtype_name_en === s.subtype_name_en);
+                const idx = allSubtypes.findIndex(sub => sub.subtype_name_en === s.subtype_name_en);
                 if (idx >= 0) {
                     const el = document.getElementById(`subtype-status-${idx}`);
                     if (el) el.innerHTML = `<span style="font-size:12px;color:var(--warning)">⏭ Dilewati</span>`;
@@ -1911,10 +1901,8 @@ OUTPUT (table page):
                 }
             });
 
-            // Tandai errors
             errorsList.forEach(e => {
-                const idx = allSubtypes.findIndex(s =>
-                    s.subtype_name_en === e.subtype_name_en);
+                const idx = allSubtypes.findIndex(s => s.subtype_name_en === e.subtype_name_en);
                 if (idx >= 0) {
                     const el = document.getElementById(`subtype-status-${idx}`);
                     if (el) el.innerHTML = `<span style="font-size:12px;color:var(--danger)" title="${_esc(friendlyError(e.error))}">❌ Gagal</span>`;
@@ -1925,14 +1913,12 @@ OUTPUT (table page):
         }
     }
 
-    // ── Re-submit all parts (re-enable the approve button) ────────────────
     function reSubmitAllParts() {
         const approveBtn = document.getElementById('approvePartsBtn');
         approveBtn.disabled    = false;
         approveBtn.textContent = '✅ Submit Semua Suku Cadang ke EPC';
         approveBtn.className   = 'btn btn--primary';
         document.getElementById('partsSubmissionResult').classList.add('hidden');
-        // Reset individual row statuses
         if (currentPartsData) {
             currentPartsData.subtypes.forEach((_, idx) => {
                 const statusEl = document.getElementById(`subtype-status-${idx}`);
@@ -1941,7 +1927,6 @@ OUTPUT (table page):
                 if (btn) { btn.disabled = false; btn.textContent = 'Submit'; btn.className = 'btn btn--sm btn--primary'; }
             });
         }
-        // Trigger the submit
         approveBtn.click();
     }
 
@@ -1955,7 +1940,6 @@ OUTPUT (table page):
         setTimeout(() => div.remove(), 12000);
     }
 
-    // ── HTML escape ────────────────────────────────────────────────────────
     function _esc(str) {
         return String(str)
             .replace(/&/g,'&amp;').replace(/</g,'&lt;')
