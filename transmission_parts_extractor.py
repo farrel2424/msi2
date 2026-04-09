@@ -51,6 +51,12 @@ T-ID assignment rules
        serial_no "8/9"   →  target_id "T008/T009"
      The numbers from serial_no are used directly (T-prefixed, zero-padded).
      The sequential counter advances past the highest number.
+
+PATCH (2026-04-09):
+  _is_valid_section_header() now also accepts English-only section titles.
+  Some bilingual PDFs have the AI return English section headers (no 、),
+  which previously caused ALL sections to be skipped and produced 0 parts.
+  Chinese headers still require 、 to prevent misreading bold part rows.
 """
 
 from __future__ import annotations
@@ -75,11 +81,39 @@ _PART_NUMBER_PREFIX = "BS"
 
 def _is_valid_section_header(raw: str) -> bool:
     """
-    A real section header must contain the Chinese enumeration mark 、(U+3001).
-    e.g. "一、离合器和变速器壳体总成"
-    Anything without 、 is a misread bold part name, not a section title.
+    Validate a section header string returned by Vision AI.
+
+    Rules
+    -----
+    1. Chinese headers MUST contain 、 (U+3001) — the ordinal separator used
+       in Chinese-language transmission manuals (e.g. "一、离合器和变速器壳体总成").
+       This guard prevents misreading bold assembly-total rows inside the
+       parts table as new section headers.
+
+    2. English-only (or alphanumeric+English) headers are accepted as-is.
+       Bilingual PDFs sometimes have the AI extract the English section title
+       directly (e.g. "Clutch and transmission housing assembly") without 、.
+       Since bold part rows inside the table are never pure English prose,
+       accepting English headers is safe.
+
+    3. Empty strings are always rejected.
+
+    4. Bare part-number tokens (e.g. "BS123456") are rejected even if
+       they contain no Chinese characters.
     """
-    return "\u3001" in raw
+    if not raw or not raw.strip():
+        return False
+
+    # Rule 1 — Chinese header: must have 、
+    if re.search(r"[\u4e00-\u9fff]", raw):
+        return "\u3001" in raw
+
+    # Rule 4 — reject bare part-number patterns (e.g. "BS12345678")
+    if re.match(r"^[A-Z]{0,2}\d{5,}", raw.strip().upper()):
+        return False
+
+    # Rule 2 — English-only header: accept
+    return bool(re.search(r"[A-Za-z]", raw))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -87,87 +121,38 @@ def _is_valid_section_header(raw: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _PARTS_SYSTEM_PROMPT = """\
-You are a precise data-extraction engine for a Chinese-only automotive
-transmission parts catalog.
+You are a precise data-extraction engine for a BILINGUAL (Chinese + English)
+automotive transmission parts catalog.
 
 PAGE TYPES:
 1. COVER page — shows document title only.
    Return {"page_type": "cover"}.
-2. TOC page — shows a numbered table of contents in Chinese.
+2. TOC page — shows a table of contents.
    Return {"page_type": "toc"}.
-3. CONTENT page — contains a parts table (4 columns) and optionally a
-   section title header and/or an exploded-view diagram.
+3. CONTENT page — contains a parts table and optionally a section title
+   header and/or an exploded-view diagram.
 
-SECTION HEADER (marks a new category):
-  A large bold CENTERED title in the format:
-    <Chinese/number ordinal><、><Chinese section name>
-  Examples: "一、离合器和变速器壳体总成", "十五、QH50 取力器总成"
-  CRITICAL: The 、character (U+3001) MUST be present.
-  Bold rows INSIDE the table (assembly totals with a part number) are NOT
-  section headers — return section_header: null for those pages.
-  If no section header exists, set section_header to null.
+SECTION HEADER — how to identify it:
+A section header is a LARGE, BOLD, CENTERED title printed OUTSIDE the table.
+May appear in Chinese only, English only, or both.
+CRITICAL: For Chinese-style headers the 、character (U+3001) MUST appear.
+Bold rows INSIDE the table are NOT section headers — return section_header: null for those pages.
+If no section header exists, set section_header to null.
 
-TABLE STRUCTURE (4 columns, left to right):
+TABLE STRUCTURE (4 or 5 columns):
   代号 | 零件号 | 零件名称. | 数量
+  or: No. | Part No. | Part Name | 零件名称 | Qty
 
-EXTRACTION RULES:
-- Extract ONLY rows where 零件号 (part number) is non-empty.
-- 代号 (serial_no): extract as string; may be "8/9", "9/10", or empty → null.
-- 零件号 (part_number): extract as-is, remove surrounding spaces.
-- 零件名称. (name_cn): full Chinese name including parenthetical notes.
-- 数量 (quantity): integer if numeric; null if "按需" or unreadable.
-- The FIRST bold row immediately below the column headers (代号/零件号/数量)
-  is the assembly total row. Mark it "is_assembly_header": true.
-- All other rows: "is_assembly_header": false.
-- Do NOT invent data. Blank cell → null or empty string.
-- Return ONLY valid JSON — no markdown fences, no explanation.
-
-CRITICAL — parts_before_header vs parts:
-  A single page may contain parts from TWO different sections:
-
-    [table tail from PREVIOUS section]  ← goes into parts_before_header
-    [Section header 四、一轴总成]
-    [table start of NEW section]        ← goes into parts
-
-  parts_before_header: rows from a table that appears ABOVE (before) the
-    section_header on this page. These still belong to the PREVIOUS section.
-    Always [] when there is no section_header on this page.
-
-  parts: rows from the table that appears BELOW (after) the section_header,
-    OR all rows when there is no header (page is a continuation).
-
-  When only ONE table exists and there is NO section header:
-    → parts_before_header = []
-    → parts = [all rows]
+Extract ONLY rows where Part No. / 零件号 is non-empty.
+Return ONLY valid JSON — no markdown fences.
 
 OUTPUT FORMAT (content page):
 {
   "page_type": "content",
-  "section_header": "<title with 、, or null>",
-  "parts_before_header": [
-    {
-      "serial_no": "<string or null>",
-      "part_number": "<零件号>",
-      "name_cn": "<零件名称>",
-      "quantity": <integer or null>,
-      "is_assembly_header": false
-    }
-  ],
-  "parts": [
-    {
-      "serial_no": "<string or null>",
-      "part_number": "<零件号>",
-      "name_cn": "<零件名称>",
-      "quantity": <integer or null>,
-      "is_assembly_header": false
-    }
-  ]
-}
-
-OUTPUT FORMAT (cover or toc):
-{"page_type": "cover"}
-{"page_type": "toc"}
-"""
+  "section_header": "<title containing 、, or English title, or null>",
+  "parts_before_header": [...],
+  "parts": [...]
+}"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
@@ -227,6 +212,7 @@ def _strip_section_number(section_header: str) -> str:
     """
     Remove the leading ordinal and 、 marker from a section header.
     "一、离合器和变速器壳体总成" → "离合器和变速器壳体总成"
+    English headers are returned as-is (no ordinal to strip).
     """
     return re.sub(r"^[^\u3001]+\u3001", "", section_header).strip()
 
