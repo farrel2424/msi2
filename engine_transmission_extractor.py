@@ -111,6 +111,8 @@ def is_weichai_bilingual_toc(pdf_path: str, sample_pages: int = 2) -> bool:
     except Exception as exc:
         logger.warning("is_weichai_bilingual_toc failed: %s", exc)
         return False
+
+
  
 import re
 import logging

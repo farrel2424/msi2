@@ -99,7 +99,11 @@ _NOISE_RES = [re.compile(p) for p in _NOISE_PATTERNS]
 _TABLE_SIGNALS = ('图序号', 'Pos.')
 
 # Catalog-title line that precedes the section title in the footer
-_CATALOG_TITLE_SIGNAL = 'WP10 SERIES ENGINE PARTS CATALOGUE'
+import re as _re
+_CATALOG_TITLE_RE = _re.compile(
+    r'WP\d+\s+SERIES\s+(DIESEL|ENGINE)\s+PARTS\s+CATALOGUE',
+    _re.IGNORECASE,
+)
 
 # x0 threshold: TOC entries at or below this coordinate are top-level Categories.
 # Entries to the right of this are Type Categories (sub-entries).
@@ -116,7 +120,8 @@ _TOC_START_KEYWORDS = ("目录", "CONTENTS")
 
 # Signals that a page is a diagram / parts table page (TOC boundary)
 _BOUNDARY_SIGNALS = (
-    _CATALOG_TITLE_SIGNAL,   # WP10 SERIES ENGINE PARTS CATALOGUE (parts pages)
+    "SERIES DIESEL PARTS CATALOGUE",
+    "SERIES ENGINE PARTS CATALOGUE",   # WP10 SERIES ENGINE PARTS CATALOGUE (parts pages)
     "图序号",                 # Parts table column header
     "Pos.",                  # Alternative parts table header
     "Part Number",
@@ -508,7 +513,7 @@ def _extract_section_title(text: str) -> Optional[Tuple[str, str]]:
     cleaned = [l.strip() for l in lines]
 
     for i, line in enumerate(cleaned):
-        if _CATALOG_TITLE_SIGNAL in line:
+        if _CATALOG_TITLE_RE.search(line):
             for j in range(i + 1, min(i + 5, len(cleaned))):
                 candidate = cleaned[j]
                 if not candidate or _is_noise_line(candidate):
@@ -522,7 +527,7 @@ def _extract_section_title(text: str) -> Optional[Tuple[str, str]]:
             break
 
     for line in _clean_lines(text)[:12]:
-        if any(skip in line for skip in (_CATALOG_TITLE_SIGNAL, '图序号', 'Pos.', 'Part Number')):
+        if _CATALOG_TITLE_RE.search(line) or any(skip in line for skip in ('图序号', 'Pos.', 'Part Number')):
             continue
         m = _BILINGUAL_RE.search(line)
         if m:
