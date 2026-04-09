@@ -1,5 +1,13 @@
 """
-epc_automation.py  — with Stage 2 custom_prompt support + engine_manufacturer routing
+epc_automation.py
+FIXES:
+  1. EPCAutomationConfig: engine_manufacturer restored (required by epc_web_ui.py)
+  2. _extract_data() engine/weichai: calls extract_weichai_engine_categories()
+     which now parses TOC pages and returns 3-level hierarchy (data_type)
+  3. _extract_data() engine/cummins: UNCHANGED from original
+  4. submit_to_epc() engine:
+       weichai -> batch_create_type_categories_and_categories (3-level)
+       cummins -> batch_create_flat_categories                (2-level, unchanged)
 """
 
 from __future__ import annotations
@@ -47,9 +55,6 @@ class EPCAutomationConfig:
         master_category_id: Optional[str] = None,
         master_category_name_en: Optional[str] = None,
         partbook_type: str = "cabin_chassis",
-        # ── NEW: engine manufacturer selection ───────────────────────────
-        # "cummins" → Xi'an Cummins (Vision AI, existing behaviour)
-        # "weichai" → Weichai Power (text-based, no AI needed)
         engine_manufacturer: str = "cummins",
         processed_log_file: str = "epc_processed_files.json"
     ):
@@ -80,7 +85,7 @@ class EPCAutomationConfig:
         self.master_category_id      = master_category_id
         self.master_category_name_en = master_category_name_en
         self.partbook_type           = partbook_type
-        self.engine_manufacturer     = engine_manufacturer.lower().strip()  # NEW
+        self.engine_manufacturer     = engine_manufacturer.lower().strip()
         self.processed_log_file      = processed_log_file
 
 
@@ -191,8 +196,9 @@ class EPCPDFAutomation:
 
     def _extract_data(self, pdf_path: Path, custom_prompt: Optional[str] = None) -> Dict:
         ptype        = self.config.partbook_type
-        manufacturer = self.config.engine_manufacturer   # NEW
+        manufacturer = self.config.engine_manufacturer
 
+        # ── CABIN & CHASSIS ───────────────────────────────────────────────────
         if ptype == "cabin_chassis":
             self.logger.info("Strategy: Cabin & Chassis - markdown extraction via pymupdf4llm")
             markdown_text = pymupdf4llm.to_markdown(str(pdf_path))
@@ -200,8 +206,7 @@ class EPCPDFAutomation:
 
             if markdown_text.strip():
                 result = self.sumopod.extract_catalog_data(
-                    markdown_text,
-                    custom_prompt=custom_prompt
+                    markdown_text, custom_prompt=custom_prompt
                 )
                 code_to_category: Dict[str, str] = {}
                 for cat in result.get("categories", []):
@@ -217,8 +222,7 @@ class EPCPDFAutomation:
                 return result
             else:
                 self.logger.info(
-                    "Markdown is empty - PDF is image-based. "
-                    "Falling back to cabin_chassis vision extraction."
+                    "Markdown empty — image-based PDF, falling back to vision extraction."
                 )
                 cat_name_en = self.config.master_category_name_en or "Cabin & Chassis"
                 return extract_cabin_chassis_categories(
@@ -228,21 +232,27 @@ class EPCPDFAutomation:
                     category_name_cn="驾驶室和底盘",
                 )
 
+        # ── ENGINE ────────────────────────────────────────────────────────────
         elif ptype == "engine":
-            # ── NEW: route by manufacturer ────────────────────────────────
             if manufacturer == "weichai":
+                # Weichai (DHL): text-based PDF, bilingual TOC with bold/indent structure.
+                # FIX: previously this read TABLE pages → flat categories, no data_type.
+                # Now calls the fixed extract_weichai_engine_categories() which reads
+                # the TOC via PyMuPDF font-dict: bold=Category, indented=TypeCategory.
+                # Returns categories WITH data_type populated → 3-level hierarchy.
                 self.logger.info(
-                    "Strategy: Engine / Weichai — text-based extraction (no Vision AI)"
+                    "Strategy: Engine / Weichai — TOC-based 3-level extraction"
                 )
                 from weichai_engine_extractor import extract_weichai_engine_categories
                 result = extract_weichai_engine_categories(
                     pdf_path=str(pdf_path),
-                    sumopod_client=self.sumopod,   # not used but accepted
+                    sumopod_client=self.sumopod,
                 )
             else:
-                # Default: Xi'an Cummins — Vision AI path
+                # Xian Cummins: image-based or ZIP PDF, vision AI per page.
+                # UNCHANGED from original — flat category list, no data_type.
                 self.logger.info(
-                    "Strategy: Engine / Cummins (Xi'an) — Vision AI extraction"
+                    "Strategy: Engine / Xian Cummins — vision AI per page (flat)"
                 )
                 result = extract_engine_or_transmission(
                     pdf_path=str(pdf_path),
@@ -258,13 +268,25 @@ class EPCPDFAutomation:
                     code_to_category[cn] = en
                 if en:
                     code_to_category[en] = en
+                for tc in cat.get("data_type", []):
+                    tc_en = tc.get("type_category_name_en", "")
+                    tc_cn = tc.get("type_category_name_cn", "")
+                    if tc_cn and en:
+                        code_to_category[tc_cn] = en
+                    if tc_en and en:
+                        code_to_category[tc_en] = en
+
             result["code_to_category"] = code_to_category
             self.logger.info(
-                "_extract_data (engine/%s): built code_to_category with %d entries",
-                manufacturer, len(code_to_category),
+                "_extract_data (engine/%s): %d categories, %d subtypes, %d map entries",
+                manufacturer,
+                len(result.get("categories", [])),
+                sum(len(c.get("data_type", [])) for c in result.get("categories", [])),
+                len(code_to_category),
             )
             return result
 
+        # ── TRANSMISSION ──────────────────────────────────────────────────────
         elif ptype == "transmission":
             result = extract_engine_or_transmission(
                 pdf_path=str(pdf_path),
@@ -281,11 +303,12 @@ class EPCPDFAutomation:
                     code_to_category[en] = en
             result["code_to_category"] = code_to_category
             self.logger.info(
-                "_extract_data (transmission): built code_to_category with %d entries",
+                "_extract_data (transmission): %d entries in code_to_category",
                 len(code_to_category),
             )
             return result
 
+        # ── AXLE DRIVE ────────────────────────────────────────────────────────
         elif ptype == "axle_drive":
             return extract_axle_drive_categories(
                 pdf_path=str(pdf_path),
@@ -374,12 +397,44 @@ class EPCPDFAutomation:
         if not master_category_id:
             raise ValueError("Master Category ID is required for EPC submission")
 
-        if self.config.partbook_type in ("engine", "transmission"):
+        ptype        = self.config.partbook_type
+        manufacturer = self.config.engine_manufacturer
+
+        # Transmission: always flat (2-level)
+        if ptype == "transmission":
             return self.epc_client.batch_create_flat_categories(
                 catalog_data            = extracted_data,
                 master_category_id      = master_category_id,
                 master_category_name_en = master_category_name_en
             )
+
+        # Engine: route by manufacturer
+        # FIX: previously engine ALWAYS called batch_create_flat_categories.
+        elif ptype == "engine":
+            if manufacturer == "weichai":
+                # Weichai extraction now produces data_type entries → 3-level
+                self.logger.info(
+                    "Engine submit (Weichai) → 3-level "
+                    "(batch_create_type_categories_and_categories)"
+                )
+                return self.epc_client.batch_create_type_categories_and_categories(
+                    catalog_data            = extracted_data,
+                    master_category_id      = master_category_id,
+                    master_category_name_en = master_category_name_en
+                )
+            else:
+                # Xian Cummins: flat categories, no data_type → 2-level UNCHANGED
+                self.logger.info(
+                    "Engine submit (Xian Cummins) → 2-level flat "
+                    "(batch_create_flat_categories)"
+                )
+                return self.epc_client.batch_create_flat_categories(
+                    catalog_data            = extracted_data,
+                    master_category_id      = master_category_id,
+                    master_category_name_en = master_category_name_en
+                )
+
+        # Cabin & Chassis, Axle Drive: always 3-level
         else:
             return self.epc_client.batch_create_type_categories_and_categories(
                 catalog_data            = extracted_data,
@@ -387,7 +442,7 @@ class EPCPDFAutomation:
                 master_category_name_en = master_category_name_en
             )
 
-    # ── Stage 2: Parts Management ────────────────────────────────────────────
+    # ── Stage 2: Parts Management ─────────────────────────────────────────────
 
     def process_parts(
         self,
@@ -400,7 +455,7 @@ class EPCPDFAutomation:
         custom_prompt: Optional[str] = None,
     ) -> Dict:
         pdf_path     = Path(pdf_path)
-        manufacturer = self.config.engine_manufacturer   # NEW
+        manufacturer = self.config.engine_manufacturer
         result: Dict = {"success": False, "stage": "init", "pdf": str(pdf_path)}
 
         if master_category_id is None:
@@ -414,9 +469,8 @@ class EPCPDFAutomation:
         try:
             result["stage"] = "extracting_parts"
             self.logger.info(
-                "Stage 2 - Parts extraction from '%s' "
-                "(start T%03d, manufacturer=%s, custom_prompt=%s, "
-                "code_to_category entries=%d)",
+                "Stage 2 - Parts extraction from '%s' (start T%03d, "
+                "manufacturer=%s, custom_prompt=%s, code_to_category entries=%d)",
                 pdf_path.name, target_id_start,
                 manufacturer if self.config.partbook_type == "engine" else "n/a",
                 "yes" if custom_prompt else "no",
@@ -442,7 +496,6 @@ class EPCPDFAutomation:
                     custom_prompt    = custom_prompt,
                 )
             elif ptype == "engine":
-                # ── NEW: route by manufacturer ────────────────────────────
                 if manufacturer == "weichai":
                     self.logger.info(
                         "Stage 2 / Engine / Weichai — text-based parts extraction"
@@ -456,7 +509,7 @@ class EPCPDFAutomation:
                     )
                 else:
                     self.logger.info(
-                        "Stage 2 / Engine / Cummins — Vision AI parts extraction"
+                        "Stage 2 / Engine / Xian Cummins — Vision AI parts extraction"
                     )
                     parts_data = extract_engine_parts(
                         pdf_path        = str(pdf_path),
