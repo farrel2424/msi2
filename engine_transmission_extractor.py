@@ -111,51 +111,151 @@ def is_weichai_bilingual_toc(pdf_path: str, sample_pages: int = 2) -> bool:
     except Exception as exc:
         logger.warning("is_weichai_bilingual_toc failed: %s", exc)
         return False
-
-
+ 
+import re
+import logging
+from typing import Dict, List, Optional, Tuple
+ 
+logger = logging.getLogger(__name__)
+ 
+# ── Scope constants (mirror weichai_engine_extractor.py) ──────────────────
+ 
+_X_CATEGORY_MAX = 50
+ 
+_WEICHAI_SKIP = [
+    "wangmd", "2023/", "2024/", "shacman.com", "zhangzhi",
+    "任志军", "renzj", "CONTENTS", "目录",
+]
+ 
+_TOC_START_KEYWORDS = ("目录", "CONTENTS")
+ 
+_BOUNDARY_SIGNALS = (
+    "WP10 SERIES ENGINE PARTS CATALOGUE",
+    "图序号",
+    "Pos.",
+    "Part Number",
+    "件号",
+)
+ 
+_DIAGRAM_IMAGE_THRESHOLD = 1
+_DIAGRAM_TEXT_MAX_CHARS  = 200
+ 
+ 
+# ── Scope-boundary helpers ─────────────────────────────────────────────────
+ 
+def _is_toc_marker_page_et(page) -> bool:
+    """Return True if page contains 目录 / CONTENTS."""
+    text = page.get_text("text")
+    return any(kw in text for kw in _TOC_START_KEYWORDS)
+ 
+ 
+def _is_boundary_page_et(page) -> bool:
+    """
+    Return True when this page should STOP TOC extraction.
+    Checks for parts-table signals OR image-heavy layout.
+    Header/footer text of diagram pages is NOT used as input data.
+    """
+    blocks = page.get_text("dict")["blocks"]
+    image_block_count = sum(1 for b in blocks if b.get("type") == 1)
+    raw_text = page.get_text("text")
+ 
+    if any(sig in raw_text for sig in _BOUNDARY_SIGNALS):
+        return True
+ 
+    stripped = raw_text.strip()
+    if image_block_count >= _DIAGRAM_IMAGE_THRESHOLD and len(stripped) < _DIAGRAM_TEXT_MAX_CHARS:
+        return True
+ 
+    return False
+ 
+ 
+def _is_weichai_skip_et(text: str) -> bool:
+    return any(p in text for p in _WEICHAI_SKIP)
+ 
+ 
+def _clean_en_label_et(en: str) -> str:
+    en = re.sub(r"[()]", "", en)
+    parts = en.split()
+    deduped: List[str] = []
+    for p in parts:
+        if deduped and deduped[-1].upper() == p.upper():
+            continue
+        deduped.append(p)
+    return " ".join(deduped).strip()
+ 
+ 
+# ── Revised extract_weichai_engine_toc ────────────────────────────────────
+ 
 def extract_weichai_engine_toc(pdf_path: str) -> Dict:
     """
     Parse a Weichai Engine bilingual TOC PDF and return a 3-level category
     structure compatible with batch_create_type_categories_and_categories().
-
-    Detection rules (per TOC line):
-      • EN font bold (TimesNewRomanPS-BoldMT) AND x0 ≤ 50 → Category
-      • Any other line with CN or EN text               → Type Category (subtype)
-
-    No AI calls are made — extraction is 100% rule-based from the text layer.
-
-    Args:
-        pdf_path: Path to the Weichai Engine TOC PDF.
-
+ 
+    SCOPE (v2):
+    ───────────
+    • Start : Page that contains "目录" or "CONTENTS" (Cover / Foreword
+              pages before this are always ignored).
+    • End   : Page that contains diagram/illustration signals or is
+              image-heavy (WP10 catalog header, 图序号, Pos., etc.).
+    • Multi-page TOC: extraction continues without injecting auto-fill
+              entries when the TOC spans more than one page.
+ 
+    DATA INTEGRITY (v2):
+    ─────────────────────
+    • Watermarks (任志军, wangmd, date stamps) never appear in output.
+    • Header/footer text on diagram pages is never read as TOC data.
+    • Only text at x0 < 200 (not far-right page headers) is processed.
+ 
     Returns:
         {
-          "categories": [
-            {
-              "category_name_en":     "Engine Block Group",
-              "category_name_cn":     "机体结合组",
-              "category_description": "",
-              "data_type": [
-                {
-                  "type_category_name_en":     "Crankcase Assembly",
-                  "type_category_name_cn":     "机体总成",
-                  "type_category_description": ""
-                }
-              ]
-            }
-          ]
+          "categories": [ { category_name_en, category_name_cn,
+                            category_description, data_type: [...] } ]
         }
     """
     import fitz
-
+    from collections import OrderedDict
+ 
     doc = fitz.open(pdf_path)
+    total_pages = len(doc)
     logger.info(
-        "Weichai TOC extractor: %d page(s) in '%s'", len(doc), Path(pdf_path).name
+        "Weichai TOC extractor v2: %d page(s) in '%s'", total_pages, pdf_path
     )
-
-    raw_entries: List[Tuple[float, bool, str, str]] = []  # (x0, bold_en, cn, en)
-
-    for page_idx in range(len(doc)):
+ 
+    # ── Step 1: find TOC start page ───────────────────────────────────────
+    toc_start = None
+    for idx in range(total_pages):
+        if _is_toc_marker_page_et(doc[idx]):
+            toc_start = idx
+            logger.info("TOC marker found at page %d", idx + 1)
+            break
+ 
+    if toc_start is None:
+        logger.warning(
+            "No TOC marker (目录/CONTENTS) found — "
+            "falling back to page 1."
+        )
+        toc_start = 0
+ 
+    # ── Step 2: iterate, collect entries, stop at boundary ───────────────
+    categories: OrderedDict[str, Dict] = OrderedDict()
+    current_category: Optional[Dict] = None
+    toc_pages_processed = 0
+ 
+    for page_idx in range(toc_start, total_pages):
         page = doc[page_idx]
+ 
+        # Allow the TOC marker page itself through even if it has mild signals;
+        # stop on any subsequent boundary page.
+        is_first_page = (page_idx == toc_start)
+        if not is_first_page and _is_boundary_page_et(page):
+            logger.info(
+                "Page %d: boundary detected — stopping after %d TOC page(s).",
+                page_idx + 1, toc_pages_processed,
+            )
+            break
+ 
+        toc_pages_processed += 1
+ 
         for block in page.get_text("dict")["blocks"]:
             if block.get("type") != 0:
                 continue
@@ -163,72 +263,105 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
                 spans = line.get("spans", [])
                 cn_parts: List[str] = []
                 en_parts: List[str] = []
-                x0_min = 9999.0
+                x0_min   = 9999.0
                 en_is_bold = False
-
+ 
                 for span in spans:
                     text = span["text"].strip()
-                    if not text or _is_weichai_skip(text):
+ 
+                    # ── Anti-auto-fill filter ──────────────────────────
+                    if not text or _is_weichai_skip_et(text):
                         continue
                     if re.match(r"^\.{3,}$", text):   # dot leaders
                         continue
                     if re.match(r"^\d+$", text):        # page numbers
                         continue
-
+                    # ──────────────────────────────────────────────────
+ 
                     flags = span.get("flags", 0)
                     is_bold = bool(flags & 16)
                     x0 = span["bbox"][0]
                     x0_min = min(x0_min, x0)
-
+ 
                     if re.search(r"[\u4e00-\u9fff]", text):
                         cn_parts.append(text)
                     elif re.search(r"[A-Za-z]", text):
                         en_parts.append(text)
                         if is_bold:
                             en_is_bold = True
-
+ 
                 cn = "".join(cn_parts).strip()
-                en = _clean_en_label(" ".join(en_parts))
-
-                if (cn or en) and x0_min < 200:   # exclude far-right artefacts
-                    raw_entries.append((x0_min, en_is_bold, cn, en))
-
+                en = _clean_en_label_et(" ".join(en_parts))
+ 
+                # Discard far-right running-header artefacts
+                if not (cn or en) or x0_min >= 200:
+                    continue
+ 
+                is_category = (x0_min <= _X_CATEGORY_MAX) and en_is_bold
+ 
+                if is_category:
+                    cat_key = cn or en
+                    if cat_key not in categories:
+                        categories[cat_key] = {
+                            "category_name_en":     en,
+                            "category_name_cn":     cn,
+                            "category_description": "",
+                            "subtypes":             OrderedDict(),
+                        }
+                        logger.info(
+                            "Page %d: [CAT] '%s' / '%s'",
+                            page_idx + 1, en, cn,
+                        )
+                    current_category = categories[cat_key]
+ 
+                else:
+                    # Subtype entry — safe skip if no parent yet (no auto-fill)
+                    if current_category is None:
+                        logger.debug(
+                            "Page %d: subtype '%s' has no parent yet — "
+                            "skipped (no auto-fill)",
+                            page_idx + 1, en or cn,
+                        )
+                        continue
+ 
+                    dedup_key = cn or en
+                    if dedup_key and dedup_key not in current_category["subtypes"]:
+                        current_category["subtypes"][dedup_key] = {
+                            "type_category_name_en":     en,
+                            "type_category_name_cn":     cn,
+                            "type_category_description": "",
+                        }
+                        logger.debug(
+                            "Page %d:   └─ '%s' / '%s'",
+                            page_idx + 1, en, cn,
+                        )
+ 
     doc.close()
-    logger.info("Weichai TOC: %d raw entries collected", len(raw_entries))
-
-    # ── Assemble 3-level hierarchy ─────────────────────────────────────────
-    categories: List[Dict] = []
-    current_category: Optional[Dict] = None
-
-    for x0, bold_en, cn, en in raw_entries:
-        is_category = (x0 <= _X_CATEGORY_MAX) and bold_en
-
-        if is_category:
-            current_category = {
-                "category_name_en":     en,
-                "category_name_cn":     cn,
-                "category_description": "",
-                "data_type":            [],
-            }
-            categories.append(current_category)
-            logger.info("  [CAT] '%s' / '%s'", en, cn)
-        else:
-            if current_category is None:
-                logger.debug("Skipped subtype before first category: '%s'", en or cn)
-                continue
-            current_category["data_type"].append({
-                "type_category_name_en":     en,
-                "type_category_name_cn":     cn,
-                "type_category_description": "",
-            })
-            logger.debug("        └─ '%s' / '%s'", en, cn)
-
+ 
+    if toc_pages_processed == 0:
+        logger.warning(
+            "No TOC pages processed. Verify the PDF has a 目录/CONTENTS section."
+        )
+ 
+    # ── Build final output ─────────────────────────────────────────────────
+    output_categories = []
+    for cat_data in categories.values():
+        output_categories.append({
+            "category_name_en":     cat_data["category_name_en"],
+            "category_name_cn":     cat_data["category_name_cn"],
+            "category_description": "",
+            "data_type":            list(cat_data["subtypes"].values()),
+        })
+ 
     logger.info(
-        "Weichai TOC complete: %d categories, %d total subtypes",
-        len(categories),
-        sum(len(c["data_type"]) for c in categories),
+        "Weichai TOC v2 complete: %d categories, %d total subtypes "
+        "(processed %d TOC page(s) / %d total pages)",
+        len(output_categories),
+        sum(len(c["data_type"]) for c in output_categories),
+        toc_pages_processed,
+        total_pages,
     )
-    return {"categories": categories}
+    return {"categories": output_categories}
 
 
 # ===========================================================================

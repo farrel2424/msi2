@@ -11,6 +11,18 @@ HIERARCHY (3-level):
   Master Category → Category (bold in TOC) → Type Category (indented in TOC)
   "Engine"          "Engine Block Group"      "Crankcase Assembly"
 
+=============================================================================
+REVISI RUANG LINGKUP (v2):
+  1. Titik Awal  : Ekstraksi dimulai dari halaman yang mengandung "目录" /
+                   "CONTENTS". Cover dan Foreword diabaikan sepenuhnya.
+  2. Titik Henti : Proses berhenti otomatis ketika sistem mendeteksi halaman
+                   yang mengandung diagram / ilustrasi / tabel suku cadang.
+  3. Anti Auto-fill : Sistem tidak melakukan entri sembarangan saat TOC
+                   terputus oleh pergantian halaman (multi-page TOC didukung).
+  4. Integritas Data : Teks header/footer/watermark (mis. "任志军", "wangmd")
+                   tidak pernah masuk ke output category/subtype.
+=============================================================================
+
 TOC page structure:
   **机体结合组(Engine Block Group)**  ............... 1    ← bold → Category
       机体总成(crankcase assembly)  ................. 3    ← indented → Type Category
@@ -31,17 +43,8 @@ Stage 1 output (compatible with batch_create_type_categories_and_categories):
         "data_type": [
           { "type_category_name_en": "Crankcase Assembly",
             "type_category_name_cn": "机体总成",
-            "type_category_description": "" },
-          { "type_category_name_en": "Cylinder Block Preassembly",
-            "type_category_name_cn": "气缸体预装配",
             "type_category_description": "" }
         ]
-      },
-      {
-        "category_name_en": "Oil Seal Group",
-        "category_name_cn": "油封结合组",
-        "category_description": "",
-        "data_type": []
       }
     ],
     "code_to_category": { "Engine Block Group": "Engine Block Group", ... }
@@ -86,7 +89,7 @@ _BILINGUAL_RE = re.compile(
 
 # Lines to filter out (watermarks, boilerplate, page numbers)
 _NOISE_PATTERNS = [
-    r'wangmd', r'zhangzhi', r'shacman', r'王明德',
+    r'wangmd', r'zhangzhi', r'shacman', r'王明德', r'任志军', r'renzj',
     r'\d{4}/\d{2}/\d{2}',    # date stamps like 2023/09/22
     r'^\d+:\d+:\d+',          # time stamps like 13:18:08
 ]
@@ -103,11 +106,93 @@ _CATALOG_TITLE_SIGNAL = 'WP10 SERIES ENGINE PARTS CATALOGUE'
 _X_CATEGORY_MAX = 50
 
 # Watermark / metadata lines to skip during TOC parsing
-_TOC_SKIP_WORDS = ["wangmd", "2023/", "2024/", "shacman.com", "zhangzhi",
-                   "CONTENTS", "目录", "王明德"]
+_TOC_SKIP_WORDS = [
+    "wangmd", "2023/", "2024/", "shacman.com", "zhangzhi", "任志军", "renzj",
+    "CONTENTS", "目录", "王明德",
+]
+
+# Keywords that signal the START of the TOC section
+_TOC_START_KEYWORDS = ("目录", "CONTENTS")
+
+# Signals that a page is a diagram / parts table page (TOC boundary)
+_BOUNDARY_SIGNALS = (
+    _CATALOG_TITLE_SIGNAL,   # WP10 SERIES ENGINE PARTS CATALOGUE (parts pages)
+    "图序号",                 # Parts table column header
+    "Pos.",                  # Alternative parts table header
+    "Part Number",
+    "件号",
+)
+
+# Minimum image-block count + max text length to flag a page as diagram-only
+_DIAGRAM_IMAGE_THRESHOLD  = 1
+_DIAGRAM_TEXT_MAX_CHARS   = 200
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+# ── Scope-boundary helpers (NEW in v2) ────────────────────────────────────
+
+def _is_toc_marker_page(page: fitz.Page) -> bool:
+    """
+    Return True if this page contains a TOC section header (目录 / CONTENTS).
+    Used to locate the exact start page of the table of contents.
+    """
+    text = page.get_text("text")
+    return any(kw in text for kw in _TOC_START_KEYWORDS)
+
+
+def _is_boundary_page(page: fitz.Page) -> bool:
+    """
+    Return True if this page should STOP TOC extraction.
+
+    A boundary page is:
+      (a) A parts-table page (contains 图序号 / Pos. / catalog title), OR
+      (b) A diagram-only page (≥1 image block with very little text).
+
+    Header/footer text on diagram pages is intentionally ignored — the
+    function checks *structural* signals, not arbitrary text snippets.
+    """
+    blocks = page.get_text("dict")["blocks"]
+
+    # Count image blocks (type == 1)
+    image_block_count = sum(1 for b in blocks if b.get("type") == 1)
+
+    # Full page text (for signal matching)
+    raw_text = page.get_text("text")
+
+    # (a) Parts-table signals
+    if any(sig in raw_text for sig in _BOUNDARY_SIGNALS):
+        return True
+
+    # (b) Image-heavy with minimal text → diagram page
+    stripped_text = raw_text.strip()
+    if (
+        image_block_count >= _DIAGRAM_IMAGE_THRESHOLD
+        and len(stripped_text) < _DIAGRAM_TEXT_MAX_CHARS
+    ):
+        return True
+
+    return False
+
+
+def _find_toc_start_page(doc: fitz.Document) -> int:
+    """
+    Scan the document and return the index of the first TOC page.
+    Returns 0 (beginning) if no TOC marker is found, with a warning.
+    """
+    for page_idx in range(len(doc)):
+        if _is_toc_marker_page(doc[page_idx]):
+            logger.info(
+                "TOC detected at page %d (0-indexed)", page_idx + 1
+            )
+            return page_idx
+
+    logger.warning(
+        "No TOC marker (目录/CONTENTS) found — "
+        "starting extraction from page 1 as fallback."
+    )
+    return 0
+
+
+# ── Existing helpers (unchanged) ──────────────────────────────────────────
 
 def _is_noise_line(line: str) -> bool:
     """True if line is a watermark / page-number / boilerplate."""
@@ -169,17 +254,7 @@ def _clean_lines(text: str) -> List[str]:
     return lines
 
 
-# ── TOC parsing (Stage 1) ─────────────────────────────────────────────────
-#
-# FIX: Previously, extract_weichai_engine_categories() read TABLE pages
-# (pages containing '图序号'/'Pos.') and extracted only flat section titles.
-# This produced a flat list with no data_type hierarchy.
-#
-# Now: we parse the TOC pages using PyMuPDF's font/position dict to detect:
-#   Bold font (flags & 16, or "Bold" in font name) + x0 ≤ 50 → Category
-#   All other bilingual entries under a Category             → Type Category
-#
-# This matches the visual structure of the Weichai DHL TOC exactly.
+# ── TOC parsing — per-page font/position reader ───────────────────────────
 
 def _parse_bilingual_entry(cn_text: str, en_text: str) -> Tuple[str, str]:
     """
@@ -197,11 +272,17 @@ def _extract_toc_from_page(page: fitz.Page) -> List[Tuple[float, bool, str, str]
     Parse one page using PyMuPDF font-dict and return a list of:
         (x0, is_bold_en, cn_text, en_text)
     for each bilingual TOC entry found.
+
+    ANTI-AUTO-FILL GUARANTEE:
+    Only spans that pass the _is_toc_skip() filter are included.
+    Dot leaders (.....) and pure page-number tokens are discarded.
+    Entries with x0 ≥ 200 (far-right artefacts / running headers) are dropped.
     """
     entries: List[Tuple[float, bool, str, str]] = []
 
     for block in page.get_text("dict")["blocks"]:
         if block.get("type") != 0:
+            # Skip non-text blocks (images, etc.) entirely
             continue
         for line in block.get("lines", []):
             spans = line.get("spans", [])
@@ -212,12 +293,17 @@ def _extract_toc_from_page(page: fitz.Page) -> List[Tuple[float, bool, str, str]
 
             for span in spans:
                 text = span["text"].strip()
-                if not text or _is_toc_skip(text):
+
+                # ── Strict skip rules (anti-auto-fill) ──────────────────
+                if not text:
                     continue
-                if re.match(r"^\.{3,}$", text):   # dot leaders
+                if _is_toc_skip(text):
                     continue
-                if re.match(r"^\d+$", text):        # page numbers
+                if re.match(r"^\.{3,}$", text):    # dot leaders ......
                     continue
+                if re.match(r"^\d+$", text):         # page numbers
+                    continue
+                # ────────────────────────────────────────────────────────
 
                 flags = span.get("flags", 0)
                 font  = span.get("font", "")
@@ -235,7 +321,8 @@ def _extract_toc_from_page(page: fitz.Page) -> List[Tuple[float, bool, str, str]
             cn = "".join(cn_parts).strip()
             en = " ".join(en_parts).strip()
 
-            if (cn or en) and x0_min < 200:   # exclude far-right artefacts
+            # Discard far-right artefacts (running headers / footers)
+            if (cn or en) and x0_min < 200:
                 entries.append((x0_min, en_is_bold, cn, en))
 
     return entries
@@ -250,15 +337,21 @@ def extract_weichai_engine_categories(
     """
     Extract 3-level category structure from a Weichai engine partbook TOC.
 
-    FIXED: Now parses TOC pages using PyMuPDF font/position data to build
-    the correct Master → Category → Type Category hierarchy:
-      - Bold entry (en_is_bold=True) at x0 ≤ _X_CATEGORY_MAX → Category
-      - All bilingual entries directly under a Category       → Type Categories
+    SCOPE (v2):
+    ───────────
+    • Start : First page that contains "目录" or "CONTENTS".
+              Cover and Foreword pages are skipped automatically.
+    • End   : First page that contains diagram/illustration signals
+              (WP10 catalog header, 图序号, Pos., image-heavy page).
+    • Multi-page TOC: extraction continues across page breaks without
+              inserting any auto-fill entries.
 
-    Previously this function read TABLE pages and returned only a flat list.
-    It now reads ALL pages, detects TOC entries by font, and returns
-    data_type-populated categories compatible with
-    batch_create_type_categories_and_categories().
+    DATA INTEGRITY (v2):
+    ─────────────────────
+    • Watermarks, dates, author names (任志军, wangmd, etc.) are always
+      filtered out — they never appear in type_category_name_cn/en.
+    • Only text that passes _is_toc_skip() and is inside x0 < 200
+      (not far-right running headers) is considered.
 
     Args:
         pdf_path:       Path to the Weichai engine partbook PDF.
@@ -266,37 +359,47 @@ def extract_weichai_engine_categories(
 
     Returns:
         {
-          "categories": [
-            { "category_name_en": "Engine Block Group",
-              "category_name_cn": "机体结合组",
-              "category_description": "",
-              "data_type": [
-                { "type_category_name_en": "Crankcase Assembly",
-                  "type_category_name_cn": "机体总成",
-                  "type_category_description": "" }
-              ] },
-            { "category_name_en": "Oil Seal Group",
-              "category_name_cn": "油封结合组",
-              "category_description": "",
-              "data_type": [] },
-            ...
-          ],
-          "code_to_category": { "Engine Block Group": "Engine Block Group", ... }
+          "categories": [ ... ],
+          "code_to_category": { ... }
         }
     """
-    logger.info("Weichai Stage 1 (TOC): opening '%s'", pdf_path)
+    logger.info("Weichai Stage 1 (TOC) v2: opening '%s'", pdf_path)
 
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
 
-    # Ordered dict: category_en → { cn, data_type: OrderedDict{dedup_key → entry} }
+    # ── Step 1: locate TOC start page ─────────────────────────────────────
+    toc_start = _find_toc_start_page(doc)
+    logger.info(
+        "TOC extraction will begin at page %d / %d",
+        toc_start + 1, total_pages,
+    )
+
+    # ── Step 2: iterate TOC pages; stop at boundary ───────────────────────
     categories: OrderedDict[str, Dict] = OrderedDict()
     current_cat_en: Optional[str] = None
+    toc_pages_processed = 0
 
-    for page_idx in range(total_pages):
+    for page_idx in range(toc_start, total_pages):
         page = doc[page_idx]
-        entries = _extract_toc_from_page(page)
 
+        # ── Boundary check: stop at diagram / parts page ──────────────────
+        # Exception: the TOC marker page itself may contain "CONTENTS" text
+        # alongside actual TOC entries — allow it through on the first pass.
+        is_first_page = (page_idx == toc_start)
+        if not is_first_page and _is_boundary_page(page):
+            logger.info(
+                "Page %d: diagram/parts boundary detected — "
+                "stopping Stage 1 TOC extraction after %d TOC page(s).",
+                page_idx + 1, toc_pages_processed,
+            )
+            break
+
+        toc_pages_processed += 1
+        entries = _extract_toc_from_page(page)
+        logger.debug("Page %d: %d raw TOC entries", page_idx + 1, len(entries))
+
+        # ── Process each (x0, bold, cn, en) entry ─────────────────────────
         for x0, en_is_bold, cn, en in entries:
             if not cn and not en:
                 continue
@@ -305,7 +408,7 @@ def extract_weichai_engine_categories(
             if not en_clean and not cn_clean:
                 continue
 
-            # Determine level: bold EN at x0 ≤ threshold → Category
+            # Bold EN at x0 ≤ _X_CATEGORY_MAX → top-level Category
             is_category = en_is_bold and x0 <= _X_CATEGORY_MAX
 
             if is_category:
@@ -321,11 +424,14 @@ def extract_weichai_engine_categories(
                 current_cat_en = en_clean
 
             else:
-                # Type Category — belongs to the current Category
+                # Type Category — must have an active parent Category.
+                # If none exists yet (e.g. page break before first Category),
+                # we log and skip rather than inventing a parent.
                 if current_cat_en is None:
                     logger.debug(
-                        "Page %d: subtype '%s' before first category — skipped",
-                        page_idx + 1, en_clean,
+                        "Page %d: subtype '%s' / '%s' has no parent Category yet — "
+                        "skipped (safe: no auto-fill)",
+                        page_idx + 1, en_clean, cn_clean,
                     )
                     continue
 
@@ -343,7 +449,13 @@ def extract_weichai_engine_categories(
 
     doc.close()
 
-    # Build final output
+    if toc_pages_processed == 0:
+        logger.warning(
+            "No TOC pages were processed. "
+            "Check that the PDF has a '目录'/'CONTENTS' section."
+        )
+
+    # ── Build final output ─────────────────────────────────────────────────
     output_categories = []
     code_to_category: Dict[str, str] = {}
 
@@ -372,8 +484,10 @@ def extract_weichai_engine_categories(
 
     total_subtypes = sum(len(c["data_type"]) for c in output_categories)
     logger.info(
-        "Weichai Stage 1 complete: %d categories, %d subtypes (from %d pages)",
-        len(output_categories), total_subtypes, total_pages,
+        "Weichai Stage 1 complete: %d categories, %d subtypes "
+        "(processed %d TOC page(s) out of %d total)",
+        len(output_categories), total_subtypes,
+        toc_pages_processed, total_pages,
     )
 
     return {
