@@ -303,7 +303,11 @@ def api_approve_structure(job_id: str):
 
     body        = request.get_json(force=True) or {}
     edited_data = body.get("extracted_data") or job.get("extracted_data", {})
-    approved_map = {}
+    # Ambil map lama dari Stage 1 (sudah berisi subtype → parent mappings)
+    with job_lock:
+        existing_map = job_status[job_id].get("code_to_category", {})
+
+    approved_map = dict(existing_map)  # mulai dari map lama, jangan dibuang
     for cat in edited_data.get("categories", []):
         cn = cat.get("category_name_cn", "")
         en = cat.get("category_name_en", "")
@@ -311,6 +315,15 @@ def api_approve_structure(job_id: str):
             approved_map[cn] = en
         if en:
             approved_map[en] = en
+    # Tambahkan juga mapping subtype → parent category
+        for tc in cat.get("data_type", []):
+            tc_en = tc.get("type_category_name_en", "")
+            tc_cn = tc.get("type_category_name_cn", "")
+            if tc_en and en:
+                approved_map[tc_en] = en
+            if tc_cn and en:
+                approved_map[tc_cn] = en
+
     with job_lock:
         job_status[job_id]["code_to_category"] = approved_map
 

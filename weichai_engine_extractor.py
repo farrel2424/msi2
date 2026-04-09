@@ -705,6 +705,11 @@ def extract_weichai_engine_parts(
 
     doc.close()
 
+# Case-insensitive index dari category_map
+    _cat_map_lower: Dict[str, str] = {}
+    for k, v in (category_map or {}).items():
+        _cat_map_lower[k.lower()] = v
+
     output: List[Dict] = []
     for en_name, grp in groups.items():
         merged = _merge_parts(grp["raw_parts"])
@@ -725,9 +730,24 @@ def extract_weichai_engine_parts(
             for i, p in enumerate(merged, start=1)
         ]
 
+        cn_name = grp["category_name_cn"]
+        parent_cat_en = (
+            _cat_map_lower.get(en_name.lower())
+            or _cat_map_lower.get(cn_name.lower() if cn_name else "")
+            or ""
+        )
+
+        if parent_cat_en:
+            logger.info("'%s' → parent category: '%s'", en_name, parent_cat_en)
+        else:
+            logger.warning(
+                "'%s': parent category tidak ditemukan di category_map (%d entri).",
+                en_name, len(_cat_map_lower),
+            )
+
         output.append({
-            "category_name_en": grp["category_name_en"],
-            "category_name_cn": grp["category_name_cn"],
+            "category_name_en": parent_cat_en,   # ← FIXED: parent, bukan self
+            "category_name_cn": cn_name,
             "subtype_name_en":  grp["subtype_name_en"],
             "subtype_name_cn":  grp["subtype_name_cn"],
             "subtype_code":     "",

@@ -1142,11 +1142,54 @@ class MotorsightsEPCClient:
                     parts                     = parts,
                 )
                 if ok and (resp or {}).get("skipped"):
-                    results["skipped"].append({
-                        "subtype_name_en": subtype_name_en,
-                        "reason": "Parts already exist in DB",
-                    })
-                    self.logger.info("↷ '%s': already exists, skipped", subtype_name_en)
+                    # Jangan lewati — cari item_category_id lalu update via PUT
+                    self.logger.info(
+                        "↷ '%s': sudah ada di DB — mencari item_category_id untuk di-update …",
+                        subtype_name_en,
+                    )
+                    # Refresh item_cat_map untuk dokumen ini
+                    fresh_map = self._get_all_item_categories_for_dokumen(dokumen_id)
+                    candidates_lookup = []
+                    candidates_lookup.append(subtype_name_en.lower())
+                    found_id = None
+                    for c in candidates_lookup:
+                        found_id = fresh_map.get(c)
+                        if found_id:
+                            break
+
+                    if found_id:
+                        self.logger.info(
+                            "  → Ditemukan item_category_id=%s, melakukan PUT …", found_id
+                        )
+                        ok2, resp2 = self.update_item_category_with_parts(
+                            item_category_id   = found_id,
+                            master_category_id = master_category_id,
+                            category_id        = resolved_cat_id,
+                            type_category_id   = None,
+                            dokumen_name       = dokumen_name,
+                            parts              = parts,
+                        )
+                        if ok2:
+                            results["updated"].append({
+                                "subtype_name_en":  subtype_name_en,
+                                "parts_count":      len(parts),
+                                "item_category_id": found_id,
+                            })
+                            results["total_parts_submitted"] += len(parts)
+                            self.logger.info("✓ '%s': %d parts diperbarui via PUT", subtype_name_en, len(parts))
+                        else:
+                            results["errors"].append({
+                                "subtype_name_en": subtype_name_en,
+                                "error": str((resp2 or {}).get("error", "PUT gagal")),
+                            })
+                    else:
+                        self.logger.warning(
+                            "  → item_category_id tidak ditemukan bahkan setelah refresh — benar-benar dilewati."
+                        )
+                        results["skipped"].append({
+                            "subtype_name_en": subtype_name_en,
+                            "reason": "Sudah ada tapi ID tidak ditemukan",
+                        })
                 elif ok:
                     results["created"].append({
                         "subtype_name_en": subtype_name_en,
@@ -1158,6 +1201,7 @@ class MotorsightsEPCClient:
                         "✓ Created item_category + %d parts for '%s' (transmission)",
                         len(parts), subtype_name_en,
                     )
+                
                 else:
                     results["errors"].append({
                         "subtype_name_en": subtype_name_en,
