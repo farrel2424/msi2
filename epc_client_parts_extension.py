@@ -435,10 +435,7 @@ class _PartsManagementMixin:
         )
         return overall_success, results
 
-
-# ==========================================================================
 # Module-level helpers
-# ==========================================================================
 
 def _get_next_target_index(existing_details: List[Dict]) -> int:
     """Return the next T-ID integer index from existing item_category_details."""
