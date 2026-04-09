@@ -1105,87 +1105,114 @@ class MotorsightsEPCClient:
             # Resolve category_id by category_name_en; no type_category needed.
             # ------------------------------------------------------------------
             if not subtype_code:
-                # category_name_en == subtype_name_en for transmission (same field aliased)
                 lookup_name = group_cat_en or subtype_name_en
-                self.logger.info(
-                    "Transmission 2-level path: looking up category_id for '%s'", lookup_name
+
+                # Deteksi apakah ini 3-level (subtype berbeda dari category)
+                # atau 2-level (subtype == category, parts langsung di Category)
+                is_subcategory = bool(
+                    group_cat_en
+                    and group_cat_en.lower() != subtype_name_en.lower()
                 )
-                resolved_cat_id = self._get_category_id_by_name(lookup_name, master_category_id)
- 
-                if not resolved_cat_id:
-                    self.logger.error(
-                        "Cannot resolve category_id for '%s' — "
-                        "make sure Stage 1 (category submission) ran first.",
-                        lookup_name,
-                    )
-                    results["errors"].append({
-                        "subtype_name_en": subtype_name_en,
-                        "error": (
-                            f"category '{lookup_name}' not found in DB — "
-                            "run Stage 1 first"
-                        ),
-                    })
-                    continue
- 
-                self.logger.info(
-                    "Resolved category_id=%s for '%s' — creating item_category (2-level)",
-                    resolved_cat_id, lookup_name,
-                )
-                ok, resp = self.create_item_category_with_parts(
-                    master_category_id        = master_category_id,
-                    category_id               = resolved_cat_id,
-                    type_category_id          = None,   # ← no subtype for Transmission
-                    item_category_name_en     = subtype_name_en,
-                    item_category_name_cn     = subtype_name_cn,
-                    item_category_description = "",
-                    dokumen_name              = dokumen_name,
-                    parts                     = parts,
-                )
-                if ok and (resp or {}).get("skipped"):
-                    # Jangan lewati — cari item_category_id lalu update via PUT
+
+                if is_subcategory:
+                    # ── 3-level path: cari type_category_id ──────────────────────
                     self.logger.info(
-                        "↷ '%s': sudah ada di DB — mencari item_category_id untuk di-update …",
+                        "Weichai 3-level path: '%s' adalah subcategory dari '%s'",
+                        subtype_name_en, group_cat_en,
+                    )
+                    resolved_cat_id = self._get_category_id_by_name(
+                        group_cat_en, master_category_id
+                    )
+                    if not resolved_cat_id:
+                        self.logger.error(
+                            "Cannot resolve category_id untuk parent '%s'", group_cat_en
+                        )
+                        results["errors"].append({
+                            "subtype_name_en": subtype_name_en,
+                            "error": f"Parent category '{group_cat_en}' tidak ditemukan di DB",
+                        })
+                        continue
+
+                    type_cat_id, _ = self.resolve_type_category_id_by_name(
+                        subtype_name_en,
+                        category_id=resolved_cat_id,
+                    )
+                    if not type_cat_id:
+                        self.logger.error(
+                            "Cannot resolve type_category_id untuk '%s'", subtype_name_en
+                        )
+                        results["errors"].append({
+                            "subtype_name_en": subtype_name_en,
+                            "error": f"Subcategory '{subtype_name_en}' tidak ditemukan di DB — jalankan Stage 1 dulu",
+                        })
+                        continue
+
+                    ok, resp = self.create_item_category_with_parts(
+                        master_category_id        = master_category_id,
+                        category_id               = resolved_cat_id,
+                        type_category_id          = type_cat_id,
+                        item_category_name_en     = subtype_name_en,
+                        item_category_name_cn     = subtype_name_cn,
+                        item_category_description = "",
+                        dokumen_name              = dokumen_name,
+                        parts                     = parts,
+                    )
+
+                else:
+                    # ── 2-level path: langsung pakai category_id ─────────────────
+                    self.logger.info(
+                        "Weichai 2-level path: '%s' langsung di Category level",
                         subtype_name_en,
                     )
-                    # Refresh item_cat_map untuk dokumen ini
-                    fresh_map = self._get_all_item_categories_for_dokumen(dokumen_id)
-                    candidates_lookup = []
-                    candidates_lookup.append(subtype_name_en.lower())
-                    found_id = None
-                    for c in candidates_lookup:
-                        found_id = fresh_map.get(c)
-                        if found_id:
-                            break
-
-                    if found_id:
-                        self.logger.info(
-                            "  → Ditemukan item_category_id=%s, melakukan PUT …", found_id
+                    resolved_cat_id = self._get_category_id_by_name(
+                        lookup_name, master_category_id
+                    )
+                    if not resolved_cat_id:
+                        self.logger.error(
+                            "Cannot resolve category_id untuk '%s'", lookup_name
                         )
+                        results["errors"].append({
+                            "subtype_name_en": subtype_name_en,
+                            "error": f"Category '{lookup_name}' tidak ditemukan di DB — jalankan Stage 1 dulu",
+                        })
+                        continue
+
+                    ok, resp = self.create_item_category_with_parts(
+                        master_category_id        = master_category_id,
+                        category_id               = resolved_cat_id,
+                        type_category_id          = None,
+                        item_category_name_en     = subtype_name_en,
+                        item_category_name_cn     = subtype_name_cn,
+                        item_category_description = "",
+                        dokumen_name              = dokumen_name,
+                        parts                     = parts,
+                    )
+
+                # ── Hasil POST (berlaku untuk kedua path) ─────────────────────────
+                if ok and (resp or {}).get("skipped"):
+                    fresh_map = self._get_all_item_categories_for_dokumen(dokumen_id)
+                    found_id = fresh_map.get(subtype_name_en.lower())
+                    if found_id:
                         ok2, resp2 = self.update_item_category_with_parts(
                             item_category_id   = found_id,
                             master_category_id = master_category_id,
                             category_id        = resolved_cat_id,
-                            type_category_id   = None,
+                            type_category_id   = type_cat_id if is_subcategory else None,
                             dokumen_name       = dokumen_name,
                             parts              = parts,
                         )
                         if ok2:
                             results["updated"].append({
-                                "subtype_name_en":  subtype_name_en,
-                                "parts_count":      len(parts),
-                                "item_category_id": found_id,
+                                "subtype_name_en": subtype_name_en,
+                                "parts_count":     len(parts),
                             })
                             results["total_parts_submitted"] += len(parts)
-                            self.logger.info("✓ '%s': %d parts diperbarui via PUT", subtype_name_en, len(parts))
                         else:
                             results["errors"].append({
                                 "subtype_name_en": subtype_name_en,
                                 "error": str((resp2 or {}).get("error", "PUT gagal")),
                             })
                     else:
-                        self.logger.warning(
-                            "  → item_category_id tidak ditemukan bahkan setelah refresh — benar-benar dilewati."
-                        )
                         results["skipped"].append({
                             "subtype_name_en": subtype_name_en,
                             "reason": "Sudah ada tapi ID tidak ditemukan",
@@ -1194,18 +1221,12 @@ class MotorsightsEPCClient:
                     results["created"].append({
                         "subtype_name_en": subtype_name_en,
                         "parts_count":     len(parts),
-                        "action":          "created (2-level / transmission)",
                     })
                     results["total_parts_submitted"] += len(parts)
-                    self.logger.info(
-                        "✓ Created item_category + %d parts for '%s' (transmission)",
-                        len(parts), subtype_name_en,
-                    )
-                
                 else:
                     results["errors"].append({
                         "subtype_name_en": subtype_name_en,
-                        "error": str((resp or {}).get("error", "create failed")),
+                        "error": str((resp or {}).get("error", "gagal")),
                     })
                 continue
  
