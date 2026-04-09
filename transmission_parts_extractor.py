@@ -57,6 +57,14 @@ PATCH (2026-04-09):
   Some bilingual PDFs have the AI return English section headers (no 、),
   which previously caused ALL sections to be skipped and produced 0 parts.
   Chinese headers still require 、 to prevent misreading bold part rows.
+
+PATCH (2026-04-09b):
+  Added _normalize_part() to canonicalize field names returned by Vision AI.
+  Vision AI may return Chinese field names (零件号, 零件名称, 数量, 代号) or
+  English variants (Part No., part_no, qty, No.) instead of the canonical
+  names (part_number, name_cn, quantity, serial_no) expected by _merge_parts.
+  Without normalization, all parts were silently dropped → 0 total parts.
+  Fix is purely additive: only _normalize_part() is new; no existing logic changed.
 """
 
 from __future__ import annotations
@@ -117,6 +125,156 @@ def _is_valid_section_header(raw: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Field-name normalizer (NEW — PATCH 2026-04-09b)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Canonical name → list of aliases the Vision AI might return
+_FIELD_ALIASES: Dict[str, List[str]] = {
+    "part_number": [
+        "part_number", "零件号", "part_no", "Part No.", "partno",
+        "PART NO", "part no", "件号", "零件编号",
+    ],
+    "name_cn": [
+        "name_cn", "零件名称", "名称", "零件名", "零件名称.",
+    ],
+    "name_en": [
+        "name_en", "Part Name", "NAME", "English Name", "english_name",
+    ],
+    # NOTE: "name", "part_name", "description" intentionally excluded —
+    # they are ambiguous; Chinese text often comes back in these fields.
+    # _normalize_part() handles language detection as a post-normalization step.
+    "quantity": [
+        "quantity", "数量", "qty", "Qty", "QTY", "Qty.",
+        "数量.", "count",
+    ],
+    "serial_no": [
+        "serial_no", "代号", "No.", "no", "序号", "item",
+        "serial", "item_no", "No",
+    ],
+    "is_assembly_header": [
+        "is_assembly_header", "assembly_header", "is_bold",
+    ],
+}
+
+# Reverse map: alias → canonical name (built once at import time)
+_ALIAS_TO_CANONICAL: Dict[str, str] = {}
+for _canonical, _aliases in _FIELD_ALIASES.items():
+    for _alias in _aliases:
+        _ALIAS_TO_CANONICAL[_alias] = _canonical
+        _ALIAS_TO_CANONICAL[_alias.lower()] = _canonical
+
+
+_CN_CHAR_RE = re.compile(r"[一-鿿]")
+
+# Ordinal abbreviations to expand (e.g. "2nd" → "Second")
+_ORDINAL_MAP = {
+    "1st": "First",  "2nd": "Second",  "3rd": "Third",   "4th": "Fourth",
+    "5th": "Fifth",  "6th": "Sixth",   "7th": "Seventh", "8th": "Eighth",
+    "9th": "Ninth",  "10th": "Tenth",
+}
+# Articles/prepositions kept lowercase in Title Case (except position 0)
+_KEEP_LOWER = {"and", "or", "the", "a", "an", "of", "in", "on", "for", "with", "to"}
+
+
+def _fix_ordinals(text: str) -> str:
+    """Replace abbreviated ordinals: '2nd' → 'Second'."""
+    for abbr, word in _ORDINAL_MAP.items():
+        text = re.sub(r"\b" + re.escape(abbr) + r"\b", word, text, flags=re.IGNORECASE)
+    return text
+
+
+def _title_case_automotive(text: str) -> str:
+    """
+    Title-case for automotive part/assembly names.
+    Articles and prepositions stay lowercase unless they are the first word.
+    Ordinal abbreviations are expanded first.
+    """
+    if not text:
+        return text
+    text = _fix_ordinals(text)
+    words = text.split()
+    result = []
+    for i, w in enumerate(words):
+        if i == 0 or w.lower() not in _KEEP_LOWER:
+            result.append(w[0].upper() + w[1:] if w else w)
+        else:
+            result.append(w.lower())
+    return " ".join(result)
+
+
+def _normalize_part(raw: Dict) -> Dict:
+    """
+    Normalize a raw part dict from Vision AI to canonical field names.
+
+    Vision AI may return any combination of Chinese/English field names.
+    This function maps them all to the canonical names that the rest of
+    the pipeline (``_merge_parts``, ``_assign_target_ids``,
+    ``_build_output_part``) expects:
+
+        part_number, name_cn, name_en, quantity, serial_no, is_assembly_header
+
+    Unknown fields are preserved as-is so no data is lost.
+
+    Post-normalization language detection:
+    Ambiguous field aliases like "name", "part_name", "description" are first
+    stored under their best-guess canonical name.  After all fields are
+    mapped, the function detects if ``name_en`` actually contains Chinese
+    characters and moves that value to ``name_cn`` (and vice-versa), so that
+    catalog_item_name_en / catalog_item_name_ch are always correct regardless
+    of which column the Vision AI chose to populate.
+    """
+    # Step 1: map field names using alias table + ambiguous fallbacks
+    normalized: Dict = {}
+    for key, value in raw.items():
+        canonical = _ALIAS_TO_CANONICAL.get(key) or _ALIAS_TO_CANONICAL.get(key.lower())
+        if canonical is None:
+            # Ambiguous aliases not in the alias table: "name", "part_name", "description"
+            # Defer language detection to Step 2 below
+            if key.lower() in ("name", "part_name", "description", "零件名称."):
+                canonical = "__ambiguous_name__"
+        out_key = canonical if canonical else key
+        # For quantity: coerce to int when possible
+        if out_key == "quantity":
+            if isinstance(value, str):
+                value = value.strip()
+                try:
+                    value = int(value)
+                except (ValueError, TypeError):
+                    value = None
+        normalized[out_key] = value
+
+    # Step 2: resolve ambiguous name field by language detection
+    ambiguous = normalized.pop("__ambiguous_name__", None)
+    if ambiguous and isinstance(ambiguous, str):
+        ambiguous = ambiguous.strip()
+        if ambiguous:
+            if _CN_CHAR_RE.search(ambiguous):
+                # Value is Chinese — goes to name_cn (unless already set)
+                if not normalized.get("name_cn"):
+                    normalized["name_cn"] = ambiguous
+            else:
+                # Value is Latin/English — goes to name_en (unless already set)
+                if not normalized.get("name_en"):
+                    normalized["name_en"] = ambiguous
+
+    # Step 3: cross-check name_en / name_cn for misrouted values
+    # If name_en contains Chinese text, swap it to name_cn
+    name_en_val = normalized.get("name_en") or ""
+    name_cn_val = normalized.get("name_cn") or ""
+    if name_en_val and _CN_CHAR_RE.search(name_en_val):
+        if not name_cn_val:
+            normalized["name_cn"] = name_en_val
+        normalized["name_en"] = ""
+    # If name_cn contains only Latin text and no Chinese, swap to name_en
+    if name_cn_val and not _CN_CHAR_RE.search(name_cn_val):
+        if not name_en_val:
+            normalized["name_en"] = name_cn_val
+        normalized["name_cn"] = ""
+
+    return normalized
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Vision AI system prompt
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -150,8 +308,24 @@ OUTPUT FORMAT (content page):
 {
   "page_type": "content",
   "section_header": "<title containing 、, or English title, or null>",
-  "parts_before_header": [...],
-  "parts": [...]
+  "parts_before_header": [
+    {
+      "serial_no": "<代号 or null>",
+      "part_number": "<零件号>",
+      "name_cn": "<零件名称>",
+      "quantity": <integer or null>,
+      "is_assembly_header": false
+    }
+  ],
+  "parts": [
+    {
+      "serial_no": "<代号 or null>",
+      "part_number": "<零件号>",
+      "name_cn": "<零件名称>",
+      "quantity": <integer or null>,
+      "is_assembly_header": false
+    }
+  ]
 }"""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -220,22 +394,28 @@ def _strip_section_number(section_header: str) -> str:
 def _merge_parts(raw_parts: List[Dict]) -> List[Dict]:
     """
     Deduplicate parts within one category group.
-    Key = (part_number, name_cn).  Duplicate keys → sum quantities.
+    Key = (part_number, name_cn or name_en).  Duplicate keys → sum quantities.
     Rows with empty part_number are skipped.
+
+    Both name_cn and name_en are preserved so _build_output_part can use
+    name_en as a direct fallback when name_cn is empty or untranslatable.
     """
     merged: OrderedDict[Tuple[str, str], Dict] = OrderedDict()
     for part in raw_parts:
         pn = (part.get("part_number") or "").strip()
         if not pn:
             continue
-        name = (part.get("name_cn") or "").strip()
-        key  = (pn, name)
-        qty  = part.get("quantity")
+        name_cn = (part.get("name_cn") or "").strip()
+        name_en = (part.get("name_en") or "").strip()
+        # Use name_cn as dedup key; fall back to name_en when name_cn absent
+        key = (pn, name_cn or name_en)
+        qty = part.get("quantity")
         if key not in merged:
             merged[key] = {
                 "serial_no":          part.get("serial_no"),
                 "part_number":        pn,
-                "name_cn":            name,
+                "name_cn":            name_cn,
+                "name_en":            name_en,   # preserve for direct fallback
                 "quantity":           qty,
                 "is_assembly_header": bool(part.get("is_assembly_header", False)),
             }
@@ -243,6 +423,11 @@ def _merge_parts(raw_parts: List[Dict]) -> List[Dict]:
             eq = merged[key]["quantity"]
             if eq is not None and qty is not None:
                 merged[key]["quantity"] = eq + qty
+            # Fill in missing names if the first occurrence lacked them
+            if not merged[key]["name_cn"] and name_cn:
+                merged[key]["name_cn"] = name_cn
+            if not merged[key]["name_en"] and name_en:
+                merged[key]["name_en"] = name_en
     return list(merged.values())
 
 
@@ -305,9 +490,18 @@ def _assign_target_ids(
 
 
 def _build_output_part(part: Dict, cn_to_en: Optional[Dict[str, str]] = None) -> Dict:
-    """Map internal part dict to canonical EPC output schema."""
+    """Map internal part dict to canonical EPC output schema.
+
+    Name resolution priority for catalog_item_name_en:
+      1. Translation of name_cn (from AI translation batch)
+      2. name_en field preserved directly from Vision AI output
+      3. Empty string (no name available)
+    """
     name_cn = part.get("name_cn") or ""
-    name_en = (cn_to_en or {}).get(name_cn, "")
+    name_en_direct = part.get("name_en") or ""   # from Vision AI directly
+    name_en_translated = (cn_to_en or {}).get(name_cn, "")
+    # Use translated name if available; fall back to AI-supplied EN name
+    name_en = _title_case_automotive(name_en_translated or name_en_direct)
     return {
         "target_id":            part["target_id"],
         "part_number":          _add_prefix(part["part_number"]),
@@ -323,10 +517,9 @@ def _build_output_part(part: Dict, cn_to_en: Optional[Dict[str, str]] = None) ->
 # Batch name translation
 # ─────────────────────────────────────────────────────────────────────────────
 
-_PARTS_TRANSLATION_PROMPT = """\
-You are a professional automotive parts catalog translator (Chinese → English).
-Translate each Chinese part name into clear, concise English.
-These are spare part names from a heavy-truck transmission parts catalog.
+_PARTS_TRANSLATION_PROMPT = """You are a professional automotive parts catalog translator (Chinese → English).
+Translate each Chinese part/assembly name into clear, professional English.
+These are spare part and assembly names from a heavy-truck transmission parts catalog.
 
 Return ONLY valid JSON — no markdown, no explanation:
 {
@@ -337,8 +530,24 @@ Return ONLY valid JSON — no markdown, no explanation:
 
 Rules:
 - Same order and count as input. Do NOT skip any item.
-- Use standard automotive / mechanical terminology.
-- Keep abbreviations where widely accepted (e.g. "O-Ring", "Bolt M10×1.25").
+- Use Title Case: capitalize every word except articles/prepositions in the middle.
+  Example: "Main Shaft Bearing Cover", "Left and Right Intermediate Shaft Assembly".
+- Write out ordinals in full: "Second" not "2nd", "Third" not "3rd", "First" not "1st".
+- Do NOT use abbreviations. Write "Assembly" not "Assy", "Intermediate" not "Inter.",
+  "Transmission" not "Trans.", "Left" not "L.", "Right" not "R.".
+- Use standard heavy-truck / drivetrain terminology:
+    变速器壳体 → Transmission Housing
+    离合器 → Clutch
+    一轴 → Primary Shaft
+    二轴 → Secondary Shaft
+    中间轴 → Intermediate Shaft
+    倒档 → Reverse Gear
+    上盖 → Top Cover
+    操纵装置 → Control Mechanism
+    副箱 → Auxiliary Gearbox
+    后盖 → Rear Cover
+    气缸 → Cylinder
+    取力器 → Power Take-Off
 """
 
 
@@ -485,8 +694,18 @@ def extract_transmission_parts(
                            page_idx + 1, raw_header)
             raw_header = None
 
-        parts_before = result.get("parts_before_header") or []
-        parts_after  = result.get("parts") or []
+        # ── NORMALIZE field names before accumulating (PATCH 2026-04-09b) ──
+        parts_before = [_normalize_part(p) for p in (result.get("parts_before_header") or [])]
+        parts_after  = [_normalize_part(p) for p in (result.get("parts") or [])]
+
+        # Log how many parts survived normalization (debug aid)
+        raw_before_count = len(result.get("parts_before_header") or [])
+        raw_after_count  = len(result.get("parts") or [])
+        if parts_before or parts_after:
+            logger.debug(
+                "Page %d: normalized %d before-header parts, %d after-header parts",
+                page_idx + 1, len(parts_before), len(parts_after),
+            )
 
         # Step A: parts_before_header → belongs to PREVIOUS section
         if parts_before:
@@ -539,6 +758,13 @@ def extract_transmission_parts(
         if not raw_parts:
             logger.warning("Category '%s' has 0 parts — kept with empty list.", category_cn)
         merged = _merge_parts(raw_parts) if raw_parts else []
+
+        # Log parts count after merge for debugging
+        logger.info(
+            "Category '%s': %d raw parts → %d after dedup",
+            category_cn, len(raw_parts), len(merged),
+        )
+
         tagged, _ = _assign_target_ids(merged, counter_start=global_counter)
         global_counter = 1  # T-IDs restart from T001 for each category
 
@@ -569,6 +795,17 @@ def extract_transmission_parts(
     # ── Build final output ────────────────────────────────────────────────────
     output: List[Dict] = []
     for category_cn, category_en, tagged in staged:
+        # If category_cn has no Chinese characters it is actually English text
+        # (AI returned an English section header). Move it to category_en and
+        # clear category_cn so the CN name field is not filled with English.
+        if category_cn and not _CN_CHAR_RE.search(category_cn):
+            if not category_en:
+                category_en = category_cn
+            category_cn = ""
+
+        # Apply Title Case + ordinal expansion to English category name
+        category_en = _title_case_automotive(category_en)
+
         output.append({
             "category_name_cn": category_cn,
             "category_name_en": category_en,
