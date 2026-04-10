@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from unittest import result
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -110,7 +111,7 @@ def _run_stage1(job_id: str, pdf_path: str, config_params: dict):
             job_status[job_id]["status"]           = "review"
             job_status[job_id]["message"]          = "Structure extracted — awaiting review"
             job_status[job_id]["extracted_data"]   = result.get("extracted_data", {})
-            job_status[job_id]["code_to_category"] = result.get("code_to_category", {})
+            job_status[job_id]["subtype_cn_to_en"] = result.get("subtype_cn_to_en", {})
             job_status[job_id]["stage"]            = "Categories Extraction"
             job_status[job_id]["progress"]         = 50
 
@@ -137,6 +138,7 @@ def _run_stage2(
     try:
         with job_lock:
             code_to_category = job_status[job_id].get("code_to_category", {})
+            subtype_cn_to_en = job_status[job_id].get("subtype_cn_to_en", {}) 
 
         config     = EPCAutomationConfig(**config_params)
         automation = EPCPDFAutomation(config)
@@ -147,7 +149,7 @@ def _run_stage2(
             dokumen_name       = dokumen_name,
             target_id_start    = target_id_start,
             auto_submit        = False,
-            code_to_category   = code_to_category,
+            code_to_category   = {**code_to_category, **subtype_cn_to_en},
             custom_prompt      = custom_prompt or None,
         )
 

@@ -444,8 +444,16 @@ def extract_axle_drive_parts(
     for group_key, grp in groups.items():
         raw_parts = grp['raw_parts']
         cn_name   = grp['subtype_name_cn']
-        en_name   = translations.get(cn_name) or cn_name
 
+        stage1_en = (code_to_category or {}).get(cn_name, "")
+        en_name   = stage1_en or translations.get(cn_name) or cn_name
+
+        if stage1_en:
+            logger.info(
+                "SubKategori '%s': menggunakan nama Stage 1 '%s'",
+                cn_name, stage1_en
+            )
+            
         if not raw_parts:
             logger.info("SubKategori '%s': no parts — skipped", cn_name)
             continue

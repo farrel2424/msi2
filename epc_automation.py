@@ -364,7 +364,18 @@ class EPCPDFAutomation:
                     if tc_cn:
                         code_to_category[tc_cn] = cat_en
  
+# ✅ FIX axle_drive only — tidak menyentuh tipe lain
+            subtype_cn_to_en: Dict[str, str] = {}
+            if ptype == "axle_drive":
+                for cat in result.get("categories", []):
+                    for tc in cat.get("data_type", []):
+                        tc_en = tc.get("type_category_name_en", "")
+                        tc_cn = tc.get("type_category_name_cn", "")
+                        if tc_cn and tc_en and tc_cn != tc_en:
+                            subtype_cn_to_en[tc_cn] = tc_en
+
             result["code_to_category"] = code_to_category
+            result["subtype_cn_to_en"] = subtype_cn_to_en  # kosong {} untuk non-axle_drive
             self.logger.info(
                 "_extract_data (axle_drive): %d categories, %d subtypes, %d map entries",
                 len(result.get("categories", [])),
@@ -402,6 +413,7 @@ class EPCPDFAutomation:
             extracted_data = self._extract_data(pdf_path, custom_prompt=custom_prompt)
 
             result["code_to_category"] = extracted_data.pop("code_to_category", {})
+            result["subtype_cn_to_en"] = extracted_data.pop("subtype_cn_to_en", {})
             result["extracted_data"]   = extracted_data
 
             self.logger.info(
@@ -591,7 +603,7 @@ class EPCPDFAutomation:
                     pdf_path        = str(pdf_path),
                     sumopod_client  = self.sumopod,
                     target_id_start = target_id_start,
-                    category_map    = code_to_category or {},
+                    code_to_category = code_to_category or {},
                     custom_prompt   = custom_prompt,
                 )
 
