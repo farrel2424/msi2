@@ -36,12 +36,17 @@ from motorsights_epc_client import MotorsightsEPCClient
 from motorsights_auth_client import MotorsightsAuthClient
 from engine_transmission_extractor import extract_engine_or_transmission
 from axle_drive_extractor import extract_axle_drive_categories
+from axle_drive_parts_extractor import (
+    extract_axle_drive_categories_text,
+    extract_axle_drive_parts,
+)  
 from cabin_chassis_parts_extractor import (
     extract_cabin_chassis_parts,
     extract_cabin_chassis_categories,
 )
 from transmission_parts_extractor import extract_transmission_parts
 from engine_parts_extractor import extract_engine_parts
+from axle_drive_parts_extractor import extract_axle_drive_parts
 
 
 class EPCAutomationConfig:
@@ -312,10 +317,61 @@ class EPCPDFAutomation:
 
         # ── AXLE DRIVE ────────────────────────────────────────────────────────
         elif ptype == "axle_drive":
-            return extract_axle_drive_categories(
-                pdf_path=str(pdf_path),
-                sumopod_client=self.sumopod
+            # Auto-detect: text-based PDF (Hande style) uses the fast text extractor.
+            # Image-based / ZIP PDF falls back to the original vision-based extractor.
+            import fitz as _fitz
+            _doc = _fitz.open(str(pdf_path))
+            _total_chars = sum(
+                len(_doc[i].get_text("text").strip())
+                for i in range(min(3, len(_doc)))
             )
+            _doc.close()
+            _is_text_pdf = _total_chars > 50
+ 
+            if _is_text_pdf:
+                self.logger.info(
+                    "_extract_data (axle_drive): text-based PDF detected "
+                    "(%d chars) — using text extractor (no Vision AI)", _total_chars
+                )
+                result = extract_axle_drive_categories_text(
+                    pdf_path=str(pdf_path),
+                    sumopod_client=self.sumopod,
+                )
+            else:
+                self.logger.info(
+                    "_extract_data (axle_drive): image-based PDF detected "
+                    "— falling back to vision extractor"
+                )
+                result = extract_axle_drive_categories(
+                    pdf_path=str(pdf_path),
+                    sumopod_client=self.sumopod,
+                )
+ 
+            # Build code_to_category map for Stage 2
+            code_to_category: Dict[str, str] = {}
+            for cat in result.get("categories", []):
+                cat_en = cat.get("category_name_en", "")
+                cat_cn = cat.get("category_name_cn", "")
+                if cat_en:
+                    code_to_category[cat_en] = cat_en
+                if cat_cn:
+                    code_to_category[cat_cn] = cat_en
+                for tc in cat.get("data_type", []):
+                    tc_en = tc.get("type_category_name_en", "")
+                    tc_cn = tc.get("type_category_name_cn", "")
+                    if tc_en:
+                        code_to_category[tc_en] = cat_en
+                    if tc_cn:
+                        code_to_category[tc_cn] = cat_en
+ 
+            result["code_to_category"] = code_to_category
+            self.logger.info(
+                "_extract_data (axle_drive): %d categories, %d subtypes, %d map entries",
+                len(result.get("categories", [])),
+                sum(len(c.get("data_type", [])) for c in result.get("categories", [])),
+                len(code_to_category),
+            )
+            return result
 
         else:
             raise ValueError(f"Unknown partbook_type: '{ptype}'")
@@ -525,10 +581,24 @@ class EPCPDFAutomation:
                         custom_prompt   = custom_prompt,
                         force_vision    = True,  # ← THE FIX
                     )
+
+            elif ptype == "axle_drive":
+                self.logger.info(
+                    "Stage 2 / Axle Drive — Vision AI parts extraction "
+                    "(axle_drive_parts_extractor, no Vision AI)"
+                )
+                parts_data = extract_axle_drive_parts(
+                    pdf_path        = str(pdf_path),
+                    sumopod_client  = self.sumopod,
+                    target_id_start = target_id_start,
+                    category_map    = code_to_category or {},
+                    custom_prompt   = custom_prompt,
+                )
+
             else:
                 raise ValueError(
                     f"process_parts() does not support partbook_type='{ptype}'. "
-                    f"Supported: 'cabin_chassis', 'transmission', 'engine'"
+                    f"Supported: 'cabin_chassis', 'transmission', 'engine', 'axle_drive'"
                 )
 
             result["parts_data"] = parts_data

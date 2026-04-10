@@ -622,7 +622,7 @@
     let partsPopulated       = false;
     let currentPartsData     = null;
 
-    const PARTS_MGMT_TYPES = ['cabin_chassis', 'transmission', 'engine'];
+    const PARTS_MGMT_TYPES = ['cabin_chassis', 'transmission', 'engine', 'axle_drive'];
 
     const PARTBOOK_META = {
         engine:        { short: '⚙️ Engine' },
@@ -702,17 +702,42 @@ Return ONLY valid JSON:
   ]
 }`,
 
-        axle_drive: `You are a data extraction expert for Axle Drive parts catalogs.
-Extract subtype table titles from each page.
-
-Return ONLY valid JSON:
+        axle_drive: `You are a precise data-extraction engine for a BILINGUAL (Chinese + English)
+automotive axle drive parts catalog.
+ 
+PAGE TYPES:
+1. COVER page — shows document title only.
+   Return {"page_type": "cover"}.
+2. TOC page — shows a table of contents.
+   Return {"page_type": "toc"}.
+3. CONTENT page — contains a parts table and optionally a section title
+   header and/or an exploded-view diagram.
+ 
+SECTION HEADER — how to identify it:
+A section header is a LARGE, BOLD title (Chinese + English bilingual) printed
+OUTSIDE or ABOVE the table. It names the assembly, e.g.:
+  "贯通式驱动桥主减速器总成" / "Drive Axle Final Reducer Assembly"
+If no section header, set section_header to null.
+ 
+TABLE STRUCTURE (5–6 columns):
+  序号/Item | 汉德零件号/HanDe part nr. | English Description | 中文描述 | 数量/Qty | 备注/Remarks
+ 
+Extract ONLY rows where part number (汉德零件号) is non-empty.
+Return ONLY valid JSON — no markdown fences.
+ 
+OUTPUT FORMAT (content page):
 {
-  "categories": [
+  "page_type": "content",
+  "section_header": "<bilingual title or null>",
+  "parts_before_header": [],
+  "parts": [
     {
-      "category_name_en": "Main Reducer And Differential Assembly",
-      "category_name_cn": "主减速器及差速器总成",
-      "category_description": "",
-      "data_type": []
+      "serial_no": "<序号 or null>",
+      "part_number": "<汉德零件号>",
+      "name_cn": "<中文名称>",
+      "name_en": "<English name>",
+      "quantity": <integer or null>,
+      "is_assembly_header": false
     }
   ]
 }`
