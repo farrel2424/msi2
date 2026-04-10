@@ -3,20 +3,16 @@ engine_transmission_extractor.py  — with Weichai 3-level support
 =================================================================
 Changelog vs previous version:
   NEW: extract_weichai_engine_toc()
-       Pure-text TOC parser for Weichai/bilingual Engine partbooks.
-       Produces a 3-level hierarchy (Category → Type Category) from the
-       bold/indentation signals in the PDF's text layer — no AI tokens used.
-
   NEW: is_weichai_bilingual_toc()
-       Auto-detection: returns True when the PDF contains a bilingual TOC
-       whose EN labels use TimesNewRomanPS-BoldMT (characteristic of Weichai).
-
   CHANGED: extract_engine_or_transmission()
-       When partbook_type == "engine" AND the PDF is detected as a Weichai
-       bilingual TOC, the new text-path is used instead of the vision path.
-       All other engine PDFs continue to use the original vision approach.
 
-Everything else is unchanged. No Transmission or Axle logic is touched.
+FIX (2026-04-10):
+  _split_bilingual_label() — filter garbled EN tokens (slash, Chinese chars
+    that leaked into the EN portion) so that e.g. "/批准APPROVAL,AGENCY"
+    still produces "Approval Agency" instead of "/批准Approval Agency".
+  _process_engine_pages() — added EN-based deduplication on top of the
+    existing CN-based dedup, so two pages whose label was mis-read with
+    different CN but identical EN are not stored as separate categories.
 """
 
 import json
@@ -41,13 +37,10 @@ logger = logging.getLogger(__name__)
 
 
 # ===========================================================================
-# ── WEICHAI BILINGUAL TOC EXTRACTOR (NEW — text-based, no AI) ─────────────
+# ── WEICHAI BILINGUAL TOC EXTRACTOR (text-based, no AI) ───────────────────
 # ===========================================================================
 
-# x0 threshold: TOC entries at or below this x-coordinate are top-level Categories.
 _X_CATEGORY_MAX = 50
-
-# Watermark / metadata patterns to skip
 _WEICHAI_SKIP = ["wangmd", "2023/", "shacman.com", "zhangzhi", "CONTENTS", "目录"]
 
 
@@ -56,10 +49,6 @@ def _is_weichai_skip(text: str) -> bool:
 
 
 def _clean_en_label(en: str) -> str:
-    """
-    Strip parentheses and deduplicate adjacent identical tokens.
-    e.g. "EVB EVB Bracket Assembly" → "EVB Bracket Assembly"
-    """
     en = re.sub(r"[()]", "", en)
     parts = en.split()
     deduped: List[str] = []
@@ -71,15 +60,6 @@ def _clean_en_label(en: str) -> str:
 
 
 def is_weichai_bilingual_toc(pdf_path: str, sample_pages: int = 2) -> bool:
-    """
-    Heuristic: return True when the first few pages of the PDF contain
-    TimesNewRomanPS-BoldMT spans (the bold EN font used in Weichai TOCs)
-    AND the PDF has extractable text (not image-based).
-
-    This distinguishes Weichai bilingual TOC PDFs from:
-      • Cummins engine PDFs  (vision-based, top-right bilingual label)
-      • Scanned image PDFs   (no text layer)
-    """
     try:
         import fitz
         doc = fitz.open(pdf_path)
@@ -113,24 +93,21 @@ def is_weichai_bilingual_toc(pdf_path: str, sample_pages: int = 2) -> bool:
         return False
 
 
- 
 import re
 import logging
 from typing import Dict, List, Optional, Tuple
- 
+
 logger = logging.getLogger(__name__)
- 
-# ── Scope constants (mirror weichai_engine_extractor.py) ──────────────────
- 
+
 _X_CATEGORY_MAX = 50
- 
+
 _WEICHAI_SKIP = [
     "wangmd", "2023/", "2024/", "shacman.com", "zhangzhi",
     "任志军", "renzj", "CONTENTS", "目录",
 ]
- 
+
 _TOC_START_KEYWORDS = ("目录", "CONTENTS")
- 
+
 _BOUNDARY_SIGNALS = (
     "WP10 SERIES ENGINE PARTS CATALOGUE",
     "图序号",
@@ -138,43 +115,35 @@ _BOUNDARY_SIGNALS = (
     "Part Number",
     "件号",
 )
- 
+
 _DIAGRAM_IMAGE_THRESHOLD = 1
 _DIAGRAM_TEXT_MAX_CHARS  = 200
- 
- 
-# ── Scope-boundary helpers ─────────────────────────────────────────────────
- 
+
+
 def _is_toc_marker_page_et(page) -> bool:
-    """Return True if page contains 目录 / CONTENTS."""
     text = page.get_text("text")
     return any(kw in text for kw in _TOC_START_KEYWORDS)
- 
- 
+
+
 def _is_boundary_page_et(page) -> bool:
-    """
-    Return True when this page should STOP TOC extraction.
-    Checks for parts-table signals OR image-heavy layout.
-    Header/footer text of diagram pages is NOT used as input data.
-    """
     blocks = page.get_text("dict")["blocks"]
     image_block_count = sum(1 for b in blocks if b.get("type") == 1)
     raw_text = page.get_text("text")
- 
+
     if any(sig in raw_text for sig in _BOUNDARY_SIGNALS):
         return True
- 
+
     stripped = raw_text.strip()
     if image_block_count >= _DIAGRAM_IMAGE_THRESHOLD and len(stripped) < _DIAGRAM_TEXT_MAX_CHARS:
         return True
- 
+
     return False
- 
- 
+
+
 def _is_weichai_skip_et(text: str) -> bool:
     return any(p in text for p in _WEICHAI_SKIP)
- 
- 
+
+
 def _clean_en_label_et(en: str) -> str:
     en = re.sub(r"[()]", "", en)
     parts = en.split()
@@ -184,70 +153,36 @@ def _clean_en_label_et(en: str) -> str:
             continue
         deduped.append(p)
     return " ".join(deduped).strip()
- 
- 
-# ── Revised extract_weichai_engine_toc ────────────────────────────────────
- 
+
+
 def extract_weichai_engine_toc(pdf_path: str) -> Dict:
-    """
-    Parse a Weichai Engine bilingual TOC PDF and return a 3-level category
-    structure compatible with batch_create_type_categories_and_categories().
- 
-    SCOPE (v2):
-    ───────────
-    • Start : Page that contains "目录" or "CONTENTS" (Cover / Foreword
-              pages before this are always ignored).
-    • End   : Page that contains diagram/illustration signals or is
-              image-heavy (WP10 catalog header, 图序号, Pos., etc.).
-    • Multi-page TOC: extraction continues without injecting auto-fill
-              entries when the TOC spans more than one page.
- 
-    DATA INTEGRITY (v2):
-    ─────────────────────
-    • Watermarks (任志军, wangmd, date stamps) never appear in output.
-    • Header/footer text on diagram pages is never read as TOC data.
-    • Only text at x0 < 200 (not far-right page headers) is processed.
- 
-    Returns:
-        {
-          "categories": [ { category_name_en, category_name_cn,
-                            category_description, data_type: [...] } ]
-        }
-    """
     import fitz
     from collections import OrderedDict
- 
+
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
     logger.info(
         "Weichai TOC extractor v2: %d page(s) in '%s'", total_pages, pdf_path
     )
- 
-    # ── Step 1: find TOC start page ───────────────────────────────────────
+
     toc_start = None
     for idx in range(total_pages):
         if _is_toc_marker_page_et(doc[idx]):
             toc_start = idx
             logger.info("TOC marker found at page %d", idx + 1)
             break
- 
+
     if toc_start is None:
-        logger.warning(
-            "No TOC marker (目录/CONTENTS) found — "
-            "falling back to page 1."
-        )
+        logger.warning("No TOC marker (目录/CONTENTS) found — falling back to page 1.")
         toc_start = 0
- 
-    # ── Step 2: iterate, collect entries, stop at boundary ───────────────
+
     categories: OrderedDict[str, Dict] = OrderedDict()
     current_category: Optional[Dict] = None
     toc_pages_processed = 0
- 
+
     for page_idx in range(toc_start, total_pages):
         page = doc[page_idx]
- 
-        # Allow the TOC marker page itself through even if it has mild signals;
-        # stop on any subsequent boundary page.
+
         is_first_page = (page_idx == toc_start)
         if not is_first_page and _is_boundary_page_et(page):
             logger.info(
@@ -255,9 +190,9 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
                 page_idx + 1, toc_pages_processed,
             )
             break
- 
+
         toc_pages_processed += 1
- 
+
         for block in page.get_text("dict")["blocks"]:
             if block.get("type") != 0:
                 continue
@@ -267,40 +202,37 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
                 en_parts: List[str] = []
                 x0_min   = 9999.0
                 en_is_bold = False
- 
+
                 for span in spans:
                     text = span["text"].strip()
- 
-                    # ── Anti-auto-fill filter ──────────────────────────
+
                     if not text or _is_weichai_skip_et(text):
                         continue
-                    if re.match(r"^\.{3,}$", text):   # dot leaders
+                    if re.match(r"^\.{3,}$", text):
                         continue
-                    if re.match(r"^\d+$", text):        # page numbers
+                    if re.match(r"^\d+$", text):
                         continue
-                    # ──────────────────────────────────────────────────
- 
+
                     flags = span.get("flags", 0)
                     is_bold = bool(flags & 16)
                     x0 = span["bbox"][0]
                     x0_min = min(x0_min, x0)
- 
+
                     if re.search(r"[\u4e00-\u9fff]", text):
                         cn_parts.append(text)
                     elif re.search(r"[A-Za-z]", text):
                         en_parts.append(text)
                         if is_bold:
                             en_is_bold = True
- 
+
                 cn = "".join(cn_parts).strip()
                 en = _clean_en_label_et(" ".join(en_parts))
- 
-                # Discard far-right running-header artefacts
+
                 if not (cn or en) or x0_min >= 200:
                     continue
- 
+
                 is_category = (x0_min <= _X_CATEGORY_MAX) and en_is_bold
- 
+
                 if is_category:
                     cat_key = cn or en
                     if cat_key not in categories:
@@ -310,22 +242,17 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
                             "category_description": "",
                             "subtypes":             OrderedDict(),
                         }
-                        logger.info(
-                            "Page %d: [CAT] '%s' / '%s'",
-                            page_idx + 1, en, cn,
-                        )
+                        logger.info("Page %d: [CAT] '%s' / '%s'", page_idx + 1, en, cn)
                     current_category = categories[cat_key]
- 
+
                 else:
-                    # Subtype entry — safe skip if no parent yet (no auto-fill)
                     if current_category is None:
                         logger.debug(
-                            "Page %d: subtype '%s' has no parent yet — "
-                            "skipped (no auto-fill)",
+                            "Page %d: subtype '%s' has no parent yet — skipped",
                             page_idx + 1, en or cn,
                         )
                         continue
- 
+
                     dedup_key = cn or en
                     if dedup_key and dedup_key not in current_category["subtypes"]:
                         current_category["subtypes"][dedup_key] = {
@@ -333,19 +260,12 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
                             "type_category_name_cn":     cn,
                             "type_category_description": "",
                         }
-                        logger.debug(
-                            "Page %d:   └─ '%s' / '%s'",
-                            page_idx + 1, en, cn,
-                        )
- 
+
     doc.close()
- 
+
     if toc_pages_processed == 0:
-        logger.warning(
-            "No TOC pages processed. Verify the PDF has a 目录/CONTENTS section."
-        )
- 
-    # ── Build final output ─────────────────────────────────────────────────
+        logger.warning("No TOC pages processed.")
+
     output_categories = []
     for cat_data in categories.values():
         output_categories.append({
@@ -354,7 +274,7 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
             "category_description": "",
             "data_type":            list(cat_data["subtypes"].values()),
         })
- 
+
     logger.info(
         "Weichai TOC v2 complete: %d categories, %d total subtypes "
         "(processed %d TOC page(s) / %d total pages)",
@@ -372,7 +292,6 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
 
 def _vision_call(b64_image: str, system_prompt: str, user_text: str,
                  sumopod_client, max_tokens: int = 200, detail: str = "low") -> Optional[str]:
-    """Single vision API call; returns raw text content or None on failure."""
     try:
         response = sumopod_client.client.chat.completions.create(
             model=sumopod_client.model,
@@ -433,6 +352,12 @@ def _split_bilingual_label(raw: str) -> Optional[Dict[str, str]]:
     """
     Split "燃油泵PUMP,FUEL" → { category_name_en: "Pump Fuel", category_name_cn: "燃油泵" }.
     Commas in the English portion act as word separators.
+
+    Robustness fixes:
+      • Replace commas, slashes, and underscores with spaces before tokenising.
+      • Keep only tokens that start with A-Z / a-z, dropping Chinese chars or
+        punctuation that Vision AI occasionally leaks into the EN portion
+        (e.g. "/批准APPROVAL,AGENCY" → "Approval Agency").
     """
     raw = raw.strip()
     if not raw:
@@ -444,15 +369,51 @@ def _split_bilingual_label(raw: str) -> Optional[Dict[str, str]]:
 
     split_idx = match.start() + 1
     cn = raw[:split_idx].strip()
-    en_clean = " ".join(
-        p.capitalize() for p in raw[split_idx:].replace(",", " ").split() if p
-    )
+
+    # Normalise all common separators (comma, slash, underscore) to spaces,
+    # then keep only tokens starting with an ASCII letter.
+    en_raw = raw[split_idx:].replace(",", " ").replace("/", " ").replace("_", " ")
+    en_tokens = [
+        p.capitalize()
+        for p in en_raw.split()
+        if p and re.match(r'^[A-Za-z]', p)
+    ]
+    en_clean = " ".join(en_tokens)
+
+    if not en_clean:
+        return None
+
     return {"category_name_en": en_clean, "category_name_cn": cn, "category_description": ""}
 
 
+def _en_word_set(en: str) -> frozenset:
+    """Normalise an EN category name to a frozenset of lowercase words."""
+    return frozenset(re.sub(r'[^a-z\s]', ' ', en.lower()).split())
+
+
 def _process_engine_pages(pages_b64: List[tuple], sumopod_client) -> Dict:
-    """Shared loop for both ZIP and real-PDF engine extraction (Cummins/vision)."""
-    seen: Dict[str, bool] = {}
+    """
+    Shared loop for both ZIP and real-PDF engine extraction (Cummins/vision).
+
+    Deduplication strategy — two levels:
+    1. CN-name exact match (original behaviour).
+    2. EN word-set subset match (new):
+         • If the new entry's EN words are a SUBSET of an existing entry's
+           words → the new entry is less complete; skip it.
+         • If the new entry's EN words are a SUPERSET of an existing entry's
+           words → the new entry is more complete; REPLACE the existing one.
+         • If there is any overlap but neither is a subset → keep both
+           (different categories that happen to share one word).
+
+    This handles the case where Vision AI reads the same page label
+    differently across diagram/table page pairs, e.g.:
+      Pass 1 (diagram page):  "参数/Agency"      → words {"agency"}
+      Pass 2 (table page):    "审批/Approval Agency" → words {"approval","agency"}
+    {"agency"} ⊂ {"approval","agency"} → replace pass-1 entry with pass-2.
+    Result: one entry "Approval Agency" (the more complete reading).
+    """
+    seen_cn: Dict[str, bool] = {}
+    seen_en_sets: List[frozenset] = []   # parallel to `categories`
     categories: List[Dict] = []
 
     for page_label, b64 in pages_b64:
@@ -466,14 +427,51 @@ def _process_engine_pages(pages_b64: List[tuple], sumopod_client) -> Dict:
             logger.debug("Page %s: could not parse header '%s'", page_label, raw_header)
             continue
 
-        key = parsed["category_name_cn"] or parsed["category_name_en"]
-        if key and key not in seen:
-            seen[key] = True
-            categories.append(parsed)
-            logger.info("Page %s: new category: '%s' / '%s'",
-                        page_label, parsed["category_name_en"], parsed["category_name_cn"])
-        else:
-            logger.debug("Page %s: duplicate '%s', skipping", page_label, key)
+        key_cn   = parsed["category_name_cn"] or parsed["category_name_en"]
+        new_wset = _en_word_set(parsed["category_name_en"])
+
+        # ── CN-based exact dedup ──────────────────────────────────────────
+        if key_cn in seen_cn:
+            logger.debug("Page %s: duplicate CN '%s', skipping", page_label, key_cn)
+            continue
+
+        # ── EN word-set subset dedup ──────────────────────────────────────
+        replaced = False
+        skip     = False
+        for i, existing_wset in enumerate(seen_en_sets):
+            if not (new_wset & existing_wset):
+                continue  # no overlap at all → different categories
+
+            if new_wset <= existing_wset:
+                # new is a subset (less complete) → discard new
+                logger.debug(
+                    "Page %s: EN '%s' is subset of existing '%s' — skipped",
+                    page_label, parsed["category_name_en"],
+                    categories[i]["category_name_en"],
+                )
+                skip = True
+                break
+            elif existing_wset < new_wset:
+                # existing is a proper subset → replace with more complete entry
+                logger.info(
+                    "Page %s: EN '%s' supersedes existing '%s' — replacing",
+                    page_label, parsed["category_name_en"],
+                    categories[i]["category_name_en"],
+                )
+                seen_en_sets[i] = new_wset
+                categories[i]   = parsed
+                seen_cn[key_cn] = True
+                replaced = True
+                break
+
+        if skip or replaced:
+            continue
+
+        seen_cn[key_cn] = True
+        seen_en_sets.append(new_wset)
+        categories.append(parsed)
+        logger.info("Page %s: new category: '%s' / '%s'",
+                    page_label, parsed["category_name_en"], parsed["category_name_cn"])
 
     return {"categories": categories}
 
@@ -606,7 +604,6 @@ def _translate_cn_categories(cn_list: List[str], sumopod_client) -> List[Dict]:
 
 
 def _translate_toc_text(toc_text: str, sumopod_client) -> Dict:
-    """Send raw ToC text to AI for extraction + translation (text-based PDFs)."""
     resp = sumopod_client.client.chat.completions.create(
         model=sumopod_client.model,
         messages=[
@@ -628,7 +625,6 @@ def _translate_toc_text(toc_text: str, sumopod_client) -> Dict:
 
 
 def _collect_unique_cn(pages_b64: List[tuple], sumopod_client) -> List[str]:
-    """Gather unique Chinese category names from a set of (label, b64) image pairs."""
     seen: Dict[str, bool] = {}
     all_cn: List[str] = []
     for page_label, b64 in pages_b64:
@@ -644,7 +640,6 @@ def _collect_unique_cn(pages_b64: List[tuple], sumopod_client) -> List[str]:
 
 def extract_transmission_categories(pdf_path: str, sumopod_client,
                                     max_toc_pages: int = 10) -> Dict:
-    """Extract Transmission partbook categories (ZIP or real PDF)."""
     if is_zip_pdf(pdf_path):
         return _extract_transmission_from_zip(pdf_path, sumopod_client, max_toc_pages)
     return _extract_transmission_from_real_pdf(pdf_path, sumopod_client, max_toc_pages)
@@ -720,22 +715,9 @@ def extract_engine_or_transmission(pdf_path: str, partbook_type: str,
     Unified extraction entry point for Engine and Transmission partbooks.
 
     Engine auto-detection priority:
-      1. Weichai bilingual TOC (text-based, bold/indent signals)
-         → extract_weichai_engine_toc()  — FREE, no AI tokens
-      2. ZIP archive (Cummins-style) → vision AI on JPEG pages
-      3. Standard PDF → vision AI page-by-page
-
-    Args:
-        pdf_path:       Path to the partbook PDF (ZIP or real PDF).
-        partbook_type:  "engine" or "transmission".
-        sumopod_client: SumopodClient instance (required for vision paths).
-        max_toc_pages:  Max pages to scan (transmission only).
-
-    Returns:
-        Dict with "categories" list.
-        For Weichai engine: includes "data_type" subtypes per category.
-        For Cummins/vision engine: flat categories (no data_type).
-        For Transmission: flat categories (no data_type).
+      1. Weichai bilingual TOC (text-based)  → extract_weichai_engine_toc()
+      2. ZIP archive (Cummins-style)         → vision AI on JPEG pages
+      3. Standard PDF                        → vision AI page-by-page
     """
     if sumopod_client is None and partbook_type != "engine":
         raise ValueError("sumopod_client is required for transmission extraction.")
@@ -743,14 +725,11 @@ def extract_engine_or_transmission(pdf_path: str, partbook_type: str,
     partbook_type = partbook_type.lower().strip()
 
     if partbook_type == "engine":
-        # ── Path 1: Weichai bilingual TOC (text-based) ────────────────────
         if not is_zip_pdf(pdf_path) and is_weichai_bilingual_toc(pdf_path):
             logger.info(
-                "Engine: Weichai bilingual TOC detected — using text extraction "
-                "(no AI tokens needed)"
+                "Engine: Weichai bilingual TOC detected — using text extraction"
             )
             result = extract_weichai_engine_toc(pdf_path)
-            # Build code_to_category map (EN → EN) for compatibility with epc_automation.py
             code_to_category: Dict[str, str] = {}
             for cat in result.get("categories", []):
                 cat_en = cat.get("category_name_en", "")
@@ -762,12 +741,9 @@ def extract_engine_or_transmission(pdf_path: str, partbook_type: str,
             result["code_to_category"] = code_to_category
             return result
 
-        # ── Path 2 & 3: Cummins / vision-based ───────────────────────────
         if sumopod_client is None:
             raise ValueError(
-                "sumopod_client is required for vision-based engine extraction. "
-                "If this is a Weichai bilingual TOC PDF, ensure the file has an "
-                "extractable text layer."
+                "sumopod_client is required for vision-based engine extraction."
             )
         logger.info("Engine: using vision-based extraction (Cummins / non-Weichai)")
         return extract_engine_categories(pdf_path, sumopod_client)
