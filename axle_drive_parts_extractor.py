@@ -442,7 +442,7 @@ def extract_axle_drive_parts(
     # ── FIX B: Sequential loop — halaman 1 sampai terakhir ──────────────────
     groups: OrderedDict[str, Dict] = OrderedDict()
 
-    for page_idx in range(total_pages):   # ← FIX B: always sequential
+    for page_idx in range(total_pages):
         page     = doc[page_idx]
         page_num = page_idx + 1
 
@@ -459,26 +459,22 @@ def extract_axle_drive_parts(
             logger.debug("Page %d: no table title found → skipped", page_num)
             continue
 
-        # ── FIX E: resolve group key ─────────────────────────────────────────
-        # Always strip (续) first to get the base/canonical name.
-        # If the base name already exists → merge (continuation page).
-        # If it does NOT exist yet → create new group with the base name.
-        # This correctly handles:
-        #   "贯通式驱动桥主减速器...（续）" → merges into existing group 1
-        #   "驱动桥轮边总成...（续）"       → creates NEW group 4 (base name not seen before)
-        group_key = _group_key_from_title(title)  # strips (续) suffix
-
+    # ── REVISED: (续) always merges into the PREVIOUS subcategory ──────────
         if _is_continuation_title(title):
-            if group_key in groups:
+            if groups:
+                group_key = list(groups.keys())[-1]   # ← always use last seen
                 logger.info(
-                    "Page %d: (续) detected, base='%s' found → merging",
+                    "Page %d: (续) detected → merging into previous SubKat '%s'",
                     page_num, group_key,
                 )
             else:
-                logger.info(
-                    "Page %d: (续) detected, base='%s' NOT found → new SubKategori",
+                group_key = _group_key_from_title(title)   # fallback: no previous exists
+                logger.warning(
+                    "Page %d: (续) but no previous SubKat yet → fallback to '%s'",
                     page_num, group_key,
                 )
+        else:
+            group_key = title.strip()   # fresh subcategory: use title as-is
 
         if group_key not in groups:
             groups[group_key] = {
@@ -487,7 +483,7 @@ def extract_axle_drive_parts(
             }
             logger.info("Page %d: new SubKategori '%s'", page_num, group_key)
         else:
-            logger.info("Page %d: continuation of '%s'", page_num, group_key)
+            logger.info("Page %d: appending to '%s'", page_num, group_key)
 
         rows = _parse_table_rows(page)
         groups[group_key]['raw_parts'].extend(rows)
@@ -644,7 +640,7 @@ def extract_axle_drive_categories_text(
     # ── FIX B: Sequential loop ───────────────────────────────────────────────
     seen: OrderedDict[str, str] = OrderedDict()  # group_key → cn_title
 
-    for page_idx in range(total_pages):   # ← sequential
+    for page_idx in range(total_pages):
         page     = doc[page_idx]
         page_num = page_idx + 1
 
@@ -658,25 +654,32 @@ def extract_axle_drive_categories_text(
 
         title = _extract_table_title(page)
         if not title:
-            snippet = page.get_text("text")[:80].replace('\n', ' ')
-            logger.debug("Page %d: no table title → skipped | '%s'", page_num, snippet)
+            logger.debug("Page %d: no table title → skipped", page_num)
             continue
 
-        # ── FIX E: strip (续) → use base name as key ─────────────────────
-        # Same logic as Stage 2: base name may or may not exist yet.
-        group_key = _group_key_from_title(title)
-
+    # ── REVISED: (续) always merges into the PREVIOUS subcategory ──────────
         if _is_continuation_title(title):
-            action = "merging into existing" if group_key in seen else "new SubKategori (first page is a 续)"
-            logger.info("Page %d: (续) detected, base='%s' → %s", page_num, group_key, action)
+            if seen:
+                group_key = list(seen.keys())[-1]   # ← always use last seen
+                logger.info(
+                    "Page %d: (续) detected → continuation of previous '%s'",
+                    page_num, group_key,
+                )
+            else:
+                group_key = _group_key_from_title(title)
+                logger.warning(
+                    "Page %d: (续) but no previous SubKat yet → fallback to '%s'",
+                    page_num, group_key,
+                )
+        else:
+            group_key = title.strip()
 
         if group_key not in seen:
             seen[group_key] = group_key
             logger.info("Page %d: new TypeCategory '%s'", page_num, group_key)
         else:
             logger.debug("Page %d: continuation of '%s'", page_num, group_key)
-
-        last_seen_key = group_key  # keep for reference (informational only)
+            last_seen_key = group_key  # keep for reference (informational only)
 
     doc.close()
 
