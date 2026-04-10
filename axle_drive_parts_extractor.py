@@ -69,7 +69,10 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Table title: "表1 <text>" or "表 1 <text>"
-_TABLE_TITLE_RE = re.compile(r'表\s*\d+\s+(.+)', re.UNICODE)
+_TABLE_TITLE_RE = re.compile(
+    r'表\s*[\d一二三四五六七八九十]+\s+(.+)',
+    re.UNICODE
+)
 
 # Continuation marker at end of title: (续) or （续）
 _CONTINUATION_RE = re.compile(r'\s*[（(]续[）)]\s*$', re.UNICODE)
@@ -125,24 +128,23 @@ def _is_cover_page(page: fitz.Page) -> bool:
 
 
 def _is_diagram_page(page: fitz.Page) -> bool:
-    """
-    True if this page is a diagram/exploded-view page with no parts table.
-
-    Detection: has "爆炸图" in text AND has embedded images AND no "表N" table title.
-    """
     text = page.get_text("text")
-    has_table_title = bool(_TABLE_TITLE_RE.search(text))
-    if has_table_title:
-        return False  # Table pages may also show a diagram — still extract
+    
+    # Jika ada judul tabel → PASTI bukan diagram, jangan cek lebih lanjut
+    if _TABLE_TITLE_RE.search(text):
+        return False
+    
+    # Jika ada kata kunci kolom tabel → bukan diagram
+    TABLE_COLUMN_SIGNALS = ('序号', 'Item', '汉德零件号', 'HanDe', '数量', 'Qty')
+    if any(sig in text for sig in TABLE_COLUMN_SIGNALS):
+        return False
 
-    # Check for image blocks (the exploded-view drawing)
     blocks = page.get_text("dict")["blocks"]
     has_image = any(b.get("type") == 1 for b in blocks)
-
-    # Diagram pages have the figure title (图1 贯通式...) but no table
-    has_diagram_title = _DIAGRAM_SIGNAL in text and bool(_FIGURE_TITLE_RE.search(text))
-
-    return has_diagram_title and (has_image or len(text.strip()) < 400)
+    has_diagram_title = _FIGURE_TITLE_RE.search(text) is not None
+    
+    # Hanya klasifikasi sebagai diagram jika benar-benar gambar + sangat sedikit teks
+    return has_image and has_diagram_title and len(text.strip()) < 300
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -315,8 +317,7 @@ Return ONLY valid JSON — no markdown:
 }"""
 
 
-def _translate_titles(cn_titles: List[str], sumopod_client) -> Dict[str, str]:
-    """Translate a list of CN SubKategori titles to English in one API call."""
+def _translate_titles(cn_titles, sumopod_client):
     if not cn_titles or sumopod_client is None:
         return {}
     try:
@@ -328,14 +329,22 @@ def _translate_titles(cn_titles: List[str], sumopod_client) -> Dict[str, str]:
                 {"role": "user", "content": json.dumps(cn_titles, ensure_ascii=False, indent=2)},
             ],
             temperature=0.1,
-            max_tokens=500,
-            timeout=30,
+            max_tokens=1000,   # ← naik dari 500
+            timeout=60,        # ← naik dari 30
         )
-        raw  = extract_response_text(resp)
+        raw = extract_response_text(resp)
+
+        # Strip markdown fence
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+
         data = json.loads(raw.strip())
-        return {t['cn']: t['en'] for t in data.get('translations', [])}
+        result = {t['cn']: t['en'] for t in data.get('translations', []) if t.get('cn')}
+        logger.info("Translation: %d/%d berhasil", len(result), len(cn_titles))
+        return result
     except Exception as exc:
-        logger.warning("SubKategori title translation failed: %s", exc)
+        logger.warning("Translation failed: %s", exc)
         return {}
 
 
@@ -590,8 +599,10 @@ def extract_axle_drive_categories_text(
             continue
 
         title = _extract_table_title(page)
+        
         if not title:
-            logger.debug("Page %d: no table title → skipped", page_num)
+            snippet = page.get_text("text")[:100].replace('\n', ' ')
+            logger.warning("Page %d: no table title → skipped | text: '%s'", page_num, snippet)
             continue
 
         group_key = _group_key_from_title(title)  # strip (续)
