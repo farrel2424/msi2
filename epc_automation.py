@@ -8,6 +8,14 @@ FIXES:
   4. submit_to_epc() engine:
        weichai -> batch_create_type_categories_and_categories (3-level)
        cummins -> batch_create_flat_categories                (2-level, unchanged)
+
+FIX (2026-04-10): process_parts() engine/cummins now passes force_vision=True
+  to extract_engine_parts(). Cummins PDFs contain text on the cover/foreword
+  pages (528+ chars) that causes auto-detect to choose TEXT PATH. However,
+  the TEXT PATH layout parser is designed for a different header format and
+  returns 0 categories for Cummins. Vision AI correctly handles all Cummins
+  page types (diagram-only, text-table, mixed). force_vision=True bypasses
+  the auto-detect for Cummins only; all other paths are unaffected.
 """
 
 from __future__ import annotations
@@ -235,11 +243,6 @@ class EPCPDFAutomation:
         # ── ENGINE ────────────────────────────────────────────────────────────
         elif ptype == "engine":
             if manufacturer == "weichai":
-                # Weichai (DHL): text-based PDF, bilingual TOC with bold/indent structure.
-                # FIX: previously this read TABLE pages → flat categories, no data_type.
-                # Now calls the fixed extract_weichai_engine_categories() which reads
-                # the TOC via PyMuPDF font-dict: bold=Category, indented=TypeCategory.
-                # Returns categories WITH data_type populated → 3-level hierarchy.
                 self.logger.info(
                     "Strategy: Engine / Weichai — TOC-based 3-level extraction"
                 )
@@ -250,7 +253,6 @@ class EPCPDFAutomation:
                 )
             else:
                 # Xian Cummins: image-based or ZIP PDF, vision AI per page.
-                # UNCHANGED from original — flat category list, no data_type.
                 self.logger.info(
                     "Strategy: Engine / Xian Cummins — vision AI per page (flat)"
                 )
@@ -409,10 +411,8 @@ class EPCPDFAutomation:
             )
 
         # Engine: route by manufacturer
-        # FIX: previously engine ALWAYS called batch_create_flat_categories.
         elif ptype == "engine":
             if manufacturer == "weichai":
-                # Weichai extraction now produces data_type entries → 3-level
                 self.logger.info(
                     "Engine submit (Weichai) → 3-level "
                     "(batch_create_type_categories_and_categories)"
@@ -423,7 +423,6 @@ class EPCPDFAutomation:
                     master_category_name_en = master_category_name_en
                 )
             else:
-                # Xian Cummins: flat categories, no data_type → 2-level UNCHANGED
                 self.logger.info(
                     "Engine submit (Xian Cummins) → 2-level flat "
                     "(batch_create_flat_categories)"
@@ -508,14 +507,23 @@ class EPCPDFAutomation:
                         category_map    = code_to_category or {},
                     )
                 else:
+                    # ── FIX (2026-04-10): force_vision=True for Xian Cummins ──────
+                    # Cummins PDFs contain text on the cover/foreword pages that
+                    # triggers TEXT PATH (> 50 char threshold). The TEXT PATH layout
+                    # parser does not handle the Cummins header format and returns
+                    # 0 categories. Vision AI correctly handles all page types:
+                    # diagram-only, text-table, and mixed. force_vision bypasses
+                    # auto-detect for Cummins only; no other path is affected.
                     self.logger.info(
-                        "Stage 2 / Engine / Xian Cummins — Vision AI parts extraction"
+                        "Stage 2 / Engine / Xian Cummins — Vision AI parts extraction "
+                        "(force_vision=True: bypasses false TEXT PATH detection)"
                     )
                     parts_data = extract_engine_parts(
                         pdf_path        = str(pdf_path),
                         sumopod_client  = self.sumopod,
                         target_id_start = target_id_start,
                         custom_prompt   = custom_prompt,
+                        force_vision    = True,  # ← THE FIX
                     )
             else:
                 raise ValueError(

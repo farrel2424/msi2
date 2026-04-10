@@ -48,6 +48,13 @@ OUTPUT (kompatibel dengan batch_submit_parts):
       ]
     }
   ]
+
+FIX (2026-04-10): _finalize_groups() now merges duplicate EN-name entries.
+  Vision AI occasionally misreads the Chinese label on diagram pages (e.g.
+  "参数牌" → "参批准"), producing two groups with identical EN names but
+  different CN names. The misread page usually has 0 parts; the correct page
+  has the actual parts. Post-process dedup keeps the entry with parts (and
+  its correct CN name), discarding the empty misread entry.
 """
 
 from __future__ import annotations
@@ -479,8 +486,59 @@ def _finalize_groups(groups: OrderedDict) -> List[Dict]:
         })
         logger.info("Category '%s': %d parts (dari %d raw rows)", en, len(tagged), len(grp["raw_parts"]))
 
-    logger.info("Done: %d kategori, %d total parts.", len(output), sum(len(g["parts"]) for g in output))
-    return output
+    # ── Post-process: merge duplicate EN-name entries ──────────────────────
+    # Vision AI occasionally misreads the Chinese label on diagram pages
+    # (e.g. "参数牌" → "参批准"), creating two groups with the same EN name
+    # but different CN names. The misread page has 0 parts; the correctly-read
+    # table page has the real parts. Strategy:
+    #   • Same EN name, one has parts and one is empty → keep the one with
+    #     parts (and its correct CN name), discard the empty one.
+    #   • Same EN name, both have parts → combine parts lists (rare edge case).
+    #   • No duplicates → behaviour is identical to before this change.
+    en_index: Dict[str, int] = {}   # en → position in deduped list
+    deduped:  List[Dict]     = []
+
+    for entry in output:
+        en = entry["category_name_en"]
+        if en not in en_index:
+            en_index[en] = len(deduped)
+            deduped.append(entry)
+        else:
+            existing = deduped[en_index[en]]
+            has_new      = bool(entry["parts"])
+            has_existing = bool(existing["parts"])
+
+            if has_new and not has_existing:
+                # New entry has parts, existing is empty → replace CN + parts
+                existing["category_name_cn"] = entry["category_name_cn"]
+                existing["subtype_name_cn"]  = entry["subtype_name_cn"]
+                existing["parts"]            = entry["parts"]
+                logger.info(
+                    "Merged duplicate EN '%s': replaced empty misread (CN='%s') "
+                    "with %d parts from correct CN='%s'",
+                    en,
+                    existing["category_name_cn"],
+                    len(entry["parts"]),
+                    entry["category_name_cn"],
+                )
+            elif has_new and has_existing:
+                # Both have parts → combine (safety net for multi-page sections)
+                existing["parts"].extend(entry["parts"])
+                logger.info(
+                    "Merged duplicate EN '%s': combined parts (%d + %d)",
+                    en,
+                    len(existing["parts"]) - len(entry["parts"]),
+                    len(entry["parts"]),
+                )
+            else:
+                # New entry is also empty → discard silently
+                logger.info(
+                    "Discarded duplicate empty EN '%s' (CN='%s')",
+                    en, entry["category_name_cn"],
+                )
+
+    logger.info("Done: %d kategori, %d total parts.", len(deduped), sum(len(g["parts"]) for g in deduped))
+    return deduped
 
 
 # ─────────────────────────────────────────────────────────────────────────────
