@@ -8,30 +8,32 @@ FUNGSI PUBLIK:
   extract_axle_drive_categories_text()  →  Stage 1: struktur Kategori + TypeCategory
   extract_axle_drive_parts()            →  Stage 2: detail suku cadang per SubKategori
 
-PDF Hande Axle memiliki TEPAT 4 SubKategori:
-  1. 贯通式驱动桥主减速器总成爆炸图对应备件目录        (~80 parts)
-  2. 贯通式驱动桥桥壳总成爆炸图( STR悬架)对应备件目录  (~16 parts)
-  3. 驱动桥轮边爆炸图对应备件目录                      (~48 parts)
-  4. 驱动桥轮边总成爆炸图对应备件目录                  (~27 parts, 序号 49-76)
-
-KOLOM TABEL:
-  序号/Item | 汉德零件号/HanDe part nr. | English Description | 中文描述 | 数量/Qty | 备注/Remarks
+KOLOM TABEL (6 kolom):
+  序号/Item | 汉德零件号/HanDe part nr. | English | 中文 | 数量/Qty | 备注/Remarks
 
 PEMETAAN FIELD OUTPUT:
-  数量 (Qty)    → quantity   (field `quantity` di parts)
-  备注 (Remarks)→ keterangan (field `description` di parts)
+  序号/Item        → target_id   (T001, T002, … berdasarkan nilai 序号)
+  汉德零件号        → part_number
+  English          → catalog_item_name_en
+  中文             → catalog_item_name_ch
+  数量 (Qty)       → quantity   (integer, "optional" jika 选用, "As Needed" jika 按需)
+  备注 (Remarks)   → description
 
-PROSES HALAMAN: SEQUENTIAL (berurutan dari halaman 1 s.d. terakhir),
+PROSES HALAMAN: SEQUENTIAL (berurutan dari halaman 1 s.d. terakhir)
   BUKAN paralel/acak — agar urutan SubKategori dan nomor T-ID terjaga.
 
-FIXES (vs versi sebelumnya):
-  B. Halaman diproses URUT (range loop biasa, bukan ThreadPoolExecutor).
-  C. 数量/Qty  → quantity   — threshold kolom diperlebar + fallback parser.
-  D. 备注/Remarks → description — field `remarks` selalu diteruskan ke output.
-  E. Halaman (续): jika judul mengandung (续)/(续), gunakan nama SubKategori
-     SEBELUMNYA (bukan nama di judul itu sendiri). Ini menangani kasus di mana
-     halaman lanjutan memiliki judul yang sedikit berbeda dari halaman utamanya.
-  PLUS: _is_diagram_page() lebih konservatif agar halaman tabel tidak terlewat.
+REVISI (2026):
+  A. Threshold kolom dikalibrasi ulang dari layout PDF asli:
+       序号:     x < 6%   (sebelumnya 10%)
+       汉德零件号: x < 26%  (sebelumnya 35%) ← root-cause bug utama
+       English:  x < 57%  (sebelumnya 58%)
+       中文:     x < 82%  (tidak berubah)
+       数量:     x < 92%  (sebelumnya 93%)
+       备注:     x > 92%
+  B. Target ID diambil dari nilai 序号 (T001, T002, …), bukan counter sekuensial.
+     Sub-baris (序号 kosong) mewarisi serial terakhir dengan suffix -2, -3, …
+  C. Qty spesial: 选用 → "optional", 按需 → "As Needed" (bukan None).
+  D. Baris sub-item (序号 kosong): target_id inherit dari serial terakhir + suffix.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ import json
 import logging
 import re
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
@@ -58,24 +60,34 @@ _TABLE_TITLE_RE = re.compile(
 )
 
 # Continuation marker at end of title: (续)、（续）、or bare 续 preceded by space
-# Handles: "...目录(续)"  "...目录（续）"  "...目录 续"
 _CONTINUATION_RE = re.compile(r'\s*[（(]续[）)]\s*$|\s+续\s*$', re.UNICODE)
 
-# Part number pattern: alphanumeric, at least 6 chars
-_PART_NUMBER_RE = re.compile(r'^[A-Z0-9][A-Z0-9\.\-]{4,}$', re.IGNORECASE)
+# Continuation marker anywhere in title
+_HAS_CONTINUATION_RE = re.compile(r'[（(]续[）)]|\s+续\s*$', re.UNICODE)
+
+# Part number pattern: alphanumeric, at least 5 chars, may contain dots/dashes
+# Widened from {4,} to {3,} to catch short part numbers like "31313"
+_PART_NUMBER_RE = re.compile(r'^[A-Z0-9][A-Z0-9\.\-]{3,}$', re.IGNORECASE)
 
 # ── Column X-position thresholds (fraction of page width) ────────────────────
-# Hande Axle catalog column layout (empirically tuned):
-#   序号/Item | 汉德零件号/HanDe part nr. | English Desc | 中文描述 | 数量/Qty | 备注/Remarks
+# Recalibrated from actual Hande Axle Drive PDF layout (A3 landscape, 987 pts wide):
 #
-# FIX C: _COL_QTY_MAX raised from 0.91 → 0.93 to catch qty values that sit
-#         slightly to the right; rem_w (备注) threshold adjusted accordingly.
-_COL_ITEM_MAX   = 0.10   # 序号/Item        (leftmost)
-_COL_PARTNO_MAX = 0.35   # 汉德零件号       (widened from 0.32 for safety)
-_COL_EN_MAX     = 0.58   # English desc
-_COL_CN_MAX     = 0.81   # 中文描述
-_COL_QTY_MAX    = 0.93   # 数量/Qty  ← FIX C: was 0.91
-# x > 0.93 → 备注/Remarks  → description
+#   Col             x-start  x-end   fraction-end
+#   ─────────────────────────────────────────────
+#   序号/Item           0       48       0.049
+#   汉德零件号           48      212       0.215
+#   English            212      516       0.523
+#   中文               516      785       0.795
+#   数量/Qty            785      877       0.889
+#   备注/Remarks        877      987       1.000
+#
+# Safety margins (+0.01 to +0.04) added to each boundary:
+_COL_ITEM_MAX   = 0.06   # 序号/Item        (was 0.10 — too wide, caused misclassification)
+_COL_PARTNO_MAX = 0.26   # 汉德零件号        (was 0.35 — ROOT CAUSE BUG: EN words leaked in)
+_COL_EN_MAX     = 0.57   # English desc     (was 0.58 — minor adjustment)
+_COL_CN_MAX     = 0.82   # 中文描述          (unchanged)
+_COL_QTY_MAX    = 0.92   # 数量/Qty         (was 0.93 — minor adjustment)
+# x > 0.92 → 备注/Remarks → description
 
 # Words that indicate a header row (skip these rows)
 _HEADER_TOKENS = {
@@ -84,8 +96,18 @@ _HEADER_TOKENS = {
     'english', '中文',
 }
 
-# Qty values that mean "as needed" or "optional" → store as None
-_VARIABLE_QTY = {'按需', '选用', 'ar', 'ref', '-', ''}
+# ── Qty special-value mapping (REVISION C) ───────────────────────────────────
+# Maps non-numeric qty cell values to canonical English strings.
+# Key lookup is case-insensitive (values are checked after .lower()).
+_QTY_SPECIAL_MAP: Dict[str, str] = {
+    '选用':       'optional',
+    'optional':  'optional',
+    '按需':       'As Needed',
+    'as needed': 'As Needed',
+    'as-needed': 'As Needed',
+}
+# Values that mean "not applicable / unknown" → stored as None
+_QTY_NONE_VALUES = {'ar', 'ref', '-', ''}
 
 # Cover page signals — must have multiple of these to be classified as cover
 _COVER_SIGNALS = {
@@ -93,7 +115,7 @@ _COVER_SIGNALS = {
     'shaanxi', 'shaan', 'hande', 'axle', '汉德',
 }
 
-# Figure/diagram titles (used in diagram detection)
+# Figure/diagram titles
 _FIGURE_TITLE_RE = re.compile(r'图\s*\d+', re.UNICODE)
 
 # Signals that a page definitely contains a parts table
@@ -105,10 +127,7 @@ _TABLE_COLUMN_SIGNALS = ('序号', 'Item', '汉德零件号', 'HanDe', '数量',
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _is_cover_page(page: fitz.Page) -> bool:
-    """
-    True if this is the cover page (Shaanxi Hande logo + Spare Parts).
-    Cover pages have multiple cover signals but NO table title ("表N ...").
-    """
+    """True if this is the cover page (Shaanxi Hande logo + Spare Parts)."""
     text = page.get_text("text")
     text_lower = text.lower()
     hits = sum(1 for sig in _COVER_SIGNALS if sig in text_lower)
@@ -120,34 +139,25 @@ def _is_diagram_page(page: fitz.Page) -> bool:
     """
     True ONLY if this page is purely a diagram with NO parts table.
 
-    FIX: More conservative than before — a page is only considered a diagram
-    if ALL three conditions are true:
+    A page is classified as diagram only when ALL three conditions hold:
       1. No table title (表N ...) — hard guard
       2. No table-column signal words
       3. Has an image block AND very little text (< 200 chars)
-
-    Previously threshold was 300 chars, which accidentally classified some
-    short table pages (e.g. subcategory 2 with only ~16 parts) as diagrams.
-    Lowered to 200 chars AND requiring both image + figure title.
     """
     text = page.get_text("text")
 
-    # Hard guard 1: if the page has a table title, it's definitely NOT a diagram
     if _TABLE_TITLE_RE.search(text):
         return False
 
-    # Hard guard 2: if the page has table column keywords, it's NOT a diagram
     if any(sig in text for sig in _TABLE_COLUMN_SIGNALS):
         return False
 
     blocks = page.get_text("dict")["blocks"]
     has_image = any(b.get("type") == 1 for b in blocks)
-
-    # Only classify as diagram if: has image + figure title + very little text
     has_diagram_title = _FIGURE_TITLE_RE.search(text) is not None
     stripped_len = len(text.strip())
 
-    return has_image and has_diagram_title and stripped_len < 200  # FIX: was 300
+    return has_image and has_diagram_title and stripped_len < 200
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -160,13 +170,6 @@ def _extract_table_title(page: fitz.Page) -> Optional[str]:
 
     Raw:     "表1 贯通式驱动桥主减速器总成爆炸图对应备件目录"
     Returns: "贯通式驱动桥主减速器总成爆炸图对应备件目录"
-
-    Raw:     "表2 贯通式驱动桥主减速器总成爆炸图对应备件目录(续)"
-    Returns: "贯通式驱动桥主减速器总成爆炸图对应备件目录(续)"
-             (续 is stripped in _group_key_from_title, NOT here)
-
-    Note: titles with (STR悬架) in the MIDDLE are preserved as-is —
-    the continuation regex only strips (续) at the END.
     """
     text = page.get_text("text")
     m = _TABLE_TITLE_RE.search(text)
@@ -176,98 +179,206 @@ def _extract_table_title(page: fitz.Page) -> Optional[str]:
 
 
 def _group_key_from_title(title: str) -> str:
-    """
-    Strip the continuation suffix (续) to get a canonical group key.
-
-    "贯通式驱动桥主减速器总成爆炸图对应备件目录(续)"
-        → "贯通式驱动桥主减速器总成爆炸图对应备件目录"
-
-    "贯通式驱动桥桥壳总成爆炸图( STR悬架)对应备件目录"
-        → "贯通式驱动桥桥壳总成爆炸图( STR悬架)对应备件目录"  ← preserved (不di-strip)
-    """
+    """Strip continuation suffix (续) to get canonical group key."""
     return _CONTINUATION_RE.sub('', title).strip()
 
 
-# Detects (续)、（续）、or bare 续 preceded by space — anywhere in the title
-_HAS_CONTINUATION_RE = re.compile(r'[（(]续[）)]|\s+续\s*$', re.UNICODE)
-
-
 def _is_continuation_title(title: str) -> bool:
-    """
-    Return True if the title contains a continuation marker.
-    Matches: (续)  （续）  or trailing space+续 (e.g. "...目录 续").
-
-    FIX E: The caller strips (续) to get the base/canonical key, then checks
-    whether that base name already exists in the group dict:
-      - If yes  → merge into existing group (true continuation page)
-      - If no   → create new group using the base name
-        (the first page of this subcategory happens to carry a 续 marker)
-    """
+    """Return True if the title contains a continuation marker (续)."""
     return bool(_HAS_CONTINUATION_RE.search(title))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Table row parsing (word-level, column-aware)
+# Qty parsing helper (REVISION C)
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_qty(qty_str: str) -> Any:
+    """
+    Parse a raw qty cell value into:
+      - int           for normal numeric quantities
+      - "optional"    when cell contains 选用
+      - "As Needed"   when cell contains 按需
+      - None          for blank / "ar" / "ref" / "-"
+
+    Examples:
+      "2"    → 2
+      "选用"  → "optional"
+      "按需"  → "As Needed"
+      ""     → None
+      "AR"   → None
+    """
+    raw = qty_str.strip()
+    lower = raw.lower()
+
+    # Special named values
+    if lower in _QTY_SPECIAL_MAP:
+        return _QTY_SPECIAL_MAP[lower]
+
+    # Blank / non-applicable
+    if lower in _QTY_NONE_VALUES:
+        return None
+
+    # Try leading integer (handles "2 pcs", "12", etc.)
+    m = re.match(r'^\d+', raw)
+    if m:
+        try:
+            return int(m.group())
+        except ValueError:
+            pass
+
+    # Fallback: not parseable → None
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dynamic column boundary detection (REVISION A)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _detect_col_boundaries(page: fitz.Page) -> Optional[Dict[str, float]]:
+    """
+    Detect column boundaries dynamically from the header row of the table.
+
+    Reads x-positions of the known header keywords ("English", "中文", "Qty",
+    "Remarks", "Item", "HanDe") and computes midpoints between adjacent
+    columns as the column right-edge thresholds.
+
+    This makes the extractor robust to different page widths and column
+    proportions across different PDF editions of the same catalog series.
+
+    Returns a dict mapping column names to their right-edge X fraction, or
+    None if fewer than 4 headers are found (fallback to constants).
+    """
+    W = page.rect.width
+    words = page.get_text("words")
+    found: Dict[str, float] = {}
+
+    # Chinese aliases → canonical column key
+    _ALIASES = {'数量': 'Qty', '备注': 'Remarks', '序号': 'Item', '汉德零件号': 'HanDe'}
+    _DIRECT  = {'English', '中文', 'Qty', 'Remarks', 'Item', 'HanDe'}
+
+    for w in words:
+        text = w[4].strip()
+        if text in _DIRECT and text not in found:
+            found[text] = w[0]
+        elif text in _ALIASES and _ALIASES[text] not in found:
+            found[_ALIASES[text]] = w[0]
+
+    col_order = ['Item', 'HanDe', 'English', '中文', 'Qty', 'Remarks']
+    positions = [(k, found[k]) for k in col_order if k in found]
+    if len(positions) < 4:
+        return None
+
+    boundaries: Dict[str, float] = {}
+    for i in range(len(positions) - 1):
+        key_a, x_a = positions[i]
+        _, x_b = positions[i + 1]
+        boundaries[key_a] = (x_a + x_b) / 2 / W
+    return boundaries
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Table row parsing (word-level, column-aware) — REVISION A + B
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _group_words_by_gap(words: List, y_gap: float = 6.0) -> List[List]:
+    """
+    Group words into logical rows by sorting on Y then splitting on Y-gaps.
+
+    This replaces the old round-to-grid approach (round(y/tol)*tol) which
+    was fragile because Chinese and Latin text in the same row have a
+    consistent ~0.38pt baseline difference. That tiny gap would sometimes
+    land exactly on a grid boundary, splitting one logical row into two.
+
+    With gap-based grouping:
+      • Same-row baseline difference (0.38pt) << y_gap (6pt)  → merged  ✅
+      • Serial-number cell offset     (11.6pt) >  y_gap (6pt) → split   ✅
+      • Adjacent row spacing          (~24pt)  >  y_gap (6pt) → split   ✅
+
+    Returns a list of word groups, each sorted left-to-right by X.
+    """
+    if not words:
+        return []
+    sw = sorted(words, key=lambda w: (w[1], w[0]))
+    rows: List[List] = []
+    cur = [sw[0]]
+    for w in sw[1:]:
+        max_y_in_cur = max(c[1] for c in cur)
+        if w[1] - max_y_in_cur > y_gap:
+            rows.append(sorted(cur, key=lambda c: c[0]))
+            cur = [w]
+        else:
+            cur.append(w)
+    if cur:
+        rows.append(sorted(cur, key=lambda c: c[0]))
+    return rows
+
 
 def _parse_table_rows(page: fitz.Page) -> List[Dict]:
     """
-    Parse parts table rows from a table page using word X-positions.
+    Parse parts table rows from a table page.
 
-    Words are grouped into rows by Y-coordinate (±4pt tolerance),
-    then classified into columns by X-position fraction:
+    Column boundaries are detected dynamically from the header row via
+    _detect_col_boundaries(). If detection fails, hardcoded fallback
+    constants (_COL_*_MAX) are used.
 
-      x < 10%          → 序号/Item (serial number)
-      10–35%           → 汉德零件号/HanDe part number
-      35–58%           → English Description
-      58–81%           → 中文描述 Chinese description
-      81–93%           → 数量/Qty  → quantity        (FIX C)
-      > 93%            → 备注/Remarks → description   (FIX D)
+    Words are grouped into logical rows using _group_words_by_gap() (y_gap=6)
+    which handles the ~0.38pt Chinese/Latin baseline difference correctly.
 
-    Both 数量 and 备注 are always returned in the dict so the output
-    builder can correctly map them to `quantity` and `description`.
+    Post-processing: if a Qty-column word is not a short number or a known
+    special value (选用/按需), it is moved to the Remarks bucket. This handles
+    long Remarks text that starts just inside the Qty column boundary.
+
+    Returns raw dicts with keys:
+        serial_no, part_number, name_en, name_cn, quantity, remarks
+    target_id is assigned later from serial_no by _assign_target_id_from_serial().
     """
     W = page.rect.width
     if W == 0:
         return []
 
-    # (x0, y0, x1, y1, word, block_no, line_no, word_no)
     words = page.get_text("words")
     if not words:
         return []
 
-    # FIX B (secondary): group words into rows by Y — use 4pt tolerance
-    # (was 3pt, relaxed slightly to handle slight baseline variations)
-    _Y_TOL = 4
-    rows_by_y: Dict[int, List] = {}
-    for w in words:
-        y_key = round(w[1] / _Y_TOL) * _Y_TOL
-        rows_by_y.setdefault(y_key, []).append(w)
+    # Dynamic column boundaries, fallback to hardcoded constants
+    bounds = _detect_col_boundaries(page) or {}
+    item_max   = bounds.get('Item',    _COL_ITEM_MAX)
+    partno_max = bounds.get('HanDe',   _COL_PARTNO_MAX)
+    en_max     = bounds.get('English', _COL_EN_MAX)
+    cn_max     = bounds.get('中文',     _COL_CN_MAX)
+    qty_max    = bounds.get('Qty',     _COL_QTY_MAX)
+
+    row_groups = _group_words_by_gap(words, y_gap=6.0)
 
     parts = []
-    for y_key in sorted(rows_by_y):   # ← sorted() ensures top-to-bottom order
-        row_words = sorted(rows_by_y[y_key], key=lambda w: w[0])  # left-to-right
-
+    for row in row_groups:
         item_w, partno_w, en_w, cn_w, qty_w, rem_w = [], [], [], [], [], []
 
-        for w in row_words:
-            x_frac = w[0] / W
+        for w in row:
+            x = w[0] / W
             tok = w[4].strip()
             if not tok:
                 continue
+            if x < item_max:      item_w.append(tok)
+            elif x < partno_max:  partno_w.append(tok)
+            elif x < en_max:      en_w.append(tok)
+            elif x < cn_max:      cn_w.append(tok)
+            elif x < qty_max:     qty_w.append(tok)
+            else:                 rem_w.append(tok)
 
-            if x_frac < _COL_ITEM_MAX:
-                item_w.append(tok)
-            elif x_frac < _COL_PARTNO_MAX:
-                partno_w.append(tok)
-            elif x_frac < _COL_EN_MAX:
-                en_w.append(tok)
-            elif x_frac < _COL_CN_MAX:
-                cn_w.append(tok)
-            elif x_frac < _COL_QTY_MAX:
-                qty_w.append(tok)   # FIX C: 数量 column
+        # ── Post-process qty: non-numeric / non-special text → Remarks ───────
+        # Qty values are always short integers (1–4 digits) or special keywords.
+        # Longer text that lands in the Qty column boundary (e.g. Remarks that
+        # start just before qty_max) is moved to rem_w to preserve accuracy.
+        real_qty: List[str] = []
+        spill:    List[str] = []
+        for tok in qty_w:
+            if re.match(r'^\d{1,4}$', tok) or tok.lower() in _QTY_SPECIAL_MAP:
+                real_qty.append(tok)
             else:
-                rem_w.append(tok)   # FIX D: 备注 column
+                spill.append(tok)
+        qty_w = real_qty
+        rem_w = spill + rem_w   # prepend spilled text to keep L→R order
 
         item_str   = " ".join(item_w).strip()
         partno_str = " ".join(partno_w).strip()
@@ -277,40 +388,24 @@ def _parse_table_rows(page: fitz.Page) -> List[Dict]:
         rem_str    = " ".join(rem_w).strip()
 
         # Skip header rows
-        if item_str.lower() in {'序号', 'item'} or partno_str.lower() in _HEADER_TOKENS:
+        if item_str.lower() in {'序号', 'item'}:
+            continue
+        if partno_str.lower() in _HEADER_TOKENS:
             continue
         if not partno_str:
             continue
 
-        # Must look like a part number (alphanumeric, ≥ 6 chars)
+        # Part number must look valid (alphanumeric, ≥ 4 chars after first)
         if not _PART_NUMBER_RE.match(partno_str):
             continue
 
-        # ── FIX C: Parse 数量/Qty → quantity ────────────────────────────────
-        qty = None
-        if qty_str and qty_str.lower() not in _VARIABLE_QTY:
-            # Primary: leading integer
-            m = re.match(r'^\d+', qty_str)
-            if m:
-                try:
-                    qty = int(m.group())
-                except ValueError:
-                    pass
-            # Fallback: if no leading integer found, try the whole string
-            if qty is None:
-                try:
-                    qty = int(qty_str)
-                except ValueError:
-                    pass
-
-        # ── FIX D: 备注/Remarks → remarks (will become description in output) ─
         parts.append({
             'serial_no':   item_str,
             'part_number': partno_str,
             'name_en':     en_str,
             'name_cn':     cn_str,
-            'quantity':    qty,       # FIX C: 数量
-            'remarks':     rem_str,   # FIX D: 备注 → output maps this to description
+            'quantity':    _parse_qty(qty_str),
+            'remarks':     rem_str,
         })
 
     return parts
@@ -322,8 +417,12 @@ def _parse_table_rows(page: fitz.Page) -> List[Dict]:
 
 def _merge_parts(raw_parts: List[Dict]) -> List[Dict]:
     """
-    Deduplicate by (part_number, name_cn); sum quantities for duplicates.
-    Rows with no valid part number are discarded.
+    Deduplicate by (part_number, name_cn); merge quantities for duplicates.
+
+    Quantity merging rules:
+      int + int   → sum
+      str + any   → keep first (string special value like "optional" / "As Needed")
+      None + X    → use X
     """
     merged: OrderedDict[Tuple[str, str], Dict] = OrderedDict()
     for p in raw_parts:
@@ -335,18 +434,82 @@ def _merge_parts(raw_parts: List[Dict]) -> List[Dict]:
         qty = p.get('quantity')
 
         if key not in merged:
-            merged[key] = dict(p)
+            merged[key] = dict(p)   # preserves serial_no, remarks, etc.
         else:
             existing_qty = merged[key]['quantity']
-            if existing_qty is not None and qty is not None:
+            if isinstance(existing_qty, int) and isinstance(qty, int):
                 merged[key]['quantity'] = existing_qty + qty
-            # Fill missing fields
-            if not merged[key]['name_en'] and p.get('name_en'):
+            elif existing_qty is None and qty is not None:
+                merged[key]['quantity'] = qty
+            # else: keep existing (string special value, or first-wins)
+
+            # Fill missing name fields
+            if not merged[key].get('name_en') and p.get('name_en'):
                 merged[key]['name_en'] = p['name_en']
-            # FIX D: preserve remarks from first occurrence (don't overwrite with empty)
             if not merged[key].get('remarks') and p.get('remarks'):
                 merged[key]['remarks'] = p['remarks']
+
     return list(merged.values())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Target-ID assignment from 序号 (REVISION B)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _assign_target_id_from_serial(merged: List[Dict]) -> List[Dict]:
+    """
+    Assign target_id to each part based on its 序号/serial_no value.
+
+    Rules:
+      • 序号 = "1", "2", … → target_id = "T001", "T002", …
+      • 序号 blank/empty (sub-row sharing the previous item's number):
+            → inherit last serial number, append "-2", "-3", … suffix
+      • Non-numeric 序号 (e.g. bracket items "(1)"):
+            → extract digits and format as T{n:03d}
+
+    Example:
+      序号 38 row 1 → T038
+      序号 ""  row 2 → T038-2    (same assembly item, different variant)
+
+    This function adds a 'target_id' key to each dict and returns the list.
+    """
+    last_serial: int = 0
+    sub_counters: Dict[int, int] = {}   # serial → sub-row count beyond first
+
+    output = []
+    for p in merged:
+        result = dict(p)
+        raw = str(p.get('serial_no') or '').strip()
+
+        # Extract digits from the raw serial value
+        digits = re.sub(r'\D', '', raw)
+
+        if digits:
+            sn = int(digits)
+            last_serial = sn
+            # Reset sub-counter for this serial
+            sub_counters[sn] = sub_counters.get(sn, 0) + 1
+            count = sub_counters[sn]
+            if count == 1:
+                result['target_id'] = f"T{sn:03d}"
+            else:
+                result['target_id'] = f"T{sn:03d}-{count}"
+        else:
+            # Blank serial_no: sub-row inherits last serial
+            if last_serial > 0:
+                sub_counters[last_serial] = sub_counters.get(last_serial, 0) + 1
+                count = sub_counters[last_serial]
+                if count == 1:
+                    result['target_id'] = f"T{last_serial:03d}"
+                else:
+                    result['target_id'] = f"T{last_serial:03d}-{count}"
+            else:
+                # No serial seen yet (shouldn't normally happen) — sequential fallback
+                result['target_id'] = f"T{len(output) + 1:03d}"
+
+        output.append(result)
+
+    return output
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -403,7 +566,7 @@ def _translate_titles(cn_titles, sumopod_client):
 def extract_axle_drive_parts(
     pdf_path: str,
     sumopod_client=None,
-    target_id_start: int = 1,
+    target_id_start: int = 1,          # kept for API compat; T-IDs come from 序号
     code_to_category: Optional[Dict[str, str]] = None,
     custom_prompt: Optional[str] = None,   # kept for API compat; not used (text-based)
 ) -> List[Dict]:
@@ -413,33 +576,34 @@ def extract_axle_drive_parts(
     Pure text extraction — no Vision AI calls, no network cost.
 
     PROSES HALAMAN: SEQUENTIAL (halaman 1 → terakhir), BUKAN paralel.
-    Ini penting agar:
-      - SubKategori muncul dalam urutan dokumen aslinya
-      - Halaman continuation (续) digabungkan ke grup yang benar
 
-    PEMETAAN KOLOM:
-      数量 (Qty)    → field `quantity`    di output  (FIX C)
-      备注 (Remarks)→ field `description` di output  (FIX D)
+    PEMETAAN KOLOM (REVISION A):
+      序号/Item       → target_id    (T001 dst. dari nilai 序号)
+      汉德零件号       → part_number
+      English         → catalog_item_name_en
+      中文            → catalog_item_name_ch
+      数量 (Qty)      → quantity    (int / "optional" / "As Needed" / None)
+      备注 (Remarks)  → description
 
     Args:
         pdf_path:         Path to the axle drive partbook PDF.
         sumopod_client:   Optional — used only to translate SubKategori CN→EN.
-                          If None, CN name is used as-is.
-        target_id_start:  Ignored (T-IDs restart at T001 per SubKategori).
+        target_id_start:  Legacy param, ignored. T-IDs derived from 序号.
         code_to_category: Optional map SubKategori CN/EN → parent category name.
         custom_prompt:    Ignored (text-based; no prompt needed).
 
     Returns:
         List of SubKategori-group dicts compatible with batch_submit_parts().
-        Expected: 4 groups for the standard Hande Axle Drive catalog.
     """
-    logger.info("Axle Drive parts extractor (text-based, sequential): opening '%s'", pdf_path)
+    logger.info(
+        "Axle Drive parts extractor (text-based, sequential, rev2): opening '%s'",
+        pdf_path,
+    )
 
     doc         = fitz.open(pdf_path)
     total_pages = len(doc)
     logger.info("Total pages: %d", total_pages)
 
-    # ── FIX B: Sequential loop — halaman 1 sampai terakhir ──────────────────
     groups: OrderedDict[str, Dict] = OrderedDict()
 
     for page_idx in range(total_pages):
@@ -459,22 +623,22 @@ def extract_axle_drive_parts(
             logger.debug("Page %d: no table title found → skipped", page_num)
             continue
 
-    # ── REVISED: (续) always merges into the PREVIOUS subcategory ──────────
+        # ── Continuation pages: always merge into PREVIOUS subcategory ──────
         if _is_continuation_title(title):
             if groups:
-                group_key = list(groups.keys())[-1]   # ← always use last seen
+                group_key = list(groups.keys())[-1]
                 logger.info(
                     "Page %d: (续) detected → merging into previous SubKat '%s'",
                     page_num, group_key,
                 )
             else:
-                group_key = _group_key_from_title(title)   # fallback: no previous exists
+                group_key = _group_key_from_title(title)
                 logger.warning(
                     "Page %d: (续) but no previous SubKat yet → fallback to '%s'",
                     page_num, group_key,
                 )
         else:
-            group_key = title.strip()   # fresh subcategory: use title as-is
+            group_key = title.strip()
 
         if group_key not in groups:
             groups[group_key] = {
@@ -515,6 +679,7 @@ def extract_axle_drive_parts(
         raw_parts = grp['raw_parts']
         cn_name   = grp['subtype_name_cn']
 
+        # Prefer Stage 1 EN name; fallback to translation or CN
         stage1_en = (code_to_category or {}).get(cn_name, "")
         en_name   = stage1_en or translations.get(cn_name) or cn_name
 
@@ -532,21 +697,23 @@ def extract_axle_drive_parts(
             logger.info("SubKategori '%s': all rows filtered — skipped", cn_name)
             continue
 
-        # ── FIX C + D: quantity = 数量, description = 备注 ──────────────────
+        # ── REVISION B: Target-ID from 序号 value ────────────────────────────
+        tagged_with_tid = _assign_target_id_from_serial(merged)
+
         tagged = [
             {
-                'target_id':            f"T{i:03d}",
+                'target_id':            p['target_id'],
                 'part_number':          p['part_number'],
                 'catalog_item_name_en': p.get('name_en', ''),
                 'catalog_item_name_ch': p.get('name_cn', ''),
-                'quantity':             p.get('quantity'),    # FIX C: 数量
-                'description':          p.get('remarks', ''), # FIX D: 备注
+                'quantity':             p.get('quantity'),    # int / str / None
+                'description':          p.get('remarks', ''), # 备注 → description
                 'unit':                 '',
             }
-            for i, p in enumerate(merged, start=1)
+            for p in tagged_with_tid
         ]
 
-        # Resolve parent category
+        # Resolve parent category from code_to_category map
         cat_map = code_to_category or {}
         cat_en  = cat_map.get(cn_name) or cat_map.get(en_name) or ''
 
@@ -624,7 +791,9 @@ def extract_axle_drive_categories_text(
     Mengembalikan struktur yang kompatibel dengan
     batch_create_type_categories_and_categories().
     """
-    logger.info("Axle Drive Stage 1 (text-based, sequential): opening '%s'", pdf_path)
+    logger.info(
+        "Axle Drive Stage 1 (text-based, sequential, rev2): opening '%s'", pdf_path
+    )
 
     fn_en, fn_cn = _infer_category_from_filename(pdf_path)
     category_name_en = category_name_en or fn_en
@@ -637,7 +806,6 @@ def extract_axle_drive_categories_text(
         total_pages, category_name_en, category_name_cn,
     )
 
-    # ── FIX B: Sequential loop ───────────────────────────────────────────────
     seen: OrderedDict[str, str] = OrderedDict()  # group_key → cn_title
 
     for page_idx in range(total_pages):
@@ -653,17 +821,14 @@ def extract_axle_drive_categories_text(
             continue
 
         title = _extract_table_title(page)
-        if title:
-        # TEMPORARY DEBUG
-            print(f"Page {page_num}: title='{title}' | is_continuation={_is_continuation_title(title)}")
         if not title:
             logger.debug("Page %d: no table title → skipped", page_num)
             continue
 
-    # ── REVISED: (续) always merges into the PREVIOUS subcategory ──────────
+        # Continuation pages: merge into previous subcategory
         if _is_continuation_title(title):
             if seen:
-                group_key = list(seen.keys())[-1]   # ← always use last seen
+                group_key = list(seen.keys())[-1]
                 logger.info(
                     "Page %d: (续) detected → continuation of previous '%s'",
                     page_num, group_key,
@@ -682,7 +847,6 @@ def extract_axle_drive_categories_text(
             logger.info("Page %d: new TypeCategory '%s'", page_num, group_key)
         else:
             logger.debug("Page %d: continuation of '%s'", page_num, group_key)
-            last_seen_key = group_key  # keep for reference (informational only)
 
     doc.close()
 

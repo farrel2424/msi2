@@ -602,11 +602,8 @@ def extract_engine_parts(
         )
     else:
         return _extract_parts_from_text(pdf_path)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
+    
 # CLI Runner
-# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import argparse, sys, os
