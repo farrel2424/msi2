@@ -653,6 +653,9 @@ def extract_axle_drive_categories_text(
             continue
 
         title = _extract_table_title(page)
+        if title:
+        # TEMPORARY DEBUG
+            print(f"Page {page_num}: title='{title}' | is_continuation={_is_continuation_title(title)}")
         if not title:
             logger.debug("Page %d: no table title → skipped", page_num)
             continue
