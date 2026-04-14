@@ -138,7 +138,7 @@ def _run_stage2(
     try:
         with job_lock:
             code_to_category = job_status[job_id].get("code_to_category", {})
-            subtype_cn_to_en = job_status[job_id].get("subtype_cn_to_en", {}) 
+            subtype_cn_to_en = job_status[job_id].get("subtype_cn_to_en", {})
 
         config     = EPCAutomationConfig(**config_params)
         automation = EPCPDFAutomation(config)
@@ -149,7 +149,8 @@ def _run_stage2(
             dokumen_name       = dokumen_name,
             target_id_start    = target_id_start,
             auto_submit        = False,
-            code_to_category   = {**code_to_category, **subtype_cn_to_en},
+            code_to_category   = code_to_category,
+            subtype_name_map   = subtype_cn_to_en,
             custom_prompt      = custom_prompt or None,
         )
 

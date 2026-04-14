@@ -519,6 +519,7 @@ class EPCPDFAutomation:
         target_id_start: int = 1,
         auto_submit: bool = True,
         code_to_category: Optional[Dict[str, str]] = None,
+        subtype_name_map: Optional[Dict[str, str]] = None,
         custom_prompt: Optional[str] = None,
     ) -> Dict:
         pdf_path     = Path(pdf_path)
@@ -604,6 +605,7 @@ class EPCPDFAutomation:
                     sumopod_client  = self.sumopod,
                     target_id_start = target_id_start,
                     code_to_category = code_to_category or {},
+                    subtype_name_map = subtype_name_map or {},
                     custom_prompt   = custom_prompt,
                 )
 

@@ -502,7 +502,7 @@ class MotorsightsEPCClient:
                 "catalog_item_name_en":  p.get("catalog_item_name_en", ""),
                 "catalog_item_name_ch":  p.get("catalog_item_name_ch", ""),
                 "description":           p.get("description") if p.get("description") is not None else "-",
-                "quantity":              int(p.get("quantity") or 1),
+                "quantity": val if isinstance(val := p.get("quantity"), int) else 0,
                 "unit":                  p.get("unit", ""),
             })
  
@@ -934,7 +934,7 @@ class MotorsightsEPCClient:
                 "catalog_item_name_en":  p.get("catalog_item_name_en", ""),
                 "catalog_item_name_ch":  p.get("catalog_item_name_ch", ""),
                 "description":           p.get("description") or "-",
-                "quantity":              int(p.get("quantity") or 1),
+                "quantity": val if isinstance(val := p.get("quantity"), int) else 0,
             })
 
         form_data = {
@@ -1117,7 +1117,7 @@ class MotorsightsEPCClient:
                 if is_subcategory:
                     # ── 3-level path: cari type_category_id ──────────────────────
                     self.logger.info(
-                        "Weichai 3-level path: '%s' adalah subcategory dari '%s'",
+                        "3-level path: '%s' adalah subcategory dari '%s'",
                         subtype_name_en, group_cat_en,
                     )
                     resolved_cat_id = self._get_category_id_by_name(
@@ -1161,7 +1161,7 @@ class MotorsightsEPCClient:
                 else:
                     # ── 2-level path: langsung pakai category_id ─────────────────
                     self.logger.info(
-                        "Weichai 2-level path: '%s' langsung di Category level",
+                        "2-level path: '%s' langsung di Category level",
                         subtype_name_en,
                     )
                     resolved_cat_id = self._get_category_id_by_name(

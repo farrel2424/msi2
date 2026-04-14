@@ -568,6 +568,7 @@ def extract_axle_drive_parts(
     sumopod_client=None,
     target_id_start: int = 1,          # kept for API compat; T-IDs come from 序号
     code_to_category: Optional[Dict[str, str]] = None,
+    subtype_name_map: Optional[Dict[str, str]] = None,
     custom_prompt: Optional[str] = None,   # kept for API compat; not used (text-based)
 ) -> List[Dict]:
     """
@@ -675,12 +676,14 @@ def extract_axle_drive_parts(
     # ── Build output ──────────────────────────────────────────────────────────
     output: List[Dict] = []
 
+    fn_en, _ = _infer_category_from_filename(pdf_path)
+
     for group_key, grp in groups.items():
         raw_parts = grp['raw_parts']
         cn_name   = grp['subtype_name_cn']
 
         # Prefer Stage 1 EN name; fallback to translation or CN
-        stage1_en = (code_to_category or {}).get(cn_name, "")
+        stage1_en = (subtype_name_map or {}).get(cn_name, "")
         en_name   = stage1_en or translations.get(cn_name) or cn_name
 
         if stage1_en:
@@ -715,7 +718,8 @@ def extract_axle_drive_parts(
 
         # Resolve parent category from code_to_category map
         cat_map = code_to_category or {}
-        cat_en  = cat_map.get(cn_name) or cat_map.get(en_name) or ''
+        fn_en, _ = _infer_category_from_filename(pdf_path)
+        cat_en  = cat_map.get(cn_name) or cat_map.get(en_name) or fn_en
 
         output.append({
             'category_name_en': cat_en,
