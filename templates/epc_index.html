@@ -263,6 +263,58 @@
     .parts-expand-btn:hover { background: var(--info-lt); }
     .parts-count-badge { display: inline-block; background: var(--primary); color: #fff; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; }
 
+    /* ── DC Code badge (NEW) ──────────────────────────────────────────── */
+    .dc-code-badge {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 600;
+        background: #f0f9ff;
+        color: #0369a1;
+        border: 1px solid #bae6fd;
+        border-radius: 4px;
+        padding: 2px 7px;
+        letter-spacing: 0.3px;
+        margin-bottom: 3px;
+        user-select: all;
+        cursor: text;
+    }
+    .dc-code-badge:empty { display: none; }
+    .dc-code-badge--edited {
+        background: #fef9c3;
+        color: #713f12;
+        border-color: #fde68a;
+    }
+
+    /* ── Category tag in subtype cell (NEW) ──────────────────────────── */
+    .subtype-category-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: var(--text-3);
+        margin-top: 3px;
+    }
+    .subtype-category-tag::before {
+        content: '📁';
+        font-size: 10px;
+    }
+
+    /* ── Edit field label ─────────────────────────────────────────────── */
+    .edit-field-label {
+        font-size: 10.5px;
+        font-weight: 700;
+        color: var(--text-3);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: block;
+        margin-bottom: 3px;
+    }
+    .edit-field-label.label-dc { color: #0369a1; }
+    .edit-field-label.label-en { color: #15803d; }
+    .edit-field-label.label-cn { color: #92400e; }
+
     /* ── Inline part editor ──────────────────────────────────────────────── */
     .edit-input {
         padding: 3px 6px;
@@ -279,6 +331,17 @@
         border-color: var(--primary);
         box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
     }
+    .edit-input--mono {
+        font-family: var(--mono);
+        font-size: 12px;
+        background: #f8fafc;
+        color: #0369a1;
+    }
+    .edit-input--mono:focus {
+        border-color: #0284c7;
+        box-shadow: 0 0 0 2px rgba(2,132,199,0.15);
+    }
+
     /* ── Summary stat cards ──────────────────────────────────────────────── */
     .summary-stat-cards {
         display: flex;
@@ -390,7 +453,7 @@
             </div>
         </div>
 
-        <!-- ── NEW: Engine Manufacturer — only shown when Engine is selected ── -->
+        <!-- ── Engine Manufacturer ── -->
         <div id="engineMfrGroup" class="hidden" style="margin-bottom:16px;">
             <div class="info-box info-box--orange" style="margin-bottom:10px;">
                 <span class="info-box__icon">🏭</span>
@@ -410,7 +473,7 @@
             </div>
         </div>
 
-        <!-- Stage 1 Prompt — COLLAPSIBLE (hidden until category selected) -->
+        <!-- Stage 1 Prompt — COLLAPSIBLE -->
         <div id="promptGroup" class="hidden">
             <details class="prompt-collapsible" id="stage1PromptDetails">
                 <summary>
@@ -548,6 +611,7 @@
                 <span class="info-box__icon">ℹ️</span>
                 <div>
                     Suku cadang dikelompokkan per <strong>Subtype</strong>.
+                    Klik <strong>✏️</strong> pada baris untuk mengedit <strong>Kode DC, Nama EN, dan Nama CN</strong>.
                     Submit semua sekaligus, atau per grup satu per satu.
                 </div>
             </div>
@@ -557,7 +621,7 @@
                 <table class="parts-table">
                     <thead>
                         <tr>
-                            <th>Subtype</th>
+                            <th>Subtype &amp; Kode DC</th>
                             <th style="text-align:center">Parts</th>
                             <th>Preview</th>
                             <th style="text-align:center">Status</th>
@@ -571,7 +635,10 @@
             <!-- Parts detail panel (expandable) -->
             <div class="hidden" id="partsDetailPanel" style="background:#fafbfc;border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;overflow-x:auto;">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-                    <strong id="partsDetailTitle" style="font-size:14px;"></strong>
+                    <div>
+                        <strong id="partsDetailTitle" style="font-size:14px;display:block;"></strong>
+                        <span id="partsDetailDcCode" style="font-family:var(--mono);font-size:11px;color:#0369a1;display:block;margin-top:2px;"></span>
+                    </div>
                     <div style="display:flex;gap:6px;align-items:center;">
                         <button id="partsEditBtn"   class="btn btn--primary btn--sm hidden" onclick="enterEditMode()">✏️ Edit</button>
                         <button id="partsSaveBtn"   class="btn btn--success btn--sm hidden" onclick="savePartsEdit()">💾 Simpan Perubahan</button>
@@ -914,22 +981,19 @@ OUTPUT (table page):
             promptGroup.classList.add('hidden');
         }
 
-        // ── Show / hide engine manufacturer selector ──────────────────────
         const engineMfrGroup = document.getElementById('engineMfrGroup');
         if (type === 'engine') {
             engineMfrGroup.classList.remove('hidden');
-            onEngineManufacturerChange();  // populate notes immediately
+            onEngineManufacturerChange();
         } else {
             engineMfrGroup.classList.add('hidden');
         }
 
-        // Pre-load Stage 2 prompt default for the selected type
         if (type && PARTS_EXTRACTION_PROMPTS[type]) {
             s2TA.value = PARTS_EXTRACTION_PROMPTS[type];
         }
     }
 
-    // ── Engine manufacturer change handler ────────────────────────────────
     function onEngineManufacturerChange() {
         const mfr     = document.getElementById('engineManufacturer').value;
         const note    = document.getElementById('engineMfrNote');
@@ -941,13 +1005,11 @@ OUTPUT (table page):
             note.innerHTML = '&nbsp;—&nbsp;<strong style="color:var(--success)">✅ Ekstraksi berbasis teks</strong>, tidak perlu Vision AI.';
             subNote.textContent = '📄 Weichai: PDF teks langsung — Stage 2 cepat & hemat biaya (tanpa token AI)';
             subNote.style.color = 'var(--success)';
-            // Weichai is text-based — hide Stage 2 AI prompt (not needed)
             if (s2Det) s2Det.style.display = 'none';
         } else {
             note.innerHTML = '&nbsp;—&nbsp;<strong style="color:var(--warning)">🔭 Vision AI</strong>, membaca gambar setiap halaman.';
             subNote.textContent = "📷 Cummins Xi'an: PDF gambar — Stage 2 menggunakan Vision AI";
             subNote.style.color = 'var(--warning)';
-            // Restore Stage 2 prompt panel for Cummins
             if (s2Det) s2Det.style.display = '';
             const selEl = document.getElementById('masterCategory');
             const selOpt = selEl.options[selEl.selectedIndex];
@@ -994,7 +1056,6 @@ OUTPUT (table page):
         if (em)  fd.append('sso_email', em);
         if (pw)  fd.append('sso_password', pw);
 
-        // ── Append engine manufacturer when Engine category is selected ───
         const selEl  = document.getElementById('masterCategory');
         const selOpt = selEl.options[selEl.selectedIndex];
         if (selOpt?.dataset?.partbookType === 'engine') {
@@ -1128,7 +1189,6 @@ OUTPUT (table page):
         document.getElementById('statusFilename').textContent =
             job.filename || currentFilename || '—';
 
-        // ── Show manufacturer label when it's an Engine job ───────────────
         const mfrSuffix = (job.partbook_type === 'engine' && job.engine_mfr_label)
             ? ` — ${job.engine_mfr_label}` : '';
         document.getElementById('statusPartbookType').textContent =
@@ -1350,7 +1410,6 @@ OUTPUT (table page):
 
         document.getElementById('dokumenNameValue').textContent = getDokumenName();
 
-        // Pre-fill Stage 2 prompt with type-specific default if empty
         const s2TA = document.getElementById('stage2Prompt');
         if (!s2TA.value.trim() && currentPartbookType && PARTS_EXTRACTION_PROMPTS[currentPartbookType]) {
             s2TA.value = PARTS_EXTRACTION_PROMPTS[currentPartbookType];
@@ -1367,37 +1426,59 @@ OUTPUT (table page):
             const more = parts.length > 3
                 ? `<br><em style="font-size:11px;color:var(--text-3)">+${parts.length - 3} lainnya…</em>` : '';
 
+            const dcCode    = subtype.subtype_code || '';
+            const catNameEn = subtype.category_name_en || '';
+
             const tr = document.createElement('tr');
             tr.id = `subtype-row-${idx}`;
             tr.innerHTML = `
-                <td id="subtype-name-cell-${idx}">
+                <td id="subtype-name-cell-${idx}" style="min-width:200px;">
+                    <!-- ── DISPLAY MODE ── -->
                     <div id="subtype-name-display-${idx}">
-                        <strong>${_esc(subtype.subtype_name_en)}</strong>
-                        <button
-                            onclick="editSubtypeName(${idx})"
-                            title="Edit nama subtype"
-                            style="background:none;border:1px solid var(--border-mid);border-radius:3px;
-                                   padding:1px 6px;font-size:11px;cursor:pointer;margin-left:5px;
-                                   color:var(--text-2);vertical-align:middle;">✏️</button>
-                        <br>
-                        <span style="font-size:12px;color:var(--text-3)">
-                            ${_esc(subtype.subtype_name_cn || '')}
-                        </span>
-                    </div>
-                    <div id="subtype-name-edit-${idx}" style="display:none;">
-                        <div style="margin-bottom:4px;">
-                            <label style="font-size:11px;font-weight:600;color:var(--text-3);
-                                          display:block;margin-bottom:2px;">EN</label>
-                            <input class="edit-input" id="edit-en-${idx}"
-                                   value="${_esc(subtype.subtype_name_en)}"
-                                   style="width:100%;" placeholder="English name">
+                        ${dcCode ? `<div><span class="dc-code-badge" id="dc-badge-display-${idx}">${_esc(dcCode)}</span></div>` : `<div><span class="dc-code-badge" id="dc-badge-display-${idx}" style="display:none;"></span></div>`}
+                        <div style="margin-top:2px;">
+                            <strong id="subtype-en-display-${idx}">${_esc(subtype.subtype_name_en)}</strong>
+                            <button
+                                onclick="editSubtypeName(${idx})"
+                                title="Edit Kode DC, Nama EN &amp; CN"
+                                style="background:none;border:1px solid var(--border-mid);border-radius:3px;
+                                       padding:1px 6px;font-size:11px;cursor:pointer;margin-left:5px;
+                                       color:var(--text-2);vertical-align:middle;">✏️</button>
                         </div>
+                        <div style="font-size:12px;color:var(--text-3);margin-top:1px;" id="subtype-cn-display-${idx}">
+                            ${_esc(subtype.subtype_name_cn || '')}
+                        </div>
+                        ${catNameEn ? `<div class="subtype-category-tag" id="subtype-cat-display-${idx}">${_esc(catNameEn)}</div>` : `<div class="subtype-category-tag hidden" id="subtype-cat-display-${idx}"></div>`}
+                    </div>
+
+                    <!-- ── EDIT MODE ── -->
+                    <div id="subtype-name-edit-${idx}" style="display:none;">
+                        <!-- DC Code field (NEW) -->
                         <div style="margin-bottom:6px;">
-                            <label style="font-size:11px;font-weight:600;color:var(--text-3);
-                                          display:block;margin-bottom:2px;">CN</label>
-                            <input class="edit-input" id="edit-cn-${idx}"
+                            <span class="edit-field-label label-dc">🔖 Kode DC</span>
+                            <input class="edit-input edit-input--mono"
+                                   id="edit-dc-${idx}"
+                                   value="${_esc(dcCode)}"
+                                   style="width:100%;"
+                                   placeholder="mis. DC97259880020 (opsional)">
+                        </div>
+                        <!-- EN field -->
+                        <div style="margin-bottom:4px;">
+                            <span class="edit-field-label label-en">🇬🇧 Nama EN</span>
+                            <input class="edit-input"
+                                   id="edit-en-${idx}"
+                                   value="${_esc(subtype.subtype_name_en)}"
+                                   style="width:100%;"
+                                   placeholder="English name">
+                        </div>
+                        <!-- CN field -->
+                        <div style="margin-bottom:8px;">
+                            <span class="edit-field-label label-cn">🇨🇳 Nama CN</span>
+                            <input class="edit-input"
+                                   id="edit-cn-${idx}"
                                    value="${_esc(subtype.subtype_name_cn || '')}"
-                                   style="width:100%;" placeholder="Chinese name">
+                                   style="width:100%;"
+                                   placeholder="Chinese name">
                         </div>
                         <div style="display:flex;gap:4px;">
                             <button class="btn btn--success btn--sm"
@@ -1544,8 +1625,19 @@ OUTPUT (table page):
     function expandPartsDetail(idx) {
         editingSubtypeIdx = idx;
         const sub = currentPartsData.subtypes[idx];
+        const dcCode = sub.subtype_code || '';
+
         document.getElementById('partsDetailTitle').textContent =
             `${sub.subtype_name_en}  /  ${sub.subtype_name_cn || ''}  (${sub.parts.length} parts)`;
+
+        // Show DC code under title
+        const dcEl = document.getElementById('partsDetailDcCode');
+        if (dcCode) {
+            dcEl.textContent = `Kode DC: ${dcCode}`;
+            dcEl.style.display = 'block';
+        } else {
+            dcEl.style.display = 'none';
+        }
 
         document.getElementById('partsEditBtn').classList.remove('hidden');
         document.getElementById('partsSaveBtn').classList.add('hidden');
@@ -1644,15 +1736,18 @@ OUTPUT (table page):
         document.getElementById('partsDetailPanel').classList.add('hidden');
     }
 
-    // ── Subtype name inline editing ────────────────────────────────────────
+    // ── Subtype name + DC code inline editing (UPDATED) ───────────────────
     function editSubtypeName(idx) {
         document.getElementById(`subtype-name-display-${idx}`).style.display = 'none';
         document.getElementById(`subtype-name-edit-${idx}`).style.display   = 'block';
-        document.getElementById(`edit-en-${idx}`).focus();
-        document.getElementById(`edit-en-${idx}`).select();
+        // Focus on DC code field first (most likely to need editing for Cabin & Chassis)
+        const dcInput = document.getElementById(`edit-dc-${idx}`);
+        dcInput.focus();
+        dcInput.select();
     }
 
     function saveSubtypeName(idx) {
+        const newDc = document.getElementById(`edit-dc-${idx}`).value.trim();
         const newEn = document.getElementById(`edit-en-${idx}`).value.trim();
         const newCn = document.getElementById(`edit-cn-${idx}`).value.trim();
 
@@ -1663,6 +1758,7 @@ OUTPUT (table page):
 
         const sub = currentPartsData.subtypes[idx];
 
+        // Update category names if they mirrored subtype names
         if (sub.category_name_en === sub.subtype_name_en) {
             currentPartsData.subtypes[idx].category_name_en = newEn;
         }
@@ -1670,30 +1766,59 @@ OUTPUT (table page):
             currentPartsData.subtypes[idx].category_name_cn = newCn;
         }
 
+        // ── Save all three fields ─────────────────────────────────────────
+        currentPartsData.subtypes[idx].subtype_code    = newDc;   // NEW: save DC code
         currentPartsData.subtypes[idx].subtype_name_en = newEn;
         currentPartsData.subtypes[idx].subtype_name_cn = newCn;
 
-        const displayDiv = document.getElementById(`subtype-name-display-${idx}`);
-        displayDiv.innerHTML = `
-            <strong>${_esc(newEn)}</strong>
-            <button
-                onclick="editSubtypeName(${idx})"
-                title="Edit nama subtype"
-                style="background:none;border:1px solid var(--border-mid);border-radius:3px;
-                       padding:1px 6px;font-size:11px;cursor:pointer;margin-left:5px;
-                       color:var(--text-2);vertical-align:middle;">✏️</button>
-            <br>
-            <span style="font-size:12px;color:var(--text-3)">${_esc(newCn)}</span>
-        `;
-        displayDiv.style.display = 'block';
-        document.getElementById(`subtype-name-edit-${idx}`).style.display = 'none';
+        // ── Update display ────────────────────────────────────────────────
+        // DC code badge
+        const dcBadge = document.getElementById(`dc-badge-display-${idx}`);
+        if (dcBadge) {
+            if (newDc) {
+                dcBadge.textContent = newDc;
+                dcBadge.style.display = 'inline-flex';
+                // Mark as edited if changed from original
+                const originalDc = sub.subtype_code || '';
+                if (newDc !== originalDc) dcBadge.classList.add('dc-code-badge--edited');
+                else dcBadge.classList.remove('dc-code-badge--edited');
+            } else {
+                dcBadge.style.display = 'none';
+            }
+        }
 
+        // EN name
+        const enDisplay = document.getElementById(`subtype-en-display-${idx}`);
+        if (enDisplay) enDisplay.textContent = newEn;
+
+        // CN name
+        const cnDisplay = document.getElementById(`subtype-cn-display-${idx}`);
+        if (cnDisplay) cnDisplay.textContent = newCn;
+
+        // Hide edit form, show display
+        document.getElementById(`subtype-name-display-${idx}`).style.display = 'block';
+        document.getElementById(`subtype-name-edit-${idx}`).style.display   = 'none';
+
+        // Update parts detail panel title if open
         if (editingSubtypeIdx === idx) {
             document.getElementById('partsDetailTitle').textContent =
                 `${newEn}  /  ${newCn}  (${(sub.parts || []).length} parts)`;
+            const dcEl = document.getElementById('partsDetailDcCode');
+            if (dcEl) {
+                if (newDc) { dcEl.textContent = `Kode DC: ${newDc}`; dcEl.style.display = 'block'; }
+                else dcEl.style.display = 'none';
+            }
         }
 
-        showAlert(`✅ Nama subtype diperbarui: "${newEn}"`, 'success');
+        const changedFields = [];
+        if (newDc !== (sub.subtype_code || '')) changedFields.push('Kode DC');
+        if (newEn !== sub.subtype_name_en) changedFields.push('Nama EN');
+        if (newCn !== (sub.subtype_name_cn || '')) changedFields.push('Nama CN');
+
+        const msg = changedFields.length > 0
+            ? `✅ Diperbarui: ${changedFields.join(', ')} untuk "${newEn}"`
+            : `ℹ️ Tidak ada perubahan untuk "${newEn}"`;
+        showAlert(msg, changedFields.length > 0 ? 'success' : 'info');
     }
 
     function cancelSubtypeEdit(idx) {
@@ -1701,7 +1826,9 @@ OUTPUT (table page):
         document.getElementById(`subtype-name-edit-${idx}`).style.display   = 'none';
 
         const sub = currentPartsData.subtypes[idx];
-        document.getElementById(`edit-en-${idx}`).value = sub.subtype_name_en;
+        // Reset all three fields to current saved values
+        document.getElementById(`edit-dc-${idx}`).value = sub.subtype_code    || '';
+        document.getElementById(`edit-en-${idx}`).value = sub.subtype_name_en || '';
         document.getElementById(`edit-cn-${idx}`).value = sub.subtype_name_cn || '';
     }
 
