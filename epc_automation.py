@@ -16,6 +16,15 @@ FIX (2026-04-10): process_parts() engine/cummins now passes force_vision=True
   returns 0 categories for Cummins. Vision AI correctly handles all Cummins
   page types (diagram-only, text-table, mixed). force_vision=True bypasses
   the auto-detect for Cummins only; all other paths are unaffected.
+
+FIX v4 (2026-04-14): cabin_chassis Stage 1 per-page TOC extraction.
+  ROOT CAUSE: joining all TOC pages into one string and calling
+  extract_catalog_data() once generated 5 000–8 000+ output tokens for a
+  13-category catalog. The default sumopod_max_tokens=2000 silently truncated
+  the response → only the first ~3 categories were returned.
+  FIX: process each TOC page individually and accumulate categories with
+  deduplication. Each call now outputs ≈500-1 000 tokens (one page worth of
+  categories). Fallback path and all other partbook types are unaffected.
 """
 
 from __future__ import annotations
@@ -24,6 +33,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -39,7 +49,7 @@ from axle_drive_extractor import extract_axle_drive_categories
 from axle_drive_parts_extractor import (
     extract_axle_drive_categories_text,
     extract_axle_drive_parts,
-)  
+)
 from cabin_chassis_parts_extractor import (
     extract_cabin_chassis_parts,
     extract_cabin_chassis_categories,
@@ -207,43 +217,200 @@ class EPCPDFAutomation:
 
         return logging.getLogger(__name__)
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Internal helper: per-page TOC extraction + accumulation (cabin_chassis)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _extract_cabin_chassis_categories_from_toc_pages(
+        self,
+        toc_texts: List[str],
+        custom_prompt: Optional[str] = None,
+    ) -> Dict:
+        """
+        FIX v4: Process each TOC page individually and accumulate categories.
+
+        PROBLEM SOLVED:
+          Sending all TOC pages as one string generated 5 000–8 000+ JSON output
+          tokens for a 13-category catalog. The API cap (sumopod_max_tokens,
+          default 2 000) silently truncated the response → only the first ~3
+          categories were returned with no error.
+
+        APPROACH:
+          • Filter out non-TOC pages (cover, foreword, section dividers) by
+            checking for at least one DC-coded entry (regex DC\\d{8,}).
+          • Call extract_catalog_data() once per TOC page. Each call produces
+            ≈500-1 000 tokens — comfortably within any token limit.
+          • Accumulate categories with deduplication:
+              - New category_name_en → append to list.
+              - Known category_name_en → merge any new data_type subtypes.
+
+        Returns: {"categories": [...]}  (same shape as extract_catalog_data)
+        """
+        _DC_CODE_RE = re.compile(r'DC\d{8,}')
+
+        all_categories: List[Dict] = []
+        seen_cat_en: Dict[str, int] = {}   # cat_en → index in all_categories
+
+        for pg_n, pg_text in enumerate(toc_texts, 1):
+            if not pg_text.strip():
+                continue
+
+            # Skip non-TOC pages: cover, foreword, section-divider pages.
+            # A genuine TOC page always has at least one DC-part-code entry.
+            if not _DC_CODE_RE.search(pg_text):
+                self.logger.debug(
+                    "Cabin TOC page %d: no DC codes detected — skipped "
+                    "(cover / foreword / section divider)",
+                    pg_n,
+                )
+                continue
+
+            self.logger.info(
+                "Cabin TOC page %d/%d: calling LLM …", pg_n, len(toc_texts)
+            )
+            try:
+                pg_result = self.sumopod.extract_catalog_data(
+                    pg_text, custom_prompt=custom_prompt
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "Cabin TOC page %d extraction failed — skipping: %s", pg_n, exc
+                )
+                continue
+
+            for cat in pg_result.get("categories", []):
+                cat_en = (cat.get("category_name_en") or "").strip()
+                if not cat_en:
+                    continue
+
+                if cat_en not in seen_cat_en:
+                    # Brand-new category from this page
+                    seen_cat_en[cat_en] = len(all_categories)
+                    all_categories.append(cat)
+                    self.logger.info(
+                        "  [CAT+] '%s' — %d subtype(s)",
+                        cat_en, len(cat.get("data_type", [])),
+                    )
+                else:
+                    # Category already seen; merge any new subtypes
+                    existing = all_categories[seen_cat_en[cat_en]]
+                    existing_tc_names = {
+                        t.get("type_category_name_en", "")
+                        for t in existing.get("data_type", [])
+                    }
+                    added = 0
+                    for tc in cat.get("data_type", []):
+                        tc_en = tc.get("type_category_name_en", "")
+                        if tc_en not in existing_tc_names:
+                            existing.setdefault("data_type", []).append(tc)
+                            existing_tc_names.add(tc_en)
+                            added += 1
+                    if added:
+                        self.logger.info(
+                            "  [CAT~] '%s' — merged %d new subtype(s)", cat_en, added
+                        )
+
+        self.logger.info(
+            "Cabin & Chassis Stage 1 complete: %d categories extracted "
+            "across %d TOC page(s).",
+            len(all_categories), len(toc_texts),
+        )
+        return {"categories": all_categories}
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Main extraction dispatcher
+    # ─────────────────────────────────────────────────────────────────────────
+
     def _extract_data(self, pdf_path: Path, custom_prompt: Optional[str] = None) -> Dict:
         ptype        = self.config.partbook_type
         manufacturer = self.config.engine_manufacturer
 
         # ── CABIN & CHASSIS ───────────────────────────────────────────────────
         if ptype == "cabin_chassis":
-            self.logger.info("Strategy: Cabin & Chassis - markdown extraction via pymupdf4llm")
-            markdown_text = pymupdf4llm.to_markdown(str(pdf_path))
-            self.logger.info("Converted to markdown (%d chars)", len(markdown_text))
+            self.logger.info("Strategy: Cabin & Chassis - per-page TOC extraction (v4)")
 
-            if markdown_text.strip():
-                result = self.sumopod.extract_catalog_data(
-                    markdown_text, custom_prompt=custom_prompt
-                )
-                code_to_category: Dict[str, str] = {}
-                for cat in result.get("categories", []):
-                    cat_en = cat.get("category_name_en", "")
-                    for subtype in cat.get("data_type", []):
-                        name_en = subtype.get("type_category_name_en", "")
-                        parts = name_en.split(" ", 1)
-                        code  = parts[0] if len(parts) > 1 else ""
-                        if code:
-                            code_to_category[code] = cat_en
-                        code_to_category[name_en] = cat_en
-                result["code_to_category"] = code_to_category
-                return result
-            else:
+            # Step 1: collect raw text from pages up to (but not including)
+            # the first actual parts-table page.
+            # Stop-signal: page contains ALL THREE column headers at once.
+            import fitz as _fitz_toc
+            _doc_toc = _fitz_toc.open(str(pdf_path))
+            _total_pdf_pages = len(_doc_toc)
+            _PARTS_SIGNALS = ("序号", "编码", "名称")
+            _toc_texts: List[str] = []
+
+            for _pg_idx in range(min(20, _total_pdf_pages)):
+                _pg_text = _doc_toc[_pg_idx].get_text("text")
+                if all(_sig in _pg_text for _sig in _PARTS_SIGNALS):
+                    self.logger.info(
+                        "Parts table detected at page %d — TOC collection stops here.",
+                        _pg_idx + 1,
+                    )
+                    break
+                _toc_texts.append(_pg_text)
+
+            _doc_toc.close()
+
+            if _toc_texts:
                 self.logger.info(
-                    "Markdown empty — image-based PDF, falling back to vision extraction."
+                    "Collected %d page(s) before first parts table (full PDF: %d pages).",
+                    len(_toc_texts), _total_pdf_pages,
                 )
-                cat_name_en = self.config.master_category_name_en or "Cabin & Chassis"
-                return extract_cabin_chassis_categories(
-                    pdf_path=str(pdf_path),
-                    sumopod_client=self.sumopod,
-                    category_name_en=cat_name_en,
-                    category_name_cn="驾驶室和底盘",
+
+                # Step 2: per-page LLM extraction (FIX v4 — avoids token truncation)
+                result = self._extract_cabin_chassis_categories_from_toc_pages(
+                    _toc_texts, custom_prompt=custom_prompt
                 )
+
+                # If per-page extraction returned nothing (e.g. very short PDF
+                # with no DC codes before page 1), try the legacy single-call path.
+                if not result.get("categories"):
+                    self.logger.warning(
+                        "Per-page extraction returned 0 categories — "
+                        "retrying with legacy single-block call."
+                    )
+                    markdown_text = "\n\n".join(_toc_texts)
+                    result = self.sumopod.extract_catalog_data(
+                        markdown_text, custom_prompt=custom_prompt
+                    )
+
+            else:
+                # No pre-parts pages detected → image-based or very short PDF.
+                # Try pymupdf4llm first, then vision extraction as last resort.
+                self.logger.warning(
+                    "No TOC pages collected — falling back to full PDF markdown."
+                )
+                markdown_text = pymupdf4llm.to_markdown(str(pdf_path))
+                self.logger.info("Converted to markdown (%d chars)", len(markdown_text))
+
+                if markdown_text.strip():
+                    result = self.sumopod.extract_catalog_data(
+                        markdown_text, custom_prompt=custom_prompt
+                    )
+                else:
+                    self.logger.info(
+                        "Markdown empty — image-based PDF, switching to vision extraction."
+                    )
+                    cat_name_en = self.config.master_category_name_en or "Cabin & Chassis"
+                    return extract_cabin_chassis_categories(
+                        pdf_path=str(pdf_path),
+                        sumopod_client=self.sumopod,
+                        category_name_en=cat_name_en,
+                        category_name_cn="驾驶室和底盘",
+                    )
+
+            # Build code_to_category map (shared for all cabin_chassis paths)
+            code_to_category: Dict[str, str] = {}
+            for cat in result.get("categories", []):
+                cat_en = cat.get("category_name_en", "")
+                for subtype in cat.get("data_type", []):
+                    name_en = subtype.get("type_category_name_en", "")
+                    parts   = name_en.split(" ", 1)
+                    code    = parts[0] if len(parts) > 1 else ""
+                    if code:
+                        code_to_category[code] = cat_en
+                    code_to_category[name_en] = cat_en
+            result["code_to_category"] = code_to_category
+            return result
 
         # ── ENGINE ────────────────────────────────────────────────────────────
         elif ptype == "engine":
@@ -257,7 +424,6 @@ class EPCPDFAutomation:
                     sumopod_client=self.sumopod,
                 )
             else:
-                # Xian Cummins: image-based or ZIP PDF, vision AI per page.
                 self.logger.info(
                     "Strategy: Engine / Xian Cummins — vision AI per page (flat)"
                 )
@@ -317,8 +483,6 @@ class EPCPDFAutomation:
 
         # ── AXLE DRIVE ────────────────────────────────────────────────────────
         elif ptype == "axle_drive":
-            # Auto-detect: text-based PDF (Hande style) uses the fast text extractor.
-            # Image-based / ZIP PDF falls back to the original vision-based extractor.
             import fitz as _fitz
             _doc = _fitz.open(str(pdf_path))
             _total_chars = sum(
@@ -327,7 +491,7 @@ class EPCPDFAutomation:
             )
             _doc.close()
             _is_text_pdf = _total_chars > 50
- 
+
             if _is_text_pdf:
                 self.logger.info(
                     "_extract_data (axle_drive): text-based PDF detected "
@@ -346,9 +510,8 @@ class EPCPDFAutomation:
                     pdf_path=str(pdf_path),
                     sumopod_client=self.sumopod,
                 )
- 
-            # Build code_to_category map for Stage 2
-            code_to_category: Dict[str, str] = {}
+
+            code_to_category = {}
             for cat in result.get("categories", []):
                 cat_en = cat.get("category_name_en", "")
                 cat_cn = cat.get("category_name_cn", "")
@@ -363,19 +526,17 @@ class EPCPDFAutomation:
                         code_to_category[tc_en] = cat_en
                     if tc_cn:
                         code_to_category[tc_cn] = cat_en
- 
-# ✅ FIX axle_drive only — tidak menyentuh tipe lain
+
             subtype_cn_to_en: Dict[str, str] = {}
-            if ptype == "axle_drive":
-                for cat in result.get("categories", []):
-                    for tc in cat.get("data_type", []):
-                        tc_en = tc.get("type_category_name_en", "")
-                        tc_cn = tc.get("type_category_name_cn", "")
-                        if tc_cn and tc_en and tc_cn != tc_en:
-                            subtype_cn_to_en[tc_cn] = tc_en
+            for cat in result.get("categories", []):
+                for tc in cat.get("data_type", []):
+                    tc_en = tc.get("type_category_name_en", "")
+                    tc_cn = tc.get("type_category_name_cn", "")
+                    if tc_cn and tc_en and tc_cn != tc_en:
+                        subtype_cn_to_en[tc_cn] = tc_en
 
             result["code_to_category"] = code_to_category
-            result["subtype_cn_to_en"] = subtype_cn_to_en  # kosong {} untuk non-axle_drive
+            result["subtype_cn_to_en"] = subtype_cn_to_en
             self.logger.info(
                 "_extract_data (axle_drive): %d categories, %d subtypes, %d map entries",
                 len(result.get("categories", [])),
@@ -470,7 +631,6 @@ class EPCPDFAutomation:
         ptype        = self.config.partbook_type
         manufacturer = self.config.engine_manufacturer
 
-        # Transmission: always flat (2-level)
         if ptype == "transmission":
             return self.epc_client.batch_create_flat_categories(
                 catalog_data            = extracted_data,
@@ -478,7 +638,6 @@ class EPCPDFAutomation:
                 master_category_name_en = master_category_name_en
             )
 
-        # Engine: route by manufacturer
         elif ptype == "engine":
             if manufacturer == "weichai":
                 self.logger.info(
@@ -501,7 +660,6 @@ class EPCPDFAutomation:
                     master_category_name_en = master_category_name_en
                 )
 
-        # Cabin & Chassis, Axle Drive: always 3-level
         else:
             return self.epc_client.batch_create_type_categories_and_categories(
                 catalog_data            = extracted_data,
@@ -576,13 +734,6 @@ class EPCPDFAutomation:
                         category_map    = code_to_category or {},
                     )
                 else:
-                    # ── FIX (2026-04-10): force_vision=True for Xian Cummins ──────
-                    # Cummins PDFs contain text on the cover/foreword pages that
-                    # triggers TEXT PATH (> 50 char threshold). The TEXT PATH layout
-                    # parser does not handle the Cummins header format and returns
-                    # 0 categories. Vision AI correctly handles all page types:
-                    # diagram-only, text-table, and mixed. force_vision bypasses
-                    # auto-detect for Cummins only; no other path is affected.
                     self.logger.info(
                         "Stage 2 / Engine / Xian Cummins — Vision AI parts extraction "
                         "(force_vision=True: bypasses false TEXT PATH detection)"
@@ -592,12 +743,12 @@ class EPCPDFAutomation:
                         sumopod_client  = self.sumopod,
                         target_id_start = target_id_start,
                         custom_prompt   = custom_prompt,
-                        force_vision    = True,  # ← THE FIX
+                        force_vision    = True,
                     )
 
             elif ptype == "axle_drive":
                 self.logger.info(
-                    "Stage 2 / Axle Drive — Vision AI parts extraction "
+                    "Stage 2 / Axle Drive — text-based parts extraction "
                     "(axle_drive_parts_extractor, no Vision AI)"
                 )
                 parts_data = extract_axle_drive_parts(

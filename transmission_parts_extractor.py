@@ -386,9 +386,18 @@ def _strip_section_number(section_header: str) -> str:
     """
     Remove the leading ordinal and 、 marker from a section header.
     "一、离合器和变速器壳体总成" → "离合器和变速器壳体总成"
+    "二轴总成、"                → "二轴总成"  (trailing 、 cleaned up)
     English headers are returned as-is (no ordinal to strip).
+
+    FIX: Pola lama ^[^\u3001]+\u3001 menghapus SEMUA karakter sebelum 、,
+    termasuk nama seksi itu sendiri jika 、 ada di akhir (mis. "二轴总成、").
+    Sekarang hanya strip ordinal Cina sejati (字符 numerals + 、 di awal).
     """
-    return re.sub(r"^[^\u3001]+\u3001", "", section_header).strip()
+    # Strip hanya jika awalan adalah angka ordinal Cina (一、二、十五、dst.)
+    result = re.sub(r"^[零一二三四五六七八九十百]+\u3001", "", section_header).strip()
+    # Bersihkan 、 yang mungkin tersisa di akhir (AI salah taruh)
+    result = result.rstrip("\u3001").strip()
+    return result if result else section_header.rstrip("\u3001").strip()
 
 
 def _merge_parts(raw_parts: List[Dict]) -> List[Dict]:
@@ -459,7 +468,7 @@ def _assign_target_ids(
 
     for part in parts:
         result     = {k: v for k, v in part.items() if k != "is_assembly_header"}
-        serial_raw = (part.get("serial_no") or "").strip()
+        serial_raw = str(part.get("serial_no") or "").strip()
 
         # Rule 1: assembly header → T000
         if part.get("is_assembly_header") and not assembly_header_assigned:
