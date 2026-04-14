@@ -397,7 +397,7 @@ class EPCPDFAutomation:
             r'(DC\d{8,})'                        # [G1] DC code
             r'\s+'
             r'((?:[A-Za-z0-9][A-Za-z0-9\s\-&/,\'\.\(\)]*)+?)'  # [G2] English name
-            r'\s+'
+            r'\s*'
             r'([\u4e00-\u9fff][^\n\d]*?)'        # [G3] Chinese name (until digit/newline)
             r'\s*\d*'                            # optional page number
             r'\s*$'
