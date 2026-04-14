@@ -227,36 +227,35 @@ class EPCPDFAutomation:
         custom_prompt: Optional[str] = None,
     ) -> Dict:
         """
-        FIX v4: Process each TOC page individually and accumulate categories.
+    FIX v5: Context-aware per-page extraction.
 
-        PROBLEM SOLVED:
-          Sending all TOC pages as one string generated 5 000–8 000+ JSON output
-          tokens for a 13-category catalog. The API cap (sumopod_max_tokens,
-          default 2 000) silently truncated the response → only the first ~3
-          categories were returned with no error.
+    BUGS FIXED:
+      1. "Assembly Parts" missing from Cab Gp — occurred when the last subtype
+         of a category and the NEXT category's header appeared on the SAME page.
+         LLM had no context about the previous active category, so it incorrectly
+         assigned the orphaned subtype to the new category.
 
-        APPROACH:
-          • Filter out non-TOC pages (cover, foreword, section dividers) by
-            checking for at least one DC-coded entry (regex DC\\d{8,}).
-          • Call extract_catalog_data() once per TOC page. Each call produces
-            ≈500-1 000 tokens — comfortably within any token limit.
-          • Accumulate categories with deduplication:
-              - New category_name_en → append to list.
-              - Known category_name_en → merge any new data_type subtypes.
+      2. "Vehicle Toolbox" / "Warning Light" placed in invented "Miscellaneous" —
+         occurred on the last TOC page which had NO category header. LLM invented
+         a new category ("Miscellaneous/其他") for items it couldn't assign.
 
-        Returns: {"categories": [...]}  (same shape as extract_catalog_data)
-        """
+    ROOT CAUSE: Pages were processed in isolation. Each LLM call had no knowledge
+    of which category was active from the previous page.
+
+    FIX: Pass `last_active_category_en` as a context note prepended to the
+    markdown text of each page. The LLM is instructed to assign any DC-coded
+    entries that appear BEFORE a new numbered header to the previous category.
+    """
         _DC_CODE_RE = re.compile(r'DC\d{8,}')
 
         all_categories: List[Dict] = []
-        seen_cat_en: Dict[str, int] = {}   # cat_en → index in all_categories
+        seen_cat_en: Dict[str, int] = {}
+        last_active_category_en: Optional[str] = None  # FIX v5: track across pages
 
         for pg_n, pg_text in enumerate(toc_texts, 1):
             if not pg_text.strip():
                 continue
 
-            # Skip non-TOC pages: cover, foreword, section-divider pages.
-            # A genuine TOC page always has at least one DC-part-code entry.
             if not _DC_CODE_RE.search(pg_text):
                 self.logger.debug(
                     "Cabin TOC page %d: no DC codes detected — skipped "
@@ -265,12 +264,38 @@ class EPCPDFAutomation:
                 )
                 continue
 
+        # ── FIX v5: inject previous-page context into the markdown text ──────
+        # Prepend a structured context note so the LLM correctly handles:
+        #   (a) DC entries before the first new header → still belong to last category
+        #   (b) Pages with NO header at all → all entries belong to last category
+            if last_active_category_en:
+                context_note = (
+                    f"[EXTRACTION CONTEXT]\n"
+                    f"The active parent category from the PREVIOUS page was: "
+                    f"'{last_active_category_en}'.\n"
+                    f"RULE: Any DC-coded entries that appear BEFORE the first new "
+                    f"numbered section header on this page still belong to "
+                    f"'{last_active_category_en}'. Do NOT invent a new category "
+                    f"(e.g. 'Miscellaneous') for them.\n"
+                    f"Only create a new category when you see a numbered header like "
+                    f"'10 Frame System', '11 Dynamic System', '17 Cab Gp', etc.\n"
+                    f"[END CONTEXT]\n\n"
+                )
+                page_input = context_note + pg_text
+            else:
+                page_input = pg_text
+        # ─────────────────────────────────────────────────────────────────────
+
             self.logger.info(
-                "Cabin TOC page %d/%d: calling LLM …", pg_n, len(toc_texts)
+                "Cabin TOC page %d/%d: calling LLM "
+                "(active_category='%s') …",
+                pg_n, len(toc_texts),
+                last_active_category_en or "none",
             )
+
             try:
                 pg_result = self.sumopod.extract_catalog_data(
-                    pg_text, custom_prompt=custom_prompt
+                    page_input, custom_prompt=custom_prompt
                 )
             except Exception as exc:
                 self.logger.warning(
@@ -283,8 +308,11 @@ class EPCPDFAutomation:
                 if not cat_en:
                     continue
 
+            # FIX v5: always update the tracker to the last category seen
+            # on this page (so next page inherits the correct active category)
+                last_active_category_en = cat_en
+
                 if cat_en not in seen_cat_en:
-                    # Brand-new category from this page
                     seen_cat_en[cat_en] = len(all_categories)
                     all_categories.append(cat)
                     self.logger.info(
@@ -292,7 +320,6 @@ class EPCPDFAutomation:
                         cat_en, len(cat.get("data_type", [])),
                     )
                 else:
-                    # Category already seen; merge any new subtypes
                     existing = all_categories[seen_cat_en[cat_en]]
                     existing_tc_names = {
                         t.get("type_category_name_en", "")
@@ -317,6 +344,163 @@ class EPCPDFAutomation:
         )
         return {"categories": all_categories}
 
+    def _parse_cabin_chassis_toc_text_based(
+        self, toc_texts: List[str]
+    ) -> Dict:
+        """
+        Parser berbasis regex untuk TOC Cabin & Chassis.
+    
+        TIDAK menggunakan LLM sama sekali — membaca teks mentah PDF line-by-line.
+        Cross-page boundary ditangani secara alami karena semua halaman TOC
+        diproses berurutan sebagai satu stream, bukan per-page.
+
+        FORMAT TOC YANG DIDUKUNG:
+        Kategori : "17 Cab Gp 驾驶室总成 127"
+                    ^^  ^^^^^^^^^  ^^^^^^^^  ^^^
+                    no  EN name    CN name   page
+                  
+        Subtype  : "DC13241110106 Front grille 前面罩 130"
+                    ^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^  ^^^
+                    DC code        EN name      CN name page
+
+        ATURAN PRIORITAS per baris:
+            1. Jika baris cocok pola kategori (2-digit angka di awal) → set current_cat_en
+            2. Jika baris cocok pola subtype (DCxxxxxxxx di awal) → tambah ke current_cat_en
+            3. Selain itu → abaikan (judul dokumen, halaman kosong, titik pemimpin ".....")
+        """
+        from collections import OrderedDict
+
+    # ── Regex Pattern 1: Category Header ─────────────────────────────────
+    # Matches: "17 Cab Gp 驾驶室总成 127"
+    # Group 1: section number (2 digit)
+    # Group 2: English name (letters, spaces, &, /, comma, apostrophe, dot)
+    # Group 3: Chinese name (Chinese characters, spaces, /, （）【】、)
+    # Ends with: optional page number then EOL
+        _CAT_RE = re.compile(
+            r'^\s*'
+            r'(\d{2})'                           # [G1] section number: 10-99
+            r'\s+'
+            r'((?:[A-Za-z][A-Za-z0-9\s&/,\'\.\-\(\)]*)+?)'  # [G2] English name
+            r'\s+'
+            r'([\u4e00-\u9fff][\u4e00-\u9fff\s/（）【】、]*?)'  # [G3] Chinese name
+            r'\s*\d*'                            # optional page number
+            r'\s*$'
+        )
+
+    # ── Regex Pattern 2: Subtype Entry ───────────────────────────────────
+    # Matches: "DC13241110106 Front grille 前面罩 130"
+    # Group 1: DC code (DC + 8 or more digits)
+    # Group 2: English name
+    # Group 3: Chinese name
+        _SUB_RE = re.compile(
+            r'^\s*'
+            r'(DC\d{8,})'                        # [G1] DC code
+            r'\s+'
+            r'((?:[A-Za-z0-9][A-Za-z0-9\s\-&/,\'\.\(\)]*)+?)'  # [G2] English name
+            r'\s+'
+            r'([\u4e00-\u9fff][^\n\d]*?)'        # [G3] Chinese name (until digit/newline)
+            r'\s*\d*'                            # optional page number
+            r'\s*$'
+        )
+
+    # ── State ─────────────────────────────────────────────────────────────
+        categories: OrderedDict = OrderedDict()  # cat_en → {"cn": str, "subtypes": list}
+        current_cat_en: Optional[str] = None
+        seen_subtypes: Dict[str, set] = {}       # cat_en → set of type_category_name_en
+
+    # ── Process all TOC pages as one continuous stream ────────────────────
+    # Key advantage: "DC13241972015 Assembly Parts" pada halaman 5
+    # diproses SETELAH "17 Cab Gp" dari halaman 4 sudah di-set sebagai
+    # current_cat_en. Tidak ada ambiguitas cross-page.
+        for pg_n, pg_text in enumerate(toc_texts, 1):
+            self.logger.debug("Text-parse: processing page %d", pg_n)
+
+            for raw_line in pg_text.split('\n'):
+                line = raw_line.strip()
+
+            # Skip baris kosong
+                if not line:
+                    continue
+
+            # Skip baris yang hanya angka (nomor halaman standalone)
+                if re.match(r'^\d+$', line):
+                    continue
+
+            # Skip dot leaders (.............)
+                if re.match(r'^\.{3,}', line):
+                    continue
+
+            # ── Priority 1: Cek apakah ini Category Header ───────────────
+                cat_m = _CAT_RE.match(line)
+                if cat_m:
+                    cat_en = cat_m.group(2).strip()
+                    cat_cn = cat_m.group(3).strip()
+
+                    if cat_en not in categories:
+                        categories[cat_en] = {"cn": cat_cn, "subtypes": []}
+                        seen_subtypes[cat_en] = set()
+                        self.logger.info(
+                            "TEXT-PARSE pg%d [CAT] '%s' / '%s'",
+                            pg_n, cat_en, cat_cn,
+                        )
+
+                    current_cat_en = cat_en  # ALWAYS update, even if category exists
+                    continue
+
+            # ── Priority 2: Cek apakah ini Subtype Entry ─────────────────
+                sub_m = _SUB_RE.match(line)
+                if sub_m:
+                    if current_cat_en is None:
+                        # Subtype muncul sebelum kategori apapun → skip dengan log
+                        self.logger.debug(
+                            "TEXT-PARSE pg%d: subtype '%s' has no parent yet — skipped",
+                            pg_n, sub_m.group(1),
+                        )
+                        continue
+
+                    code    = sub_m.group(1).strip()          # "DC13241110106"
+                    name_en = sub_m.group(2).strip()          # "Front grille"
+                    name_cn = sub_m.group(3).strip()          # "前面罩"
+                    display = f"{code} {name_en}"             # "DC13241110106 Front grille"
+
+                # Dedup: skip jika subtype sudah ada di kategori ini
+                    if display not in seen_subtypes[current_cat_en]:
+                        seen_subtypes[current_cat_en].add(display)
+                        categories[current_cat_en]["subtypes"].append({
+                            "type_category_name_en":     display,
+                            "type_category_name_cn":     name_cn,
+                            "type_category_description": "",
+                        })
+                        self.logger.debug(
+                            "TEXT-PARSE pg%d   [SUB] '%s' → '%s'",
+                            pg_n, display, current_cat_en,
+                        )
+                    continue
+
+            # ── Baris tidak cocok keduanya → abaikan ─────────────────────
+                self.logger.debug(
+                    "TEXT-PARSE pg%d: line skipped: '%s'", pg_n, line[:60]
+                )
+
+    # ── Build output dict (format sama dengan extract_catalog_data) ───────
+        result_categories = [
+            {
+                "category_name_en":     cat_en,
+                "category_name_cn":     data["cn"],
+                "category_description": "",
+                "data_type":            data["subtypes"],
+            }
+            for cat_en, data in categories.items()
+        ]
+
+        total_subtypes = sum(len(c["data_type"]) for c in result_categories)
+        self.logger.info(
+            "Text-based TOC parser complete: %d categories, %d subtypes total",
+            len(result_categories), total_subtypes,
+        )
+
+        return {"categories": result_categories}
+
     # ─────────────────────────────────────────────────────────────────────────
     # Main extraction dispatcher
     # ─────────────────────────────────────────────────────────────────────────
@@ -327,11 +511,9 @@ class EPCPDFAutomation:
 
         # ── CABIN & CHASSIS ───────────────────────────────────────────────────
         if ptype == "cabin_chassis":
-            self.logger.info("Strategy: Cabin & Chassis - per-page TOC extraction (v4)")
+            self.logger.info("Strategy: Cabin & Chassis - collecting TOC pages")
 
-            # Step 1: collect raw text from pages up to (but not including)
-            # the first actual parts-table page.
-            # Stop-signal: page contains ALL THREE column headers at once.
+            # ── Kumpulkan halaman TOC (sama seperti sebelumnya) ───────────────────
             import fitz as _fitz_toc
             _doc_toc = _fitz_toc.open(str(pdf_path))
             _total_pdf_pages = len(_doc_toc)
@@ -342,7 +524,7 @@ class EPCPDFAutomation:
                 _pg_text = _doc_toc[_pg_idx].get_text("text")
                 if all(_sig in _pg_text for _sig in _PARTS_SIGNALS):
                     self.logger.info(
-                        "Parts table detected at page %d — TOC collection stops here.",
+                        "Parts table at page %d — TOC collection stops here.",
                         _pg_idx + 1,
                     )
                     break
@@ -350,55 +532,52 @@ class EPCPDFAutomation:
 
             _doc_toc.close()
 
-            if _toc_texts:
-                self.logger.info(
-                    "Collected %d page(s) before first parts table (full PDF: %d pages).",
-                    len(_toc_texts), _total_pdf_pages,
+            if not _toc_texts:
+                # Tidak ada halaman TOC → langsung ke vision fallback
+                self.logger.warning(
+                    "No TOC pages collected — falling back to vision extraction."
+                )
+                cat_name_en = self.config.master_category_name_en or "Cabin & Chassis"
+                return extract_cabin_chassis_categories(
+                    pdf_path=str(pdf_path),
+                    sumopod_client=self.sumopod,
+                    category_name_en=cat_name_en,
+                    category_name_cn="驾驶室和底盘",
                 )
 
-                # Step 2: per-page LLM extraction (FIX v4 — avoids token truncation)
+            self.logger.info(
+                "Collected %d TOC page(s) (full PDF: %d pages).",
+                len(_toc_texts), _total_pdf_pages,
+            )
+
+            # ── PRIMARY: Text-based regex parser ─────────────────────────────────
+            # Tidak menggunakan LLM → tidak ada token limit, tidak ada cross-page bug
+            self.logger.info("Trying text-based TOC parser (PRIMARY) …")
+            result = self._parse_cabin_chassis_toc_text_based(_toc_texts)
+
+            # ── FALLBACK: LLM per-page jika regex gagal ───────────────────────────
+            # Kondisi fallback: 0 kategori terdeteksi (PDF format tidak standar)
+            if not result.get("categories"):
+                self.logger.warning(
+                    "Text parser returned 0 categories — "
+                    "falling back to LLM extraction (non-standard TOC format)."
+                )
                 result = self._extract_cabin_chassis_categories_from_toc_pages(
                     _toc_texts, custom_prompt=custom_prompt
                 )
 
-                # If per-page extraction returned nothing (e.g. very short PDF
-                # with no DC codes before page 1), try the legacy single-call path.
-                if not result.get("categories"):
-                    self.logger.warning(
-                        "Per-page extraction returned 0 categories — "
-                        "retrying with legacy single-block call."
-                    )
-                    markdown_text = "\n\n".join(_toc_texts)
-                    result = self.sumopod.extract_catalog_data(
-                        markdown_text, custom_prompt=custom_prompt
-                    )
-
-            else:
-                # No pre-parts pages detected → image-based or very short PDF.
-                # Try pymupdf4llm first, then vision extraction as last resort.
+            # Validasi hasil: jika masih 0, coba markdown full-PDF sebagai last resort
+            if not result.get("categories"):
                 self.logger.warning(
-                    "No TOC pages collected — falling back to full PDF markdown."
+                    "LLM also returned 0 categories — trying full PDF markdown."
                 )
                 markdown_text = pymupdf4llm.to_markdown(str(pdf_path))
-                self.logger.info("Converted to markdown (%d chars)", len(markdown_text))
-
                 if markdown_text.strip():
                     result = self.sumopod.extract_catalog_data(
                         markdown_text, custom_prompt=custom_prompt
                     )
-                else:
-                    self.logger.info(
-                        "Markdown empty — image-based PDF, switching to vision extraction."
-                    )
-                    cat_name_en = self.config.master_category_name_en or "Cabin & Chassis"
-                    return extract_cabin_chassis_categories(
-                        pdf_path=str(pdf_path),
-                        sumopod_client=self.sumopod,
-                        category_name_en=cat_name_en,
-                        category_name_cn="驾驶室和底盘",
-                    )
 
-            # Build code_to_category map (shared for all cabin_chassis paths)
+            # ── Build code_to_category map (tidak berubah) ────────────────────────
             code_to_category: Dict[str, str] = {}
             for cat in result.get("categories", []):
                 cat_en = cat.get("category_name_en", "")
