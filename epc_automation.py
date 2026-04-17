@@ -56,7 +56,6 @@ from cabin_chassis_parts_extractor import (
 )
 from transmission_parts_extractor import extract_transmission_parts
 from engine_parts_extractor import extract_engine_parts
-from axle_drive_parts_extractor import extract_axle_drive_parts
 
 
 class EPCAutomationConfig:

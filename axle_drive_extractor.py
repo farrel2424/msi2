@@ -202,9 +202,7 @@ def _collect_unique_titles(pages_b64: List[Tuple], sumopod_client) -> List[str]:
 
     return list(seen.keys())
 
-# ---------------------------------------------------------------------------
 # ZIP extraction path
-# ---------------------------------------------------------------------------
 
 def _extract_axle_drive_from_zip(pdf_path: str, sumopod_client,
                                   category_name_en: str, category_name_cn: str) -> Dict:
