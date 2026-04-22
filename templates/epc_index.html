@@ -373,6 +373,75 @@
     .mt-4 { margin-top: 16px; }
     .text-sm { font-size: 13px; color: var(--text-3); }
     hr.divider { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+    /* ── Confirmation Modal ──────────────────────────────────────────────── */
+    .modal-overlay {
+        position: fixed; inset: 0;
+        background: rgba(15,20,32,0.55);
+        backdrop-filter: blur(3px);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 9999;
+        animation: fadeIn 0.18s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .modal {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+        padding: 28px 32px;
+        max-width: 520px; width: calc(100% - 32px);
+        animation: slideUp 0.2s ease;
+    }
+    @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    .modal__header {
+        display: flex; align-items: center; gap: 12px;
+        margin-bottom: 18px;
+    }
+    .modal__icon {
+        width: 42px; height: 42px; background: var(--warning-lt);
+        border: 1px solid #fde68a; border-radius: 10px;
+        display: grid; place-items: center; font-size: 20px; flex-shrink: 0;
+    }
+    .modal__title { font-size: 16px; font-weight: 700; color: var(--text-1); }
+    .modal__subtitle { font-size: 12.5px; color: var(--text-3); margin-top: 2px; }
+
+    .modal__checklist {
+        background: #fffbeb;
+        border: 1px solid #fde68a;
+        border-radius: var(--radius-sm);
+        padding: 14px 16px;
+        margin-bottom: 18px;
+    }
+    .modal__checklist-title {
+        font-size: 12px; font-weight: 700; color: #92400e;
+        text-transform: uppercase; letter-spacing: 0.5px;
+        margin-bottom: 10px;
+    }
+    .modal__checklist-item {
+        display: flex; align-items: flex-start; gap: 10px;
+        font-size: 13px; color: var(--text-2);
+        padding: 5px 0; border-bottom: 1px solid #fef3c7;
+        line-height: 1.4;
+    }
+    .modal__checklist-item:last-child { border-bottom: none; }
+    .modal__checklist-item input[type="checkbox"] {
+        margin-top: 1px; flex-shrink: 0;
+        width: 15px; height: 15px; cursor: pointer; accent-color: var(--warning);
+    }
+
+    .modal__info {
+        background: var(--info-lt); border: 1px solid #bae6fd;
+        border-radius: var(--radius-sm); padding: 10px 14px;
+        font-size: 12.5px; color: #0369a1;
+        margin-bottom: 18px; display: flex; gap: 8px; align-items: flex-start;
+    }
+
+    .modal__footer { display: flex; gap: 10px; justify-content: flex-end; }
+    .modal__footer .btn { min-width: 110px; justify-content: center; }
+
+    #confirmSubmitAllBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -669,6 +738,57 @@
         </div>
 
     </div><!-- /statusCard -->
+    <!-- ── Confirmation Modal: Submit All Parts ───────────────────────── -->
+    <div id="confirmPartsModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal__header">
+                <div class="modal__icon">⚠️</div>
+                <div>
+                    <div class="modal__title">Konfirmasi Submit Suku Cadang</div>
+                    <div class="modal__subtitle" id="modalSubtitle">—</div>
+                </div>
+            </div>
+
+            <div class="modal__checklist">
+                <div class="modal__checklist-title">✅ Checklist Pengecekan Manual</div>
+                <label class="modal__checklist-item">
+                    <input type="checkbox" class="modal-check" onchange="updateConfirmBtn()">
+                    <span>Nama subtype/grup sudah benar (EN &amp; CN) dan sesuai struktur EPC</span>
+                </label>
+                <label class="modal__checklist-item">
+                    <input type="checkbox" class="modal-check" onchange="updateConfirmBtn()">
+                    <span>Part number sudah diperiksa — tidak ada yang tertukar atau terpotong</span>
+                </label>
+                <label class="modal__checklist-item">
+                    <input type="checkbox" class="modal-check" onchange="updateConfirmBtn()">
+                    <span>Jumlah (Qty) sudah masuk akal — tidak ada yang <code>0</code> atau <code>null</code> yang tidak wajar</span>
+                </label>
+                <label class="modal__checklist-item">
+                    <input type="checkbox" class="modal-check" onchange="updateConfirmBtn()">
+                    <span>Nama suku cadang (EN &amp; CN) sudah sesuai — tidak ada hasil OCR yang salah baca</span>
+                </label>
+                <label class="modal__checklist-item">
+                    <input type="checkbox" class="modal-check" onchange="updateConfirmBtn()">
+                    <span>Sudah yakin ini dokumen yang tepat untuk database yang dituju</span>
+                </label>
+            </div>
+
+            <div class="modal__info">
+                <span>ℹ️</span>
+                <span>Data yang sudah ada di database tidak akan ditimpa — akan dilewati otomatis.
+                Namun data <strong>baru</strong> yang salah akan tersimpan dan perlu dihapus manual dari DB.</span>
+            </div>
+
+            <div class="modal__footer">
+                <button class="btn btn--ghost" onclick="closeConfirmModal()">Batal</button>
+                <button class="btn btn--primary" id="confirmSubmitAllBtn"
+                        disabled onclick="doSubmitAllParts()">
+                    🔒 Centang Semua &amp; Submit
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 </div><!-- /page -->
 
@@ -1842,11 +1962,45 @@ OUTPUT (table page):
     });
 
     // ── Submit ALL parts ───────────────────────────────────────────────────
-    document.getElementById('approvePartsBtn').addEventListener('click', async () => {
-        const dokumenName = getDokumenName();
+    // ── Open confirmation modal ────────────────────────────────────────────
+    document.getElementById('approvePartsBtn').addEventListener('click', () => {
         if (!currentPartsData) { showAlert('Tidak ada data suku cadang.', 'error'); return; }
-        if (!confirm(`Submit semua suku cadang ke database EPC?\n\nDokumen: ${dokumenName}`)) return;
 
+        const dokumenName  = getDokumenName();
+        const totalGroups  = (currentPartsData.subtypes || []).length;
+        const totalParts   = (currentPartsData.subtypes || []).reduce((s, g) => s + (g.parts||[]).length, 0);
+
+        document.getElementById('modalSubtitle').textContent =
+            `Dokumen: "${dokumenName}" — ${totalGroups} grup, ${totalParts} suku cadang`;
+
+        // Reset checkboxes
+        document.querySelectorAll('.modal-check').forEach(cb => cb.checked = false);
+        updateConfirmBtn();
+
+        document.getElementById('confirmPartsModal').classList.remove('hidden');
+    });
+
+    function updateConfirmBtn() {
+        const allChecked = [...document.querySelectorAll('.modal-check')].every(cb => cb.checked);
+        const btn = document.getElementById('confirmSubmitAllBtn');
+        btn.disabled    = !allChecked;
+        btn.textContent = allChecked ? '✅ Submit Semua Suku Cadang' : '🔒 Centang Semua & Submit';
+        btn.className   = allChecked ? 'btn btn--success' : 'btn btn--primary';
+    }
+
+    function closeConfirmModal() {
+        document.getElementById('confirmPartsModal').classList.add('hidden');
+    }
+
+    // Close modal when clicking the overlay background
+    document.getElementById('confirmPartsModal').addEventListener('click', function(e) {
+        if (e.target === this) closeConfirmModal();
+    });
+
+    async function doSubmitAllParts() {
+        closeConfirmModal();
+
+        const dokumenName = getDokumenName();
         document.getElementById('approvePartsBtn').disabled = true;
         showAlert(`Menyimpan suku cadang ke EPC (dokumen: "${dokumenName}")…`, 'info');
 
@@ -1876,7 +2030,9 @@ OUTPUT (table page):
             showAlert('Gagal terhubung: ' + err.message, 'error');
             document.getElementById('approvePartsBtn').disabled = false;
         }
-    });
+    }
+
+
 
     // ── Parts submission result ────────────────────────────────────────────
     function renderPartsSubmissionResult(r, fromBulk = false) {

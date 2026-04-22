@@ -140,9 +140,7 @@ Do NOT include type_category_code or categories_code."""
             self.logger.exception("Extraction error")
             raise
 
-    # ------------------------------------------------------------------
     # Private helpers
-    # ------------------------------------------------------------------
 
     def _extract_content(self, response) -> str:
         """

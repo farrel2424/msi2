@@ -91,42 +91,47 @@ def _is_valid_section_header(raw: str) -> bool:
     """
     Validate a section header string returned by Vision AI.
 
-    Rules
-    -----
-    1. Chinese headers MUST contain 、 (U+3001) — the ordinal separator used
-       in Chinese-language transmission manuals (e.g. "一、离合器和变速器壳体总成").
-       This guard prevents misreading bold assembly-total rows inside the
-       parts table as new section headers.
-
-    2. English-only (or alphanumeric+English) headers are accepted as-is.
-       Bilingual PDFs sometimes have the AI extract the English section title
-       directly (e.g. "Clutch and transmission housing assembly") without 、.
-       Since bold part rows inside the table are never pure English prose,
-       accepting English headers is safe.
-
-    3. Empty strings are always rejected.
-
-    4. Bare part-number tokens (e.g. "BS123456") are rejected even if
-       they contain no Chinese characters.
+    RELAXED RULES (vs original):
+    - Chinese headers no longer REQUIRE 、 — Vision AI often strips
+      the ordinal prefix entirely (e.g. returns "离合器和变速器壳体总成"
+      instead of "一、离合器和变速器壳体总成").
+    - Guard against part numbers and bold table rows using a denylist
+      pattern instead of a requirelist pattern.
     """
     if not raw or not raw.strip():
         return False
 
-    # Rule 1 — Chinese header: must have 、
-    if re.search(r"[\u4e00-\u9fff]", raw):
-        return "\u3001" in raw
+    raw = raw.strip()
 
-    # Rule 4 — reject bare part-number patterns (e.g. "BS12345678")
-    if re.match(r"^[A-Z]{0,2}\d{5,}", raw.strip().upper()):
+    # ── Part-number pattern: starts with letters + 5+ digits ──────────
+    # e.g. "JS180-1701040", "10JSD160-1701080", "BSQ40310"
+    if re.match(r'^[A-Za-z]{0,3}\d{5,}', raw):
+        return False
+    if re.match(r'^[A-Za-z]{2,}\d{3,}', raw):
         return False
 
-    # Rule 2 — English-only header: accept
-    return bool(re.search(r"[A-Za-z]", raw))
+    # ── Chinese header ─────────────────────────────────────────────────
+    if re.search(r'[\u4e00-\u9fff]', raw):
+        # Accept if it has 、(original format)
+        if '\u3001' in raw:
+            return True
+        # Accept if it starts with a Chinese ordinal numeral
+        if re.match(r'^[一二三四五六七八九十百千]+', raw):
+            return True
+        # Accept if it's a pure Chinese phrase (no Latin mixed in)
+        # that is long enough to be a section title (≥ 4 Chinese chars)
+        cn_chars = len(re.findall(r'[\u4e00-\u9fff]', raw))
+        if cn_chars >= 4:
+            return True
+        return False
 
+    # ── English-only header ────────────────────────────────────────────
+    if re.match(r'^[A-Z]{0,2}\d{5,}', raw.upper()):
+        return False
 
-# ─────────────────────────────────────────────────────────────────────────────
+    return bool(re.search(r'[A-Za-z]', raw))
+
 # Field-name normalizer (NEW — PATCH 2026-04-09b)
-# ─────────────────────────────────────────────────────────────────────────────
 
 # Canonical name → list of aliases the Vision AI might return
 _FIELD_ALIASES: Dict[str, List[str]] = {
@@ -269,14 +274,12 @@ def _normalize_part(raw: Dict) -> Dict:
     if name_cn_val and not _CN_CHAR_RE.search(name_cn_val):
         if not name_en_val:
             normalized["name_en"] = name_cn_val
-        normalized["name_cn"] = ""
+        normalized["name_cn"] = ""  
 
     return normalized
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Vision AI system prompt
-# ─────────────────────────────────────────────────────────────────────────────
 
 _PARTS_SYSTEM_PROMPT = """\
 You are a precise data-extraction engine for a BILINGUAL (Chinese + English)
@@ -326,11 +329,12 @@ OUTPUT FORMAT (content page):
       "is_assembly_header": false
     }
   ]
-}"""
+}
+If a page shows a large section title above a diagram (no parts table),
+still return page_type='content' with the section_header filled in,
+and parts=[], parts_before_header=[]."""
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Internal helpers
-# ─────────────────────────────────────────────────────────────────────────────
 
 def _call_vision(b64: str, sumopod_client, detail: str = "high",
                  system_prompt: Optional[str] = None) -> Optional[Dict]:
@@ -521,10 +525,7 @@ def _build_output_part(part: Dict, cn_to_en: Optional[Dict[str, str]] = None) ->
         "unit":                 "",
     }
 
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Batch name translation
-# ─────────────────────────────────────────────────────────────────────────────
 
 _PARTS_TRANSLATION_PROMPT = """You are a professional automotive parts catalog translator (Chinese → English).
 Translate each Chinese part/assembly name into clear, professional English.
@@ -601,9 +602,7 @@ def _translate_part_names(
     return cn_to_en
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Public entry point
-# ─────────────────────────────────────────────────────────────────────────────
 
 def extract_transmission_parts(
     pdf_path: str,

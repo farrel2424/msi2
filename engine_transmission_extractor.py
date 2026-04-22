@@ -286,9 +286,7 @@ def extract_weichai_engine_toc(pdf_path: str) -> Dict:
     return {"categories": output_categories}
 
 
-# ===========================================================================
 # ── SHARED VISION HELPER ───────────────────────────────────────────────────
-# ===========================================================================
 
 def _vision_call(b64_image: str, system_prompt: str, user_text: str,
                  sumopod_client, max_tokens: int = 200, detail: str = "low") -> Optional[str]:
@@ -318,9 +316,7 @@ def _vision_call(b64_image: str, system_prompt: str, user_text: str,
         return None
 
 
-# ===========================================================================
 # ── ENGINE EXTRACTOR (Cummins / vision-based) ─────────────────────────────
-# ===========================================================================
 
 _ENGINE_SYSTEM_PROMPT = """\
 You are reading a Cummins engine parts catalog page image.

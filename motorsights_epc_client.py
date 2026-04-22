@@ -1107,7 +1107,7 @@ class MotorsightsEPCClient:
             if not subtype_code:
                 lookup_name = group_cat_en or subtype_name_en
 
-                # Deteksi apakah ini 3-level (subtype berbeda dari category)
+                # apakah ini 3-level (subtype berbeda dari category)
                 # atau 2-level (subtype == category, parts langsung di Category)
                 is_subcategory = bool(
                     group_cat_en
